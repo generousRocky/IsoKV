@@ -70,6 +70,10 @@
 
 namespace rocksdb {
 
+#ifndef ROCKSDB_LITE
+std::unique_ptr<CompactorFactory> DBImpl::compactor_factory_ = nullptr;
+#endif
+
 const std::string kDefaultColumnFamilyName("default");
 
 void DumpLeveldbBuildVersion(Logger * log);
@@ -1680,9 +1684,13 @@ Status DBImpl::CompactFiles(
     const std::vector<uint64_t>& input_file_numbers,
     const int output_level, const int output_path_id) {
   MutexLock l(&mutex_);
+  if (column_family == nullptr) {
+    return Status::InvalidArgument("ColumnFamilyHandle must be non-null.");
+  }
 
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   auto cfd = cfh->cfd();
+  cfd->Ref();
   auto version = cfd->current();
   version->Ref();
   auto s = CompactFilesImpl(compact_options, cfd, version,
@@ -1760,6 +1768,14 @@ Status DBImpl::CompactFilesImpl(
     return s;
   }
 
+  for (auto inputs : input_files) {
+    if (cfd->compaction_picker()->FilesInCompaction(inputs.files)) {
+      return Status::Aborted(
+          "Some of the necessary compaction input "
+          "files are already being compacted");
+    }
+  }
+
   unique_ptr<Compaction> c;
 
   assert(cfd->compaction_picker());
@@ -1768,25 +1784,66 @@ Status DBImpl::CompactFilesImpl(
         output_level, version));
   assert(c);
 
-  if (output_path_id < 0) {
-    // find the best fit path_id here
-    // c->SetOutputPathId(FindBestSuitablePathId(c));
+  DeletionState deletion_state(true);
+
+  if (c->IsDeletionCompaction()) {
+    for (int input_level = 0;
+         input_level < c->num_input_levels(); ++input_level) {
+      for (const auto& f : *c->inputs(input_level)) {
+        c->edit()->DeleteFile(c->level(input_level), f->fd.GetNumber());
+      }
+    }
+    bg_compaction_scheduled_++;
+    s = versions_->LogAndApply(c->column_family_data(), c->edit(), &mutex_,
+                               db_directory_.get());
+    InstallSuperVersion(c->column_family_data(), deletion_state);
+    c->ReleaseCompactionFiles(s);
+    bg_compaction_scheduled_--;
   } else {
-    c->SetOutputPathId(static_cast<uint32_t>(output_path_id));
+    if (output_path_id < 0) {
+      // TODO(yhchiang): find the best suitable output path
+      // find the best fit path_id here
+      // c->SetOutputPathId(FindBestSuitablePathId(c));
+    } else {
+      c->SetOutputPathId(static_cast<uint32_t>(output_path_id));
+    }
+
+    bg_compaction_scheduled_++;
+
+    LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL, options_.info_log.get());
+    CompactionState* compact = new CompactionState(c.get());
+    // May unlock and lock inside DoCompactionWork
+    s = DoCompactionWork(compact, deletion_state, &log_buffer);
+
+    CleanupCompaction(compact, s);
+    c->ReleaseCompactionFiles(s);
+    c->ReleaseInputs();
+    bg_compaction_scheduled_--;
   }
 
-  bg_compaction_scheduled_++;
+  // If !s.ok(), this means that Compaction failed. In that case, we want
+  // to delete all obsolete files we might have created and we force
+  // FindObsoleteFiles(). This is because deletion_state does not catch
+  // all created files if compaction failed.
+  FindObsoleteFiles(deletion_state, !s.ok());
 
-  LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL, options_.info_log.get());
-  DeletionState deletion_state(true);
-  CompactionState* compact = new CompactionState(c.get());
-  // May unlock and lock inside DoCompactionWork
-  s = DoCompactionWork(compact, deletion_state, &log_buffer);
+  // delete unnecessary files if any, this is done outside the mutex
+  if (deletion_state.HaveSomethingToDelete()) {
+    mutex_.Unlock();
+    // Have to flush the info logs before bg_compaction_scheduled_--
+    // because if bg_flush_scheduled_ becomes 0 and the lock is
+    // released, the deconstructor of DB can kick in and destroy all the
+    // states of DB so info_log might not be available after that point.
+    // It also applies to access other states that DB owns.
 
-  CleanupCompaction(compact, s);
-  c->ReleaseCompactionFiles(s);
-  c->ReleaseInputs();
-  bg_compaction_scheduled_--;
+    // TODO(yhchiang): add log buffer
+    // log_buffer.FlushBufferToLog();
+    if (deletion_state.HaveSomethingToDelete()) {
+      PurgeObsoleteFiles(deletion_state);
+    }
+    mutex_.Lock();
+  }
+
   if (bg_compaction_scheduled_ == 0 || bg_manual_only_ > 0) {
     // signal if
     // * madeProgress -- need to wakeup MakeRoomForWrite
@@ -5033,12 +5090,6 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
     if (cf.options.block_cache != nullptr && cf.options.no_block_cache) {
       return Status::InvalidArgument(
           "no_block_cache is true while block_cache is not nullptr");
-    }
-    if (cf.options.compaction_style == kCompactionStyleCustom &&
-        cf.options.compactor_factory == nullptr) {
-      return Status::InvalidArgument(
-          "compactor_factory must be set when compaction_style"
-          " is set to kCompactionStyleCustom");
     }
   }
 

@@ -10,7 +10,7 @@
 #pragma once
 #include "db/version_set.h"
 #include "db/compaction.h"
-#include "rocksdb/compactor.h"
+#include "utilities/compaction/compactor.h"
 #include "rocksdb/status.h"
 #include "rocksdb/options.h"
 #include "rocksdb/env.h"
@@ -108,6 +108,9 @@ class CompactionPicker {
       const Version* version,
       const CompactionOptions& compact_options) const;
 
+  // Returns true if any one of the specified files are being compacted
+  bool FilesInCompaction(const std::vector<FileMetaData*>& files);
+
  protected:
   int NumberLevels() const { return num_levels_; }
 
@@ -137,9 +140,6 @@ class CompactionPicker {
   bool ExpandWhileOverlapping(Compaction* c);
 
   uint64_t ExpandedCompactionByteSizeLimit(int level);
-
-  // Returns true if any one of the specified files are being compacted
-  bool FilesInCompaction(std::vector<FileMetaData*>& files);
 
   // Returns true if any one of the parent files are being compacted
   bool ParentRangeInCompaction(Version* version, const InternalKey* smallest,

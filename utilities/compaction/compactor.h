@@ -27,7 +27,7 @@ struct Options;
 class Compactor {
  public:
   // Constructs a compactor given the currently used options.
-  Compactor(const Options* options) : options_(options) {}
+  explicit Compactor(const Options* options) : options_(options) {}
 
   // Given the meta data describes the current state of a column
   // family, this function will determine a list of compaction
@@ -36,6 +36,9 @@ class Compactor {
   // returned (in such case it's usually Status::NotFound()),
   // it means the input column family does not underlies a good
   // compaction job.
+  //
+  // If output_level is set to kDeletionCompaction, then it will
+  // simply delete the selected files.
   virtual Status PickCompaction(
       std::vector<uint64_t>* input_file_numbers, int* output_level,
       const ColumnFamilyMetaData& cf_meta) = 0;

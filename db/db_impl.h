@@ -258,7 +258,15 @@ class DBImpl : public DB {
                               SequenceNumber* sequence);
 
   Status TEST_ReadFirstLine(const std::string& fname, SequenceNumber* sequence);
-#endif  // NDEBUG
+
+  static void TEST_SetCompactorFactory(CompactorFactory* factory) {
+    compactor_factory_.reset(factory);
+  }
+
+  static CompactorFactory* TEST_GetCompactorFactory() {
+    return compactor_factory_.get();
+  }
+#endif  // ROCKSDB_LITE
 
   // Structure to store information for candidate files to delete.
   struct CandidateFileInfo {
@@ -737,6 +745,9 @@ class DBImpl : public DB {
   bool GetIntPropertyInternal(ColumnFamilyHandle* column_family,
                               DBPropertyType property_type,
                               bool need_out_of_mutex, uint64_t* value);
+#ifndef ROCKSDB_LITE
+  static std::unique_ptr<CompactorFactory> compactor_factory_;
+#endif
 };
 
 // Sanitize db options.  The caller should delete result.info_log if

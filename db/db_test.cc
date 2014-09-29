@@ -3738,9 +3738,11 @@ void CheckDbMeta(const DatabaseMetaData& db_meta) {
   for (auto cf_meta : db_meta.column_families) {
     uint64_t cf_size = 0;
     uint64_t cf_csize = 0;
+    size_t file_count = 0;
     for (auto level_meta : cf_meta.levels) {
       uint64_t level_size = 0;
       uint64_t level_csize = 0;
+      file_count += level_meta.files.size();
       for (auto file_meta : level_meta.files) {
         level_size += file_meta.size;
         level_csize += file_meta.compensated_size;
@@ -3752,6 +3754,7 @@ void CheckDbMeta(const DatabaseMetaData& db_meta) {
       cf_size += level_size;
       cf_csize += level_csize;
     }
+    ASSERT_EQ(cf_meta.file_count, file_count);
     ASSERT_EQ(cf_meta.size, cf_size);
     ASSERT_EQ(cf_meta.compensated_size, cf_csize);
     ASSERT_GE(cf_meta.compensated_size, cf_meta.size);
@@ -7802,21 +7805,36 @@ namespace {
     }
   }
 
-  void PickRandomFileMetaData(
-      Random* rnd, const ColumnFamilyMetaData& cf_meta,
-      int* level, const SstFileMetaData** random_file) {
-    int level_index;
-
-    // pick a level which has a file.
-    for (level_index = rnd->Uniform(cf_meta.levels.size());
-         cf_meta.levels[level_index].files.size() == 0;
-         level_index = rnd->Uniform(cf_meta.levels.size())) {
+  const SstFileMetaData* PickFileRandomly(
+      const ColumnFamilyMetaData& cf_meta,
+      Random* rand,
+      int* level = nullptr) {
+    auto file_id = rand->Uniform(static_cast<int>(
+        cf_meta.file_count)) + 1;
+    for (auto& level_meta : cf_meta.levels) {
+      if (file_id <= level_meta.files.size()) {
+        if (level != nullptr) {
+          *level = level_meta.level;
+        }
+        auto result = rand->Uniform(file_id);
+        return &(level_meta.files[result]);
+      }
+      file_id -= level_meta.files.size();
     }
+    assert(false);
+    return nullptr;
+  }
 
-    int file_index = rnd->Uniform(cf_meta.levels[level_index].files.size());
-
-    *level = level_index;
-    *random_file = &cf_meta.levels[level_index].files[file_index];
+  bool FileExists(const ColumnFamilyMetaData& cf_meta,
+                  const uint64_t file_number) {
+    for (auto level : cf_meta.levels) {
+      for (auto file : level.files) {
+        if (file.file_number == file_number) {
+          return true;
+        }
+      }
+    }
+    return false;
   }
 }  // namespace
 
@@ -7843,6 +7861,7 @@ TEST(DBTest, CompactFilesOnLevelCompaction) {
   }
   dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
   dbfull()->TEST_WaitForCompact();
+
   ColumnFamilyMetaData cf_meta;
   dbfull()->GetColumnFamilyMetaData(&cf_meta, "pikachu");
   int output_level = cf_meta.levels.size() - 1;
@@ -7851,12 +7870,11 @@ TEST(DBTest, CompactFilesOnLevelCompaction) {
     std::vector<uint64_t> compaction_input_file_numbers;
     for (int f = 0; f < file_picked; ++f) {
       int level;
-      const SstFileMetaData* random_file;
-      PickRandomFileMetaData(&rnd, cf_meta, &level, &random_file);
-      compaction_input_file_numbers.push_back(random_file->file_number);
+      auto file_meta = PickFileRandomly(cf_meta, &rnd, &level);
+      compaction_input_file_numbers.push_back(file_meta->file_number);
       GetOverlappingFileNumbersForLevelCompaction(
           cf_meta, options.comparator, level, output_level,
-          random_file, &overlapping_file_numbers);
+          file_meta, &overlapping_file_numbers);
     }
 
     ASSERT_OK(dbfull()->CompactFiles(
@@ -7943,6 +7961,72 @@ TEST(DBTest, CompactFilesOnUniversalCompaction) {
       0, 0));
   dbfull()->GetColumnFamilyMetaData(&cf_meta, "pikachu");
   ASSERT_EQ(cf_meta.levels[0].files.size(), 1U);
+}
+
+TEST(DBTest, CompactFilesDeletion) {
+  Random rnd(301);
+  int key_index = 0;
+  Options options;
+  options.write_buffer_size = 100 << 10;  // 100KB
+  options.level0_file_num_compaction_trigger = 2;
+  options = CurrentOptions(options);
+  Reopen(&options);
+
+  for (int num = 0; num < 20; ++num) {
+    GenerateNewFile(&rnd, &key_index);
+  }
+
+  ColumnFamilyMetaData cf_meta;
+  db_->GetColumnFamilyMetaData(&cf_meta);
+  for (int test_case = 0; test_case < 10; ++test_case) {
+    auto prev_file_count = cf_meta.file_count;
+
+    // randomly pick a file
+    auto file_number = PickFileRandomly(cf_meta, &rnd)->file_number;
+    ASSERT_EQ(FileExists(cf_meta, file_number), true);
+
+    // issue deletion compaction
+    ASSERT_OK(db_->CompactFiles(CompactionOptions(),
+        {file_number}, kDeletionCompaction, 0));
+
+    // verify the deleted file does not exist.
+    db_->GetColumnFamilyMetaData(&cf_meta);
+    ASSERT_EQ(FileExists(cf_meta, file_number), false);
+
+    // verify the number of files decreases by 1
+    auto current_file_count = cf_meta.file_count;
+    ASSERT_EQ(prev_file_count, current_file_count + 1);
+  }
+}
+
+TEST(DBTest, CompactFilesSanitize) {
+  Random rnd(301);
+  int key_index = 0;
+  Options options;
+  options.write_buffer_size = 100 << 10;  // 100KB
+  options.level0_file_num_compaction_trigger = 2;
+  options = CurrentOptions(options);
+  Reopen(&options);
+
+  for (int num = 0; num < 20; ++num) {
+    GenerateNewFile(&rnd, &key_index);
+  }
+
+  // randomly delete an existing file
+  ColumnFamilyMetaData cf_meta;
+  db_->GetColumnFamilyMetaData(&cf_meta);
+  auto file_number = PickFileRandomly(cf_meta, &rnd)->file_number;
+  ASSERT_EQ(FileExists(cf_meta, file_number), true);
+  ASSERT_OK(db_->CompactFiles(CompactionOptions(),
+      {file_number}, kDeletionCompaction, 0));
+
+  // run the same compaction but expect file-not-exist error.
+  ASSERT_TRUE(db_->CompactFiles(CompactionOptions(),
+      {file_number}, kDeletionCompaction, 0).IsInvalidArgument());
+
+  // run with empty compaction input and expect error.
+  ASSERT_TRUE(db_->CompactFiles(CompactionOptions(),
+      {}, kDeletionCompaction, 0).IsInvalidArgument());
 }
 
 }  // namespace rocksdb

@@ -58,6 +58,7 @@ struct ColumnFamilyDescriptor {
 
 static const int kMajorVersion = __ROCKSDB_MAJOR__;
 static const int kMinorVersion = __ROCKSDB_MINOR__;
+static const int kDeletionCompaction = -1;
 
 // Metadata associated with each SST file.
 struct LiveFileMetaData {
@@ -371,6 +372,9 @@ class DB {
   // Compact the specified files.  Files are specified via their file
   // numbers.
   //
+  // If output_level is set to kDeletionCompaction, then it will
+  // simply delete the selected files.
+  //
   // Different from ScheduleCompactFiles, the compaction will be done
   // in the CALLER's CURRENT thread.  To schedule a compaction job in
   // background, ScheduleCompactFiles should be used.
@@ -398,6 +402,9 @@ class DB {
   // Schedule a background compaction job which will compact the specified
   // files in a background thread provided by RocksDB internal.  Files are
   // specified via their file numbers.
+  //
+  // If output_level is set to kDeletionCompaction, then it will
+  // simply delete the selected files.
   //
   // If the returned value indicates Status::OK(), then "job_id" will be
   // filled.  When the scheduled compaction job is completed (either
@@ -542,8 +549,12 @@ class DB {
   // Obtains the meta data of the specified column family of the DB.
   // Status::NotFound() will be returned if the current DB does not have
   // any column family match the specified name.
+  //
+  // If cf_name is not specified, then the metadata of the default
+  // column family will be returned.
   virtual Status GetColumnFamilyMetaData(
-      ColumnFamilyMetaData* metadata, const std::string& cf_name) {
+      ColumnFamilyMetaData* metadata,
+      const std::string& cf_name = "") {
     return Status::NotSupported("");
   }
 

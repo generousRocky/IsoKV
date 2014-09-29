@@ -52,6 +52,8 @@ struct ColumnFamilyMetaData {
   // The compensated_size of each file is computed by giving 2X
   // average-value size to each deletion entry.
   uint64_t compensated_size;
+  // The number of files in this column family.
+  size_t file_count;
   // The name of the column family.
   std::string name;
   // The metadata of all levels in this column family.

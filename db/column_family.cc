@@ -235,19 +235,26 @@ ColumnFamilyData::ColumnFamilyData(uint32_t id, const std::string& name,
           "Column family %s does not use any background compaction. "
           "Compactions can only be done via CompactFiles / "
           "ScheduleCompactFiles.\n", GetName().c_str());
-    } else if (options_.compaction_style == kCompactionStyleCustom) {
-      assert(options_.compactor_factory);
-      compaction_picker_.reset(
-          new PluggableCompactionPicker(
-              &options_, &internal_comparator_,
-              options_.compactor_factory->CreateCompactor(&options_)));
     } else {
+#ifndef ROCKSDB_LITE
+      if (DBImpl::TEST_GetCompactorFactory()) {
+        compaction_picker_.reset(
+            new PluggableCompactionPicker(
+                &options_, &internal_comparator_,
+                DBImpl::TEST_GetCompactorFactory()
+                    ->CreateCompactor(&options_)));
+      } else {
+#endif  // ROCKSDB_LITE
       Log(InfoLogLevel::ERROR_LEVEL, options_.info_log,
           "Unable to recognize the specified compaction style %d. "
           "Column family %s will use kCompactionStyleLevel.\n",
           options_.compaction_style, GetName().c_str());
       compaction_picker_.reset(
           new LevelCompactionPicker(&options_, &internal_comparator_));
+
+#ifndef ROCKSDB_LITE
+      }
+#endif  // ROCKSDB_LITE
     }
 
     Log(options_.info_log, "Options for column family \"%s\":\n",

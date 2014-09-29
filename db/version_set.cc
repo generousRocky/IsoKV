@@ -423,10 +423,12 @@ void Version::GetColumnFamilyMetaData(
   cf_meta->name = cfd_->GetName();
   cf_meta->size = 0;
   cf_meta->compensated_size = 0;
+  cf_meta->file_count = 0;
   cf_meta->levels.clear();
   for (int level = 0; level < cfd_->NumberLevels(); level++) {
     uint64_t level_size = 0;
     uint64_t level_csize = 0;
+    cf_meta->file_count += files_[level].size();
     std::vector<SstFileMetaData> files;
     for (const auto& file : files_[level]) {
       uint32_t path_id = file->fd.GetPathId();
@@ -1767,7 +1769,7 @@ class VersionSet::Builder {
       if (level > 0 && !files->empty()) {
         // Must not overlap
         assert(cfd_->internal_comparator().Compare(
-                   (*files)[files->size() - 1]->largest, f->smallest) < 0);
+                   (*files)[files->size() - 1]->largest, f->smallest) <= 0);
       }
       f->refs++;
       files->push_back(f);
@@ -3012,8 +3014,10 @@ Status VersionSet::GetColumnFamilyMetaData(
   mutex->Lock();
   Version* current = nullptr;
   ColumnFamilyData* matched_cfd = nullptr;
+
   for (auto cfd : *column_family_set_) {
-    if (cfd->GetName() == name) {
+    // if name is not specified, then the default column family will be used.
+    if (name == "" || cfd->GetName() == name) {
       cfd->Ref();
       cfd->current()->Ref();
       current = cfd->current();
@@ -3021,6 +3025,7 @@ Status VersionSet::GetColumnFamilyMetaData(
       break;
     }
   }
+
   mutex->Unlock();
   if (current == nullptr) {
     return Status::NotFound(

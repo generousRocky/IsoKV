@@ -3,6 +3,8 @@
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
 
+#ifndef ROCKSDB_LITE
+
 #include <unistd.h>
 #include "rocksdb/options.h"
 #include "rocksdb/db.h"
@@ -294,8 +296,9 @@ class FullCompactorFactory : public CompactorFactory {
 TEST(CompactorTEST, PluggableCompactor) {
   Options options;
   // disable RocksDB BG compaction
-  options.compaction_style = kCompactionStyleCustom;
-  options.compactor_factory.reset(new FullCompactorFactory());
+  options.compaction_style = static_cast<CompactionStyle>(
+      kCompactionStyleNone + 1);
+  DBImpl::TEST_SetCompactorFactory(new FullCompactorFactory());
   // configure DB in a way that it will hang if custom
   // compactor is not working properly.
   options.level0_slowdown_writes_trigger = 2;
@@ -325,20 +328,10 @@ TEST(CompactorTEST, PluggableCompactor) {
   delete db;
 }
 
-TEST(CompactorTEST, SanitizeOptionsTest) {
-  Options options;
-  // disable RocksDB BG compaction
-  options.compaction_style = kCompactionStyleCustom;
-  options.create_if_missing = true;
-
-  DB* db = nullptr;
-  ASSERT_TRUE(!DB::Open(options, dbname_, &db).ok());
-  ASSERT_TRUE(db == nullptr);
-}
-
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
   return rocksdb::test::RunAllTests();
 }
 
+#endif  // ROCKSDB_LITE

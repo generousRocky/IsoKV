@@ -280,7 +280,8 @@ uint64_t CompactionPicker::ExpandedCompactionByteSizeLimit(int level) {
 }
 
 // Returns true if any one of specified files are being compacted
-bool CompactionPicker::FilesInCompaction(std::vector<FileMetaData*>& files) {
+bool CompactionPicker::FilesInCompaction(
+    const std::vector<FileMetaData*>& files) {
   for (unsigned int i = 0; i < files.size(); i++) {
     if (files[i]->being_compacted) {
       return true;
@@ -489,21 +490,34 @@ Status CompactionPicker::SanitizeCompactionInputFilesForAllLevels(
   auto& levels = cf_meta.levels;
   auto comparator = icmp_->user_comparator();
 
-  for (size_t l = 0; l < levels.size(); ++l) {
+  // the smallest and largest key of the current compaction input
+  std::string smallestkey;
+  std::string largestkey;
+  // a flag for initializing smallest and largest key
+  bool is_first = false;
+  const int kNotFound = -1;
+
+  for (int l = 0; l <= output_level; ++l) {
     auto& current_files = levels[l].files;
     int first_included = static_cast<int>(current_files.size());
-    int last_included = -1;
+    int last_included = kNotFound;
     // first, make sure all files being picked are in continuous order.
     for (size_t f = 0; f < current_files.size(); ++f) {
       if (input_files->find(current_files[f].file_number) !=
           input_files->end()) {
         first_included = std::min(first_included, static_cast<int>(f));
         last_included = std::max(last_included, static_cast<int>(f));
+        if (is_first == false) {
+          smallestkey = current_files[f].smallestkey;
+          largestkey = current_files[f].largestkey;
+          is_first = true;
+        }
       }
     }
-    if (last_included == -1) {
+    if (last_included == kNotFound) {
       continue;
     }
+
     // include all files between the first and the last included ones.
     for (int f = first_included; f <= last_included; ++f) {
       if (current_files[f].being_compacted) {
@@ -515,13 +529,36 @@ Status CompactionPicker::SanitizeCompactionInputFilesForAllLevels(
       input_files->insert(current_files[f].file_number);
     }
 
+    // update smallest and largest key
+    if (l == 0) {
+      for (int f = first_included; f <= last_included; ++f) {
+        if (comparator->Compare(
+            smallestkey, current_files[f].smallestkey) > 0) {
+          smallestkey = current_files[f].smallestkey;
+        }
+        if (comparator->Compare(
+            largestkey, current_files[f].largestkey) < 0) {
+          largestkey = current_files[f].largestkey;
+        }
+      }
+    } else {
+      if (comparator->Compare(
+          smallestkey, current_files[first_included].smallestkey) > 0) {
+        smallestkey = current_files[first_included].smallestkey;
+      }
+      if (comparator->Compare(
+          largestkey, current_files[last_included].largestkey) < 0) {
+        largestkey = current_files[last_included].largestkey;
+      }
+    }
+
     SstFileMetaData super_file_meta(
         0, "", 0, 0, 0, 0,
-        current_files[first_included].smallestkey,
-        current_files[last_included].largestkey, false);
+        smallestkey,
+        largestkey, false);
 
     // For all lower levels, include all overlapping files.
-    for (size_t m = l + 1; m < levels.size(); ++m) {
+    for (int m = l + 1; m <= output_level; ++m) {
       for (auto& next_lv_file : levels[m].files) {
         if (HaveOverlappingKeyRanges(
             comparator, super_file_meta, next_lv_file)) {
@@ -553,17 +590,32 @@ Status CompactionPicker::SanitizeCompactionInputFiles(
         "].");
   }
 
-  if (input_files->size() == 0) {
-    return Status::InvalidArgument(
-        "A valid compaction must have at least one file.");
-  }
-
   if (output_level > MaxOutputLevel()) {
     return Status::InvalidArgument(
-        "Exceed maximum allowed output level --- " +
+        "Exceed the maximum output level defined by "
+        "the current compaction algorithm --- " +
             std::to_string(MaxOutputLevel()));
   }
 
+  if (output_level < 0 && output_level != kDeletionCompaction) {
+    return Status::InvalidArgument(
+        "Output level cannot be negative.");
+  }
+
+  if (input_files->size() == 0) {
+    return Status::InvalidArgument(
+        "A compaction must contain at least one file.");
+  }
+
+  Status s = SanitizeCompactionInputFilesForAllLevels(
+      input_files, cf_meta, output_level);
+
+  if (!s.ok()) {
+    return s;
+  }
+
+  // for all input files, check whether the file number matches
+  // any currently-existing files.
   for (auto file_num : *input_files) {
     bool found = false;
     for (auto level_meta : cf_meta.levels) {
@@ -589,8 +641,7 @@ Status CompactionPicker::SanitizeCompactionInputFiles(
     }
   }
 
-  return SanitizeCompactionInputFilesForAllLevels(
-      input_files, cf_meta, output_level);
+  return Status::OK();
 }
 
 Compaction* CompactionPicker::FormCompaction(
@@ -598,14 +649,17 @@ Compaction* CompactionPicker::FormCompaction(
       const autovector<CompactionInputFiles>& input_files,
       int output_level,
       Version* version) const {
-  uint64_t max_grandparent_overlap_bytes =
+  uint64_t max_grandparent_overlap_bytes = 0;
+  if (output_level != kDeletionCompaction) {
       output_level + 1 < NumberLevels() ?
           MaxGrandParentOverlapBytes(output_level + 1) :
           std::numeric_limits<uint64_t>::max();
+  }
   assert(input_files.size());
   auto c = new Compaction(version, input_files,
       input_files[0].level, output_level,
-      max_grandparent_overlap_bytes, compact_options);
+      max_grandparent_overlap_bytes, compact_options,
+      (output_level == kDeletionCompaction));
   c->MarkFilesBeingCompacted(true);
   c->SetupBottomMostLevel((output_level == NumberLevels() - 1));
   return c;
