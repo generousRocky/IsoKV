@@ -11,23 +11,32 @@ import java.util.HashMap;
 import java.io.Closeable;
 import java.io.IOException;
 import org.rocksdb.util.Environment;
+import org.rocksdb.NativeLibraryLoader;
 
 /**
  * A RocksDB is a persistent ordered map from keys to values.  It is safe for
  * concurrent access from multiple threads without any external synchronization.
  * All methods of this class could potentially throw RocksDBException, which
- * indicates sth wrong at the rocksdb library side and the call failed.
+ * indicates sth wrong at the RocksDB library side and the call failed.
  */
 public class RocksDB extends RocksObject {
   public static final int NOT_FOUND = -1;
   private static final String[] compressionLibs_ = {
       "snappy", "z", "bzip2", "lz4", "lz4hc"};
 
+  static {
+    RocksDB.loadLibrary();
+  }
+
   /**
    * Loads the necessary library files.
    * Calling this method twice will have no effect.
+   * By default the method extracts the shared library for loading at
+   * java.io.tmpdir, however, you can override this temporary location by
+   * setting the environment variable ROCKSDB_SHAREDLIB_DIR.
    */
   public static synchronized void loadLibrary() {
+    String tmpDir = System.getenv("ROCKSDB_SHAREDLIB_DIR");
     // loading possibly necessary libraries.
     for (String lib : compressionLibs_) {
       try {
@@ -36,8 +45,14 @@ public class RocksDB extends RocksObject {
         // since it may be optional, we ignore its loading failure here.
       }
     }
-    // However, if any of them is required.  We will see error here.
-    System.loadLibrary("rocksdbjni");
+    try
+    {
+      NativeLibraryLoader.loadLibraryFromJar(tmpDir);
+    }
+    catch (IOException e)
+    {
+      throw new RuntimeException("Unable to load the RocksDB shared library" + e);
+    }
   }
 
   /**
@@ -80,16 +95,13 @@ public class RocksDB extends RocksObject {
    * set to true.
    *
    * @param path the path to the rocksdb.
-   * @param status an out value indicating the status of the Open().
    * @return a rocksdb instance on success, null if the specified rocksdb can
    *     not be opened.
    *
-   * @see Options.setCreateIfMissing()
-   * @see Options.createIfMissing()
+   * @see Options#setCreateIfMissing(boolean)
+   * @see org.rocksdb.Options#createIfMissing()
    */
   public static RocksDB open(String path) throws RocksDBException {
-    RocksDB db = new RocksDB();
-
     // This allows to use the rocksjni default Options instead of
     // the c++ one.
     Options options = new Options();
@@ -99,11 +111,11 @@ public class RocksDB extends RocksObject {
   /**
    * The factory constructor of RocksDB that opens a RocksDB instance given
    * the path to the database using the specified options and db path.
-   * 
+   *
    * Options instance *should* not be disposed before all DBs using this options
    * instance have been closed. If user doesn't call options dispose explicitly,
    * then this options instance will be GC'd automatically.
-   * 
+   *
    * Options instance can be re-used to open multiple DBs if DB statistics is
    * not used. If DB statistics are required, then its recommended to open DB
    * with new Options instance as underlying native statistics instance does not
@@ -115,13 +127,12 @@ public class RocksDB extends RocksObject {
     // in RocksDB can prevent Java to GC during the life-time of
     // the currently-created RocksDB.
     RocksDB db = new RocksDB();
-    db.open(options.nativeHandle_, options.cacheSize_,
-            options.numShardBits_, path);
-    
+    db.open(options.nativeHandle_, path);
+
     db.storeOptionsInstance(options);
     return db;
   }
-  
+
   private void storeOptionsInstance(Options options) {
     options_ = options;
   }
@@ -266,8 +277,8 @@ public class RocksDB extends RocksObject {
   /**
    * Returns a map of keys for which values were found in DB.
    *
-   * @param List of keys for which values need to be retrieved.
    * @param opt Read options.
+   * @param keys of keys for which values need to be retrieved.
    * @return Map where key of map is the key passed by user and value for map
    * entry is the corresponding value in DB.
    *
@@ -312,6 +323,26 @@ public class RocksDB extends RocksObject {
   }
 
   /**
+   * DB implementations can export properties about their state
+     via this method.  If "property" is a valid property understood by this
+     DB implementation, fills "*value" with its current value and returns
+     true.  Otherwise returns false.
+
+
+     Valid property names include:
+
+     "rocksdb.num-files-at-level<N>" - return the number of files at level <N>,
+         where <N> is an ASCII representation of a level number (e.g. "0").
+     "rocksdb.stats" - returns a multi-line string that describes statistics
+         about the internal operation of the DB.
+     "rocksdb.sstables" - returns a multi-line string that describes all
+       of the sstables that make up the db contents.
+   */
+  public String getProperty(String property) throws RocksDBException {
+    return getProperty0(nativeHandle_, property, property.length());
+  }
+
+  /**
    * Return a heap-allocated iterator over the contents of the database.
    * The result of newIterator() is initially invalid (caller must
    * call one of the Seek methods on the iterator before using it).
@@ -334,8 +365,7 @@ public class RocksDB extends RocksObject {
 
   // native methods
   protected native void open(
-      long optionsHandle, long cacheSize, int numShardBits,
-      String path) throws RocksDBException;
+      long optionsHandle, String path) throws RocksDBException;
   protected native void put(
       long handle, byte[] key, int keyLen,
       byte[] value, int valueLen) throws RocksDBException;
@@ -365,6 +395,8 @@ public class RocksDB extends RocksObject {
   protected native void remove(
       long handle, long writeOptHandle,
       byte[] key, int keyLen) throws RocksDBException;
+  protected native String getProperty0(long nativeHandle,
+      String property, int propertyLength) throws RocksDBException;
   protected native long iterator0(long optHandle);
   private native void disposeInternal(long handle);
 

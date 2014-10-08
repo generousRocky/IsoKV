@@ -239,8 +239,8 @@ TEST(CompactorTEST, PureExternalCompaction) {
 namespace {
 class FullCompactor : public Compactor {
  public:
-  explicit FullCompactor(const Options* options) :
-      Compactor(options) {}
+  explicit FullCompactor(const ImmutableCFOptions& ioptions) :
+      Compactor(ioptions) {}
 
   virtual Status SanitizeCompactionInputFiles(
       std::set<uint64_t>* input_files,
@@ -268,8 +268,8 @@ class FullCompactor : public Compactor {
       }
     }
     (*output_level)++;
-    if (*output_level >=  options_->num_levels) {
-      *output_level = options_->num_levels - 1;
+    if (*output_level >=  ioptions_.num_levels) {
+      *output_level = ioptions_.num_levels - 1;
     }
     return Status::OK();
   }
@@ -286,8 +286,9 @@ class FullCompactorFactory : public CompactorFactory {
  public:
   FullCompactorFactory() {}
 
-  virtual Compactor* CreateCompactor(const Options* options) {
-    return new FullCompactor(options);
+  virtual Compactor* CreateCompactor(
+      const ImmutableCFOptions& ioptions) {
+    return new FullCompactor(ioptions);
   }
 };
 

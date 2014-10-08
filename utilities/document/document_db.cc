@@ -8,6 +8,7 @@
 #include "rocksdb/utilities/document_db.h"
 
 #include "rocksdb/cache.h"
+#include "rocksdb/table.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/db.h"
@@ -32,7 +33,7 @@ namespace {
 // > 0   <=>  lhs == rhs
 // TODO(icanadi) move this to JSONDocument?
 int DocumentCompare(const JSONDocument& lhs, const JSONDocument& rhs) {
-  assert(rhs.IsObject() == false && rhs.IsObject() == false &&
+  assert(lhs.IsObject() == false && rhs.IsObject() == false &&
          lhs.type() == rhs.type());
 
   switch (lhs.type()) {
@@ -375,7 +376,7 @@ class IndexKey {
 
 class SimpleSortedIndex : public Index {
  public:
-  SimpleSortedIndex(const std::string field, const std::string& name)
+  SimpleSortedIndex(const std::string& field, const std::string& name)
       : field_(field), name_(name) {}
 
   virtual const char* Name() const override { return name_.c_str(); }
@@ -384,13 +385,13 @@ class SimpleSortedIndex : public Index {
       override {
     auto value = document.Get(field_);
     if (value == nullptr) {
-      // null
       if (!EncodeJSONPrimitive(JSONDocument(JSONDocument::kNull), key)) {
         assert(false);
       }
-    }
-    if (!EncodeJSONPrimitive(*value, key)) {
-      assert(false);
+    } else {
+      if (!EncodeJSONPrimitive(*value, key)) {
+        assert(false);
+      }
     }
   }
   virtual const Comparator* GetComparator() const override {
@@ -406,7 +407,6 @@ class SimpleSortedIndex : public Index {
     assert(interval != nullptr);  // because index is useful
     Direction direction;
 
-    std::string op;
     const JSONDocument* limit;
     if (interval->lower_bound != nullptr) {
       limit = interval->lower_bound;
@@ -735,6 +735,7 @@ class DocumentDBImpl : public DocumentDB {
         CreateColumnFamily(ColumnFamilyOptions(rocksdb_options_),
                            InternalSecondaryIndexName(index.name), &cf_handle);
     if (!s.ok()) {
+      delete index_obj;
       return s;
     }
 
@@ -1100,7 +1101,9 @@ Options GetRocksDBOptionsFromOptions(const DocumentDBOptions& options) {
   rocksdb_options.max_background_flushes = 1;
   rocksdb_options.write_buffer_size = options.memtable_size;
   rocksdb_options.max_write_buffer_number = 6;
-  rocksdb_options.block_cache = NewLRUCache(options.cache_size);
+  BlockBasedTableOptions table_options;
+  table_options.block_cache = NewLRUCache(options.cache_size);
+  rocksdb_options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   return rocksdb_options;
 }
 }  // namespace

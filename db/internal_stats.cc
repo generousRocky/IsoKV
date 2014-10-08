@@ -7,10 +7,15 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "db/internal_stats.h"
+
+#ifndef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS
+#endif
+
 #include <inttypes.h>
 #include <vector>
 #include "db/column_family.h"
+#include "db/db_impl.h"
 
 namespace rocksdb {
 
@@ -25,7 +30,7 @@ void PrintLevelStatsHeader(char* buf, size_t len, const std::string& cf_name) {
       "Level   Files   Size(MB) Score Read(GB)  Rn(GB) Rnp1(GB) "
       "Write(GB) Wnew(GB) RW-Amp W-Amp Rd(MB/s) Wr(MB/s)  Rn(cnt) "
       "Rnp1(cnt) Wnp1(cnt) Wnew(cnt)  Comp(sec) Comp(cnt) Avg(sec) "
-      "Stall(sec) Stall(cnt) Avg(ms)\n"
+      "Stall(sec) Stall(cnt) Avg(ms) RecordIn RecordDrop\n"
       "--------------------------------------------------------------------"
       "--------------------------------------------------------------------"
       "--------------------------------------------------------------------\n",
@@ -60,7 +65,9 @@ void PrintLevelStats(char* buf, size_t len, const std::string& name,
     "%8.3f " /* Avg(sec) */
     "%10.2f " /* Stall(sec) */
     "%10" PRIu64 " " /* Stall(cnt) */
-    "%7.2f\n" /* Avg(ms) */,
+    "%7.2f" /* Avg(ms) */
+    "%8d " /* input entries */
+    "%10d\n" /* number of records reduced */,
     name.c_str(), num_files, being_compacted, total_file_size / kMB, score,
     bytes_read / kGB,
     stats.bytes_readn / kGB,
@@ -80,7 +87,9 @@ void PrintLevelStats(char* buf, size_t len, const std::string& name,
     stats.count == 0 ? 0 : stats.micros / 1000000.0 / stats.count,
     stall_us / 1000000.0,
     stalls,
-    stalls == 0 ? 0 : stall_us / 1000.0 / stalls);
+    stalls == 0 ? 0 : stall_us / 1000.0 / stalls,
+    stats.num_input_records,
+    stats.num_dropped_records);
 }
 
 
@@ -133,6 +142,8 @@ DBPropertyType GetPropertyType(const Slice& property, bool* is_int_property,
   } else if (in == "estimate-table-readers-mem") {
     *need_out_of_mutex = true;
     return kEstimatedUsageByTableReaders;
+  } else if (in == "is-file-deletions-enabled") {
+    return kIsFileDeletionEnabled;
   }
   return kUnknown;
 }
@@ -215,7 +226,7 @@ bool InternalStats::GetStringProperty(DBPropertyType property_type,
 }
 
 bool InternalStats::GetIntProperty(DBPropertyType property_type,
-                                   uint64_t* value) const {
+                                   uint64_t* value, DBImpl* db) const {
   Version* current = cfd_->current();
 
   switch (property_type) {
@@ -254,6 +265,11 @@ bool InternalStats::GetIntProperty(DBPropertyType property_type,
                cfd_->imm()->current()->GetTotalNumEntries() +
                current->GetEstimatedActiveKeys();
       return true;
+#ifndef ROCKSDB_LITE
+    case kIsFileDeletionEnabled:
+      *value = db->IsFileDeletionsEnabled();
+      return true;
+#endif
     default:
       return false;
   }

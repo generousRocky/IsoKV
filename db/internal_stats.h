@@ -42,6 +42,8 @@ enum DBPropertyType : uint32_t {
                                    // the immutable mem tables.
   kEstimatedNumKeys,  // Estimated total number of keys in the database.
   kEstimatedUsageByTableReaders,  // Estimated memory by table readers.
+  kIsFileDeletionEnabled,         // Equals disable_delete_obsolete_files_,
+                                  // 0 means file deletions enabled
 };
 
 extern DBPropertyType GetPropertyType(const Slice& property,
@@ -121,6 +123,13 @@ class InternalStats {
     // Files written during compaction between levels N and N+1
     int files_out_levelnp1;
 
+    // Total incoming entries during compaction between levels N and N+1
+    int num_input_records;
+
+    // Accumulated diff number of entries
+    // (num input entries - num output entires) for compaction  levels N and N+1
+    int num_dropped_records;
+
     // Number of compactions done
     int count;
 
@@ -132,6 +141,8 @@ class InternalStats {
           files_in_leveln(0),
           files_in_levelnp1(0),
           files_out_levelnp1(0),
+          num_input_records(0),
+          num_dropped_records(0),
           count(count) {}
 
     explicit CompactionStats(const CompactionStats& c)
@@ -142,6 +153,8 @@ class InternalStats {
           files_in_leveln(c.files_in_leveln),
           files_in_levelnp1(c.files_in_levelnp1),
           files_out_levelnp1(c.files_out_levelnp1),
+          num_input_records(c.num_input_records),
+          num_dropped_records(c.num_dropped_records),
           count(c.count) {}
 
     void Add(const CompactionStats& c) {
@@ -152,6 +165,8 @@ class InternalStats {
       this->files_in_leveln += c.files_in_leveln;
       this->files_in_levelnp1 += c.files_in_levelnp1;
       this->files_out_levelnp1 += c.files_out_levelnp1;
+      this->num_input_records += c.num_input_records;
+      this->num_dropped_records += c.num_dropped_records;
       this->count += c.count;
     }
 
@@ -163,6 +178,8 @@ class InternalStats {
       this->files_in_leveln -= c.files_in_leveln;
       this->files_in_levelnp1 -= c.files_in_levelnp1;
       this->files_out_levelnp1 -= c.files_out_levelnp1;
+      this->num_input_records -= c.num_input_records;
+      this->num_dropped_records -= c.num_dropped_records;
       this->count -= c.count;
     }
   };
@@ -197,7 +214,8 @@ class InternalStats {
   bool GetStringProperty(DBPropertyType property_type, const Slice& property,
                          std::string* value);
 
-  bool GetIntProperty(DBPropertyType property_type, uint64_t* value) const;
+  bool GetIntProperty(DBPropertyType property_type, uint64_t* value,
+                      DBImpl* db) const;
 
   bool GetIntPropertyOutOfMutex(DBPropertyType property_type, Version* version,
                                 uint64_t* value) const;

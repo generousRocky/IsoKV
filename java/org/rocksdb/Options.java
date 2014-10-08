@@ -7,19 +7,30 @@ package org.rocksdb;
 
 /**
  * Options to control the behavior of a database.  It will be used
- * during the creation of a RocksDB (i.e., RocksDB.open()).
+ * during the creation of a {@link org.rocksdb.RocksDB} (i.e., RocksDB.open()).
  *
- * If dispose() function is not called, then it will be GC'd automatically and
- * native resources will be released as part of the process.
+ * If {@link #dispose()} function is not called, then it will be GC'd automatically
+ * and native resources will be released as part of the process.
  */
 public class Options extends RocksObject {
+  static {
+    RocksDB.loadLibrary();
+  }
   static final long DEFAULT_CACHE_SIZE = 8 << 20;
   static final int DEFAULT_NUM_SHARD_BITS = -1;
+
+  /**
+   * Builtin RocksDB comparators
+   */
+  public enum BuiltinComparator {
+      BYTEWISE_COMPARATOR, REVERSE_BYTEWISE_COMPARATOR;
+  }
+
   /**
    * Construct options for opening a RocksDB.
    *
    * This constructor will create (by allocating a block of memory)
-   * an rocksdb::Options in the c++ side.
+   * an {@code rocksdb::Options} in the c++ side.
    */
   public Options() {
     super();
@@ -31,13 +42,14 @@ public class Options extends RocksObject {
 
   /**
    * If this value is set to true, then the database will be created
-   * if it is missing during RocksDB.open().
+   * if it is missing during {@code RocksDB.open()}.
    * Default: false
    *
    * @param flag a flag indicating whether to create a database the
-   *     specified database in RocksDB.open() operation is missing.
-   * @return the instance of the current Options.
-   * @see RocksDB.open()
+   *     specified database in {@link org.rocksdb.RocksDB#open(Options, String)} operation
+   *     is missing.
+   * @return the instance of the current Options
+   * @see org.rocksdb.RocksDB#open(Options, String)
    */
   public Options setCreateIfMissing(boolean flag) {
     assert(isInitialized());
@@ -48,7 +60,7 @@ public class Options extends RocksObject {
   /**
    * Use the specified object to interact with the environment,
    * e.g. to read/write files, schedule background work, etc.
-   * Default: RocksEnv.getDefault()
+   * Default: {@link RocksEnv#getDefault()}
    */
   public Options setEnv(RocksEnv env) {
     assert(isInitialized());
@@ -68,7 +80,7 @@ public class Options extends RocksObject {
    * If true, the database will be created if it is missing.
    *
    * @return true if the createIfMissing option is set to true.
-   * @see setCreateIfMissing()
+   * @see #setCreateIfMissing(boolean)
    */
   public boolean createIfMissing() {
     assert(isInitialized());
@@ -76,11 +88,26 @@ public class Options extends RocksObject {
   }
 
   /**
+   * Set {@link org.rocksdb.Options.BuiltinComparator} to be used with RocksDB.
+   *
+   * Note: Comparator can be set once upon database creation.
+   *
+   * Default: BytewiseComparator.
+   * @param builtinComparator a {@link org.rocksdb.Options.BuiltinComparator} type.
+   */
+  public void setBuiltinComparator(BuiltinComparator builtinComparator) {
+    assert(isInitialized());
+    setBuiltinComparator(nativeHandle_, builtinComparator.ordinal());
+  }
+
+  private native void setBuiltinComparator(long handle, int builtinComparator);
+
+  /**
    * Amount of data to build up in memory (backed by an unsorted log
    * on disk) before converting to a sorted on-disk file.
    *
    * Larger values increase performance, especially during bulk loads.
-   * Up to max_write_buffer_number write buffers may be held in memory
+   * Up to {@code max_write_buffer_number} write buffers may be held in memory
    * at the same time, so you may wish to adjust this parameter
    * to control memory usage.
    *
@@ -90,7 +117,7 @@ public class Options extends RocksObject {
    * Default: 4MB
    * @param writeBufferSize the size of write buffer.
    * @return the instance of the current Options.
-   * @see RocksDB.open()
+   * @see org.rocksdb.RocksDB#open(Options, String)
    */
   public Options setWriteBufferSize(long writeBufferSize) {
     assert(isInitialized());
@@ -102,7 +129,7 @@ public class Options extends RocksObject {
    * Return size of write buffer size.
    *
    * @return size of write buffer.
-   * @see setWriteBufferSize()
+   * @see #setWriteBufferSize(long)
    */
   public long writeBufferSize()  {
     assert(isInitialized());
@@ -117,7 +144,7 @@ public class Options extends RocksObject {
    *
    * @param maxWriteBufferNumber maximum number of write buffers.
    * @return the instance of the current Options.
-   * @see RocksDB.open()
+   * @see org.rocksdb.RocksDB#open(Options, String)
    */
   public Options setMaxWriteBufferNumber(int maxWriteBufferNumber) {
     assert(isInitialized());
@@ -129,140 +156,11 @@ public class Options extends RocksObject {
    * Returns maximum number of write buffers.
    *
    * @return maximum number of write buffers.
-   * @see setMaxWriteBufferNumber()
+   * @see #setMaxWriteBufferNumber(int)
    */
   public int maxWriteBufferNumber() {
     assert(isInitialized());
     return maxWriteBufferNumber(nativeHandle_);
-  }
-
-  /*
-   * Approximate size of user data packed per block.  Note that the
-   * block size specified here corresponds to uncompressed data.  The
-   * actual size of the unit read from disk may be smaller if
-   * compression is enabled.  This parameter can be changed dynamically.
-   *
-   * Default: 4K
-   *
-   * @param blockSize the size of each block in bytes.
-   * @return the instance of the current Options.
-   * @see RocksDB.open()
-   */
-  public Options setBlockSize(long blockSize) {
-    assert(isInitialized());
-    setBlockSize(nativeHandle_, blockSize);
-    return this;
-  }
-
-  /*
-   * Returns the size of a block in bytes.
-   *
-   * @return block size.
-   * @see setBlockSize()
-   */
-  public long blockSize() {
-    assert(isInitialized());
-    return blockSize(nativeHandle_);
-  }
-
-  /**
-   * Use the specified filter policy to reduce disk reads.
-   *
-   * Filter should not be disposed before options instances using this filter is
-   * disposed. If dispose() function is not called, then filter object will be
-   * GC'd automatically.
-   * 
-   * Filter instance can be re-used in multiple options instances. 
-   *
-   * @param Filter policy java instance.
-   * @return the instance of the current Options.
-   * @see RocksDB.open()
-   */
-  public Options setFilter(Filter filter) {
-    assert(isInitialized());
-    setFilterHandle(nativeHandle_, filter.nativeHandle_);
-    filter_ = filter;
-    return this;
-  }
-  private native void setFilterHandle(long optHandle, long filterHandle);
-
-  /*
-   * Disable compaction triggered by seek.
-   * With bloomfilter and fast storage, a miss on one level
-   * is very cheap if the file handle is cached in table cache
-   * (which is true if max_open_files is large).
-   * Default: true
-   *
-   * @param disableSeekCompaction a boolean value to specify whether
-   *     to disable seek compaction.
-   * @return the instance of the current Options.
-   * @see RocksDB.open()
-   */
-  public Options setDisableSeekCompaction(boolean disableSeekCompaction) {
-    assert(isInitialized());
-    setDisableSeekCompaction(nativeHandle_, disableSeekCompaction);
-    return this;
-  }
-
-  /*
-   * Returns true if disable seek compaction is set to true.
-   *
-   * @return true if disable seek compaction is set to true.
-   * @see setDisableSeekCompaction()
-   */
-  public boolean disableSeekCompaction() {
-    assert(isInitialized());
-    return disableSeekCompaction(nativeHandle_);
-  }
-
-  /**
-   * Set the amount of cache in bytes that will be used by RocksDB.
-   * If cacheSize is non-positive, then cache will not be used.
-   *
-   * DEFAULT: 8M
-   * @see setCacheNumShardBits()
-   */
-  public Options setCacheSize(long cacheSize) {
-    cacheSize_ = cacheSize;
-    return this;
-  }
-
-  /**
-   * @return the amount of cache in bytes that will be used by RocksDB.
-   *
-   * @see cacheNumShardBits()
-   */
-  public long cacheSize() {
-    return cacheSize_;
-  }
-
-  /**
-   * Controls the number of shards for the block cache.
-   * This is applied only if cacheSize is set to non-negative.
-   *
-   * @param numShardBits the number of shard bits.  The resulting
-   *     number of shards would be 2 ^ numShardBits.  Any negative
-   *     number means use default settings."
-   * @return the reference to the current option.
-   *
-   * @see setCacheSize()
-   */
-  public Options setCacheNumShardBits(int numShardBits) {
-    numShardBits_ = numShardBits;
-    return this;
-  }
-
-  /**
-   * Returns the number of shard bits used in the block cache.
-   * The resulting number of shards would be 2 ^ (returned value).
-   * Any negative number means use default settings.
-   *
-   * @return the number of shard bits used in the block cache.
-   *
-   * @see cacheSize()
-   */
-  public int cacheNumShardBits() {
-    return numShardBits_;
   }
 
   /**
@@ -284,9 +182,9 @@ public class Options extends RocksObject {
    * Default: false
    *
    * @param errorIfExists if true, an exception will be thrown
-   *     during RocksDB.open() if the database already exists.
+   *     during {@code RocksDB.open()} if the database already exists.
    * @return the reference to the current option.
-   * @see RocksDB.open()
+   * @see org.rocksdb.RocksDB#open(Options, String)
    */
   public Options setErrorIfExists(boolean errorIfExists) {
     assert(isInitialized());
@@ -340,8 +238,9 @@ public class Options extends RocksObject {
    * Number of open files that can be used by the DB.  You may need to
    * increase this if your database has a large working set. Value -1 means
    * files opened are always kept open. You can estimate number of files based
-   * on target_file_size_base and target_file_size_multiplier for level-based
-   * compaction. For universal-style compaction, you can usually set it to -1.
+   * on {@code target_file_size_base} and {@code target_file_size_multiplier}
+   * for level-based compaction. For universal-style compaction, you can usually
+   * set it to -1.
    *
    * @return the maximum number of open files.
    */
@@ -355,8 +254,9 @@ public class Options extends RocksObject {
    * Number of open files that can be used by the DB.  You may need to
    * increase this if your database has a large working set. Value -1 means
    * files opened are always kept open. You can estimate number of files based
-   * on target_file_size_base and target_file_size_multiplier for level-based
-   * compaction. For universal-style compaction, you can usually set it to -1.
+   * on {@code target_file_size_base} and {@code target_file_size_multiplier}
+   * for level-based compaction. For universal-style compaction, you can usually
+   * set it to -1.
    * Default: 5000
    *
    * @param maxOpenFiles the maximum number of open files.
@@ -374,7 +274,7 @@ public class Options extends RocksObject {
    * to stable storage. Their contents remain in the OS buffers till the
    * OS decides to flush them. This option is good for bulk-loading
    * of data. Once the bulk-loading is complete, please issue a
-   * sync to the OS to flush all dirty buffesrs to stable storage.
+   * sync to the OS to flush all dirty buffers to stable storage.
    *
    * @return if true, then data-sync is disabled.
    */
@@ -389,7 +289,7 @@ public class Options extends RocksObject {
    * to stable storage. Their contents remain in the OS buffers till the
    * OS decides to flush them. This option is good for bulk-loading
    * of data. Once the bulk-loading is complete, please issue a
-   * sync to the OS to flush all dirty buffesrs to stable storage.
+   * sync to the OS to flush all dirty buffers to stable storage.
    * Default: false
    *
    * @param disableDataSync a boolean flag to specify whether to
@@ -409,7 +309,7 @@ public class Options extends RocksObject {
    * This parameter should be set to true while storing data to
    * filesystem like ext3 that can lose files after a reboot.
    *
-   * @return true if fsync is used.
+   * @return boolean value indicating if fsync is used.
    */
   public boolean useFsync() {
     assert(isInitialized());
@@ -433,40 +333,6 @@ public class Options extends RocksObject {
     return this;
   }
   private native void setUseFsync(long handle, boolean useFsync);
-
-  /**
-   * The time interval in seconds between each two consecutive stats logs.
-   * This number controls how often a new scribe log about
-   * db deploy stats is written out.
-   * -1 indicates no logging at all.
-   *
-   * @return the time interval in seconds between each two consecutive
-   *     stats logs.
-   */
-  public int dbStatsLogInterval() {
-    assert(isInitialized());
-    return dbStatsLogInterval(nativeHandle_);
-  }
-  private native int dbStatsLogInterval(long handle);
-
-  /**
-   * The time interval in seconds between each two consecutive stats logs.
-   * This number controls how often a new scribe log about
-   * db deploy stats is written out.
-   * -1 indicates no logging at all.
-   * Default value is 1800 (half an hour).
-   *
-   * @param dbStatsLogInterval the time interval in seconds between each
-   *     two consecutive stats logs.
-   * @return the reference to the current option.
-   */
-  public Options setDbStatsLogInterval(int dbStatsLogInterval) {
-    assert(isInitialized());
-    setDbStatsLogInterval(nativeHandle_, dbStatsLogInterval);
-    return this;
-  }
-  private native void setDbStatsLogInterval(
-      long handle, int dbStatsLogInterval);
 
   /**
    * Returns the directory of info log.
@@ -575,7 +441,8 @@ public class Options extends RocksObject {
    * Default: 1
    *
    * @return the maximum number of concurrent background compaction jobs.
-   * @see Env.setBackgroundThreads()
+   * @see org.rocksdb.RocksEnv#setBackgroundThreads(int)
+   * @see org.rocksdb.RocksEnv#setBackgroundThreads(int, int)
    */
   public int maxBackgroundCompactions() {
     assert(isInitialized());
@@ -588,7 +455,7 @@ public class Options extends RocksObject {
      it does not use any locks to prevent concurrent updates.
    *
    * @return the instance of the current Options.
-   * @see RocksDB.open()
+   * @see org.rocksdb.RocksDB#open(Options, String)
    */
   public Options createStatistics() {
     assert(isInitialized());
@@ -597,11 +464,11 @@ public class Options extends RocksObject {
   }
 
   /**
-   * Returns statistics object. Calls createStatistics() if
-   * C++ returns NULL pointer for statistics.
+   * Returns statistics object. Calls {@link #createStatistics()} if
+   * C++ returns {@code nullptr} for statistics.
    *
    * @return the instance of the statistics object.
-   * @see createStatistics()
+   * @see #createStatistics()
    */
   public Statistics statisticsPtr() {
     assert(isInitialized());
@@ -626,8 +493,9 @@ public class Options extends RocksObject {
    *     compaction jobs.
    * @return the reference to the current option.
    *
-   * @see Env.setBackgroundThreads()
-   * @see maxBackgroundFlushes()
+   * @see org.rocksdb.RocksEnv#setBackgroundThreads(int)
+   * @see org.rocksdb.RocksEnv#setBackgroundThreads(int, int)
+   * @see #maxBackgroundFlushes()
    */
   public Options setMaxBackgroundCompactions(int maxBackgroundCompactions) {
     assert(isInitialized());
@@ -642,7 +510,8 @@ public class Options extends RocksObject {
    * Default: 1
    *
    * @return the maximum number of concurrent background flush jobs.
-   * @see Env.setBackgroundThreads()
+   * @see org.rocksdb.RocksEnv#setBackgroundThreads(int)
+   * @see org.rocksdb.RocksEnv#setBackgroundThreads(int, int)
    */
   public int maxBackgroundFlushes() {
     assert(isInitialized());
@@ -656,11 +525,12 @@ public class Options extends RocksObject {
    * HIGH priority thread pool. For more information, see
    * Default: 1
    *
-   * @param maxBackgroundFlushes
+   * @param maxBackgroundFlushes number of max concurrent flush jobs
    * @return the reference to the current option.
    *
-   * @see Env.setBackgroundThreads()
-   * @see maxBackgroundCompactions()
+   * @see org.rocksdb.RocksEnv#setBackgroundThreads(int)
+   * @see org.rocksdb.RocksEnv#setBackgroundThreads(int, int)
+   * @see #maxBackgroundCompactions()
    */
   public Options setMaxBackgroundFlushes(int maxBackgroundFlushes) {
     assert(isInitialized());
@@ -850,20 +720,22 @@ public class Options extends RocksObject {
   /**
    * WalTtlSeconds() and walSizeLimitMB() affect how archived logs
    * will be deleted.
-   * 1. If both set to 0, logs will be deleted asap and will not get into
-   *    the archive.
-   * 2. If WAL_ttl_seconds is 0 and WAL_size_limit_MB is not 0,
-   *    WAL files will be checked every 10 min and if total size is greater
-   *    then WAL_size_limit_MB, they will be deleted starting with the
-   *    earliest until size_limit is met. All empty files will be deleted.
-   * 3. If WAL_ttl_seconds is not 0 and WAL_size_limit_MB is 0, then
-   *    WAL files will be checked every WAL_ttl_secondsi / 2 and those that
-   *    are older than WAL_ttl_seconds will be deleted.
-   * 4. If both are not 0, WAL files will be checked every 10 min and both
-   *    checks will be performed with ttl being first.
+   * <ol>
+   * <li>If both set to 0, logs will be deleted asap and will not get into
+   * the archive.</li>
+   * <li>If WAL_ttl_seconds is 0 and WAL_size_limit_MB is not 0,
+   * WAL files will be checked every 10 min and if total size is greater
+   * then WAL_size_limit_MB, they will be deleted starting with the
+   * earliest until size_limit is met. All empty files will be deleted.</li>
+   * <li>If WAL_ttl_seconds is not 0 and WAL_size_limit_MB is 0, then
+   * WAL files will be checked every WAL_ttl_secondsi / 2 and those that
+   * are older than WAL_ttl_seconds will be deleted.</li>
+   * <li>If both are not 0, WAL files will be checked every 10 min and both
+   * checks will be performed with ttl being first.</li>
+   * </ol>
    *
    * @return the wal-ttl seconds
-   * @see walSizeLimitMB()
+   * @see #walSizeLimitMB()
    */
   public long walTtlSeconds() {
     assert(isInitialized());
@@ -872,23 +744,24 @@ public class Options extends RocksObject {
   private native long walTtlSeconds(long handle);
 
   /**
-   * WalTtlSeconds() and walSizeLimitMB() affect how archived logs
+   * {@link #walTtlSeconds()} and {@link #walSizeLimitMB()} affect how archived logs
    * will be deleted.
-   * 1. If both set to 0, logs will be deleted asap and will not get into
-   *    the archive.
-   * 2. If WAL_ttl_seconds is 0 and WAL_size_limit_MB is not 0,
+   * <ol>
+   * <li>If both set to 0, logs will be deleted asap and will not get into
+   * the archive.</li>
+   * <li>If WAL_ttl_seconds is 0 and WAL_size_limit_MB is not 0,
    *    WAL files will be checked every 10 min and if total size is greater
    *    then WAL_size_limit_MB, they will be deleted starting with the
-   *    earliest until size_limit is met. All empty files will be deleted.
-   * 3. If WAL_ttl_seconds is not 0 and WAL_size_limit_MB is 0, then
+   *    earliest until size_limit is met. All empty files will be deleted.</li>
+   * <li>If WAL_ttl_seconds is not 0 and WAL_size_limit_MB is 0, then
    *    WAL files will be checked every WAL_ttl_secondsi / 2 and those that
-   *    are older than WAL_ttl_seconds will be deleted.
-   * 4. If both are not 0, WAL files will be checked every 10 min and both
-   *    checks will be performed with ttl being first.
+   *    are older than WAL_ttl_seconds will be deleted.</li>
+   * <li>If both are not 0, WAL files will be checked every 10 min and both
+   *    checks will be performed with ttl being first.</li>
    *
    * @param walTtlSeconds the ttl seconds
    * @return the reference to the current option.
-   * @see setWalSizeLimitMB()
+   * @see #setWalSizeLimitMB(long)
    */
   public Options setWalTtlSeconds(long walTtlSeconds) {
     assert(isInitialized());
@@ -898,22 +771,23 @@ public class Options extends RocksObject {
   private native void setWalTtlSeconds(long handle, long walTtlSeconds);
 
   /**
-   * WalTtlSeconds() and walSizeLimitMB() affect how archived logs
+   * {@link #walTtlSeconds()} and {@link #walSizeLimitMB()} affect how archived logs
    * will be deleted.
-   * 1. If both set to 0, logs will be deleted asap and will not get into
-   *    the archive.
-   * 2. If WAL_ttl_seconds is 0 and WAL_size_limit_MB is not 0,
+   * <ol>
+   * <li>If both set to 0, logs will be deleted asap and will not get into
+   *    the archive.</li>
+   * <li>If WAL_ttl_seconds is 0 and WAL_size_limit_MB is not 0,
    *    WAL files will be checked every 10 min and if total size is greater
    *    then WAL_size_limit_MB, they will be deleted starting with the
-   *    earliest until size_limit is met. All empty files will be deleted.
-   * 3. If WAL_ttl_seconds is not 0 and WAL_size_limit_MB is 0, then
-   *    WAL files will be checked every WAL_ttl_secondsi / 2 and those that
-   *    are older than WAL_ttl_seconds will be deleted.
-   * 4. If both are not 0, WAL files will be checked every 10 min and both
-   *    checks will be performed with ttl being first.
-   *
+   *    earliest until size_limit is met. All empty files will be deleted.</li>
+   * <li>If WAL_ttl_seconds is not 0 and WAL_size_limit_MB is 0, then
+   *    WAL files will be checked every WAL_ttl_seconds i / 2 and those that
+   *    are older than WAL_ttl_seconds will be deleted.</li>
+   * <li>If both are not 0, WAL files will be checked every 10 min and both
+   *    checks will be performed with ttl being first.</li>
+   * </ol>
    * @return size limit in mega-bytes.
-   * @see walSizeLimitMB()
+   * @see #walSizeLimitMB()
    */
   public long walSizeLimitMB() {
     assert(isInitialized());
@@ -924,21 +798,22 @@ public class Options extends RocksObject {
   /**
    * WalTtlSeconds() and walSizeLimitMB() affect how archived logs
    * will be deleted.
-   * 1. If both set to 0, logs will be deleted asap and will not get into
-   *    the archive.
-   * 2. If WAL_ttl_seconds is 0 and WAL_size_limit_MB is not 0,
+   * <ol>
+   * <li>If both set to 0, logs will be deleted asap and will not get into
+   *    the archive.</li>
+   * <li>If WAL_ttl_seconds is 0 and WAL_size_limit_MB is not 0,
    *    WAL files will be checked every 10 min and if total size is greater
    *    then WAL_size_limit_MB, they will be deleted starting with the
-   *    earliest until size_limit is met. All empty files will be deleted.
-   * 3. If WAL_ttl_seconds is not 0 and WAL_size_limit_MB is 0, then
+   *    earliest until size_limit is met. All empty files will be deleted.</li>
+   * <li>If WAL_ttl_seconds is not 0 and WAL_size_limit_MB is 0, then
    *    WAL files will be checked every WAL_ttl_secondsi / 2 and those that
-   *    are older than WAL_ttl_seconds will be deleted.
-   * 4. If both are not 0, WAL files will be checked every 10 min and both
-   *    checks will be performed with ttl being first.
+   *    are older than WAL_ttl_seconds will be deleted.</li>
+   * <li>If both are not 0, WAL files will be checked every 10 min and both
+   *    checks will be performed with ttl being first.</li>
    *
    * @param sizeLimitMB size limit in mega-bytes.
    * @return the reference to the current option.
-   * @see setWalSizeLimitMB()
+   * @see #setWalSizeLimitMB(long)
    */
   public Options setWalSizeLimitMB(long sizeLimitMB) {
     assert(isInitialized());
@@ -994,7 +869,7 @@ public class Options extends RocksObject {
    * Data being read from file storage may be buffered in the OS
    * Default: true
    *
-   * @param allowOsBufferif true, then OS buffering is allowed.
+   * @param allowOsBuffer if true, then OS buffering is allowed.
    * @return the reference to the current option.
    */
   public Options setAllowOsBuffer(boolean allowOsBuffer) {
@@ -1231,33 +1106,6 @@ public class Options extends RocksObject {
       long handle, long bytesPerSync);
 
   /**
-   * Allow RocksDB to use thread local storage to optimize performance.
-   * Default: true
-   *
-   * @return true if thread-local storage is allowed
-   */
-  public boolean allowThreadLocal() {
-    assert(isInitialized());
-    return allowThreadLocal(nativeHandle_);
-  }
-  private native boolean allowThreadLocal(long handle);
-
-  /**
-   * Allow RocksDB to use thread local storage to optimize performance.
-   * Default: true
-   *
-   * @param allowThreadLocal true if thread-local storage is allowed.
-   * @return the reference to the current option.
-   */
-  public Options setAllowThreadLocal(boolean allowThreadLocal) {
-    assert(isInitialized());
-    setAllowThreadLocal(nativeHandle_, allowThreadLocal);
-    return this;
-  }
-  private native void setAllowThreadLocal(
-      long handle, boolean allowThreadLocal);
-
-  /**
    * Set the config for mem-table.
    *
    * @param config the mem-table config.
@@ -1269,11 +1117,24 @@ public class Options extends RocksObject {
   }
 
   /**
+   * Use to control write rate of flush and compaction. Flush has higher
+   * priority than compaction. Rate limiting is disabled if nullptr.
+   * Default: nullptr
+   *
+   * @param config rate limiter config.
+   * @return the instance of the current Options.
+   */
+  public Options setRateLimiterConfig(RateLimiterConfig config) {
+    setRateLimiter(nativeHandle_, config.newRateLimiterHandle());
+    return this;
+  }
+
+  /**
    * Returns the name of the current mem table representation.
    * Memtable format can be set using setTableFormatConfig.
    *
    * @return the name of the currently-used memtable factory.
-   * @see setTableFormatConfig()
+   * @see #setTableFormatConfig(TableFormatConfig)
    */
   public String memTableFactoryName() {
     assert(isInitialized());
@@ -1344,26 +1205,26 @@ public class Options extends RocksObject {
   }
   private native void setBlockRestartInterval(
       long handle, int blockRestartInterval);
-      
+
   /**
    * Compress blocks using the specified compression algorithm.  This
      parameter can be changed dynamically.
-   * 
+   *
    * Default: SNAPPY_COMPRESSION, which gives lightweight but fast compression.
-   * 
+   *
    * @return Compression type.
-   */ 
+   */
   public CompressionType compressionType() {
     return CompressionType.values()[compressionType(nativeHandle_)];
   }
   private native byte compressionType(long handle);
-      
+
   /**
    * Compress blocks using the specified compression algorithm.  This
      parameter can be changed dynamically.
-   * 
+   *
    * Default: SNAPPY_COMPRESSION, which gives lightweight but fast compression.
-   * 
+   *
    * @param compressionType Compression Type.
    * @return the reference to the current option.
    */
@@ -1372,22 +1233,22 @@ public class Options extends RocksObject {
     return this;
   }
   private native void setCompressionType(long handle, byte compressionType);
-      
+
    /**
    * Compaction style for DB.
-   * 
+   *
    * @return Compaction style.
-   */ 
+   */
   public CompactionStyle compactionStyle() {
     return CompactionStyle.values()[compactionStyle(nativeHandle_)];
   }
   private native byte compactionStyle(long handle);
-      
+
   /**
    * Set compaction style for DB.
-   * 
+   *
    * Default: LEVEL.
-   * 
+   *
    * @param compactionStyle Compaction style.
    * @return the reference to the current option.
    */
@@ -1396,33 +1257,6 @@ public class Options extends RocksObject {
     return this;
   }
   private native void setCompactionStyle(long handle, byte compactionStyle);
-
-  /**
-   * If true, place whole keys in the filter (not just prefixes).
-   * This must generally be true for gets to be efficient.
-   * Default: true
-   *
-   * @return if true, then whole-key-filtering is on.
-   */
-  public boolean wholeKeyFiltering() {
-    return wholeKeyFiltering(nativeHandle_);
-  }
-  private native boolean wholeKeyFiltering(long handle);
-
-  /**
-   * If true, place whole keys in the filter (not just prefixes).
-   * This must generally be true for gets to be efficient.
-   * Default: true
-   *
-   * @param wholeKeyFiltering if true, then whole-key-filtering is on.
-   * @return the reference to the current option.
-   */
-  public Options setWholeKeyFiltering(boolean wholeKeyFiltering) {
-    setWholeKeyFiltering(nativeHandle_, wholeKeyFiltering);
-    return this;
-  }
-  private native void setWholeKeyFiltering(
-      long handle, boolean wholeKeyFiltering);
 
   /**
    * If level-styled compaction is used, then this number determines
@@ -1451,7 +1285,7 @@ public class Options extends RocksObject {
       long handle, int numLevels);
 
   /**
-   * The number of files in leve 0 to trigger compaction from level-0 to
+   * The number of files in level 0 to trigger compaction from level-0 to
    * level-1.  A value < 0 means that level-0 compaction will not be
    * triggered by number of files at all.
    * Default: 4
@@ -1578,7 +1412,7 @@ public class Options extends RocksObject {
    *
    * @return the target size of a level-0 file.
    *
-   * @see targetFileSizeMultiplier()
+   * @see #targetFileSizeMultiplier()
    */
   public int targetFileSizeBase() {
     return targetFileSizeBase(nativeHandle_);
@@ -1599,7 +1433,7 @@ public class Options extends RocksObject {
    * @param targetFileSizeBase the target size of a level-0 file.
    * @return the reference to the current option.
    *
-   * @see setTargetFileSizeMultiplier()
+   * @see #setTargetFileSizeMultiplier(int)
    */
   public Options setTargetFileSizeBase(int targetFileSizeBase) {
     setTargetFileSizeBase(nativeHandle_, targetFileSizeBase);
@@ -1649,7 +1483,7 @@ public class Options extends RocksObject {
    * by default 'maxBytesForLevelBase' is 10MB.
    *
    * @return the upper-bound of the total size of leve-1 files in bytes.
-   * @see maxBytesForLevelMultiplier()
+   * @see #maxBytesForLevelMultiplier()
    */
   public long maxBytesForLevelBase() {
     return maxBytesForLevelBase(nativeHandle_);
@@ -1669,7 +1503,7 @@ public class Options extends RocksObject {
    * @return maxBytesForLevelBase the upper-bound of the total size of
    *     leve-1 files in bytes.
    * @return the reference to the current option.
-   * @see setMaxBytesForLevelMultiplier()
+   * @see #setMaxBytesForLevelMultiplier(int)
    */
   public Options setMaxBytesForLevelBase(long maxBytesForLevelBase) {
     setMaxBytesForLevelBase(nativeHandle_, maxBytesForLevelBase);
@@ -1685,7 +1519,7 @@ public class Options extends RocksObject {
    *
    * @return the ratio between the total size of level-(L+1) files and
    *     the total size of level-L files for all L.
-   * @see maxBytesForLevelBase()
+   * @see #maxBytesForLevelBase()
    */
   public int maxBytesForLevelMultiplier() {
     return maxBytesForLevelMultiplier(nativeHandle_);
@@ -1700,7 +1534,7 @@ public class Options extends RocksObject {
    * @param multiplier the ratio between the total size of level-(L+1)
    *     files and the total size of level-L files for all L.
    * @return the reference to the current option.
-   * @see setMaxBytesForLevelBase()
+   * @see #setMaxBytesForLevelBase(long)
    */
   public Options setMaxBytesForLevelMultiplier(int multiplier) {
     setMaxBytesForLevelMultiplier(nativeHandle_, multiplier);
@@ -1716,7 +1550,7 @@ public class Options extends RocksObject {
    * (expanded_compaction_factor * targetFileSizeLevel()) many bytes.
    *
    * @return the maximum number of bytes in all compacted files.
-   * @see sourceCompactionFactor()
+   * @see #sourceCompactionFactor()
    */
   public int expandedCompactionFactor() {
     return expandedCompactionFactor(nativeHandle_);
@@ -1732,7 +1566,7 @@ public class Options extends RocksObject {
    * @param expandedCompactionFactor the maximum number of bytes in all
    *     compacted files.
    * @return the reference to the current option.
-   * @see setSourceCompactionFactor()
+   * @see #setSourceCompactionFactor(int)
    */
   public Options setExpandedCompactionFactor(int expandedCompactionFactor) {
     setExpandedCompactionFactor(nativeHandle_, expandedCompactionFactor);
@@ -1751,7 +1585,7 @@ public class Options extends RocksObject {
    * a compaction.
    *
    * @return the maximum number of bytes in all source files to be compactedo.
-   * @see expendedCompactionFactor()
+   * @see #expandedCompactionFactor()
    */
   public int sourceCompactionFactor() {
     return sourceCompactionFactor(nativeHandle_);
@@ -1770,7 +1604,7 @@ public class Options extends RocksObject {
    * @param sourceCompactionFactor the maximum number of bytes in all
    *     source files to be compacted in a single compaction run.
    * @return the reference to the current option.
-   * @see setExpendedCompactionFactor()
+   * @see #setExpandedCompactionFactor(int)
    */
   public Options setSourceCompactionFactor(int sourceCompactionFactor) {
     setSourceCompactionFactor(nativeHandle_, sourceCompactionFactor);
@@ -1898,35 +1732,6 @@ public class Options extends RocksObject {
       long handle, int rateLimitDelayMaxMilliseconds);
 
   /**
-   * Disable block cache. If this is set to true,
-   * then no block cache should be used, and the block_cache should
-   * point to a nullptr object.
-   * Default: false
-   *
-   * @return true if block cache is disabled.
-   */
-  public boolean noBlockCache() {
-    return noBlockCache(nativeHandle_);
-  }
-  private native boolean noBlockCache(long handle);
-
-  /**
-   * Disable block cache. If this is set to true,
-   * then no block cache should be used, and the block_cache should
-   * point to a nullptr object.
-   * Default: false
-   *
-   * @param noBlockCache true if block-cache is disabled.
-   * @return the reference to the current option.
-   */
-  public Options setNoBlockCache(boolean noBlockCache) {
-    setNoBlockCache(nativeHandle_, noBlockCache);
-    return this;
-  }
-  private native void setNoBlockCache(
-      long handle, boolean noBlockCache);
-
-  /**
    * The size of one block in arena memory allocation.
    * If <= 0, a proper value is automatically calculated (usually 1/10 of
    * writer_buffer_size).
@@ -2022,39 +1827,6 @@ public class Options extends RocksObject {
   }
   private native void setPurgeRedundantKvsWhileFlush(
       long handle, boolean purgeRedundantKvsWhileFlush);
-
-  /**
-   * This is used to close a block before it reaches the configured
-   * 'block_size'. If the percentage of free space in the current block is less
-   * than this specified number and adding a new record to the block will
-   * exceed the configured block size, then this block will be closed and the
-   * new record will be written to the next block.
-   * Default is 10.
-   *
-   * @return the target block size
-   */
-  public int blockSizeDeviation() {
-    return blockSizeDeviation(nativeHandle_);
-  }
-  private native int blockSizeDeviation(long handle);
-
-  /**
-   * This is used to close a block before it reaches the configured
-   * 'block_size'. If the percentage of free space in the current block is less
-   * than this specified number and adding a new record to the block will
-   * exceed the configured block size, then this block will be closed and the
-   * new record will be written to the next block.
-   * Default is 10.
-   *
-   * @param blockSizeDeviation the target block size
-   * @return the reference to the current option.
-   */
-  public Options setBlockSizeDeviation(int blockSizeDeviation) {
-    setBlockSizeDeviation(nativeHandle_, blockSizeDeviation);
-    return this;
-  }
-  private native void setBlockSizeDeviation(
-      long handle, int blockSizeDeviation);
 
   /**
    * If true, compaction will verify checksum on every read that happens
@@ -2219,7 +1991,7 @@ public class Options extends RocksObject {
    * This value will be used only when a prefix-extractor is specified.
    *
    * @return the number of bloom-bits.
-   * @see useFixedLengthPrefixExtractor()
+   * @see #useFixedLengthPrefixExtractor(int)
    */
   public int memtablePrefixBloomBits() {
     return memtablePrefixBloomBits(nativeHandle_);
@@ -2277,7 +2049,7 @@ public class Options extends RocksObject {
    * Default: 0
    *
    * @return the level of locality of bloom-filter probes.
-   * @see setMemTablePrefixBloomProbes
+   * @see #setMemtablePrefixBloomProbes(int)
    */
   public int bloomLocality() {
     return bloomLocality(nativeHandle_);
@@ -2389,7 +2161,7 @@ public class Options extends RocksObject {
    *
    * Default: 2
    *
-   * @return
+   * @return min partial merge operands
    */
   public int minPartialMergeOperands() {
     return minPartialMergeOperands(nativeHandle_);
@@ -2437,11 +2209,6 @@ public class Options extends RocksObject {
   private native void setMaxWriteBufferNumber(
       long handle, int maxWriteBufferNumber);
   private native int maxWriteBufferNumber(long handle);
-  private native void setBlockSize(long handle, long blockSize);
-  private native long blockSize(long handle);
-  private native void setDisableSeekCompaction(
-      long handle, boolean disableSeekCompaction);
-  private native boolean disableSeekCompaction(long handle);
   private native void setMaxBackgroundCompactions(
       long handle, int maxBackgroundCompactions);
   private native int maxBackgroundCompactions(long handle);
@@ -2449,6 +2216,8 @@ public class Options extends RocksObject {
   private native long statisticsPtr(long optHandle);
 
   private native void setMemTableFactory(long handle, long factoryHandle);
+  private native void setRateLimiter(long handle,
+      long rateLimiterHandle);
   private native String memTableFactoryName(long handle);
 
   private native void setTableFactory(long handle, long factoryHandle);
@@ -2459,6 +2228,5 @@ public class Options extends RocksObject {
 
   long cacheSize_;
   int numShardBits_;
-  Filter filter_;
   RocksEnv env_;
 }

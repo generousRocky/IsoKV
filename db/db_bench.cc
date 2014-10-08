@@ -7,7 +7,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#ifndef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS
+#endif
 
 #ifndef GFLAGS
 #include <cstdio>
@@ -37,8 +39,8 @@ int main() {
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/write_batch.h"
 #include "rocksdb/slice.h"
+#include "rocksdb/filter_policy.h"
 #include "rocksdb/slice_transform.h"
-#include "rocksdb/statistics.h"
 #include "rocksdb/perf_context.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
@@ -84,7 +86,8 @@ DEFINE_string(benchmarks,
               "xxhash,"
               "compress,"
               "uncompress,"
-              "acquireload,",
+              "acquireload,"
+              "fillseekseq,",
 
               "Comma-separated list of operations to run in the specified order"
               "Actual benchmarks:\n"
@@ -127,6 +130,8 @@ DEFINE_string(benchmarks,
               "\tcrc32c        -- repeated crc32c of 4K of data\n"
               "\txxhash        -- repeated xxHash of 4K of data\n"
               "\tacquireload   -- load N*1000 times\n"
+              "\tfillseekseq   -- write N values in sequential key, then read "
+              "them by seeking to each key\n"
               "Meta operations:\n"
               "\tcompact     -- Compact the entire DB\n"
               "\tstats       -- Print DB stats\n"
@@ -146,6 +151,7 @@ DEFINE_int64(merge_keys, -1,
              "Number of distinct keys to use for MergeRandom and "
              "ReadRandomMergeRandom. "
              "If negative, there will be FLAGS_num keys.");
+DEFINE_int32(num_column_families, 1, "Number of Column Families to use.");
 
 DEFINE_int64(reads, -1, "Number of read operations to do.  "
              "If negative, do FLAGS_num reads.");
@@ -162,6 +168,12 @@ DEFINE_int32(duration, 0, "Time in seconds for the random-ops tests to run."
 
 DEFINE_int32(value_size, 100, "Size of each value");
 
+DEFINE_int32(seekseq_next, 0, "How many times to call Next() after Seek() in "
+             "fillseekseq");
+
+DEFINE_bool(use_uint64_comparator, false, "use Uint64 user comparator");
+
+DEFINE_int64(batch_size, 1, "Batch size");
 
 static bool ValidateKeySize(const char* flagname, int32_t value) {
   return true;
@@ -238,10 +250,11 @@ DEFINE_int32(universal_compression_size_percent, -1,
 DEFINE_int64(cache_size, -1, "Number of bytes to use as a cache of uncompressed"
              "data. Negative means use default settings.");
 
-DEFINE_int32(block_size, rocksdb::Options().block_size,
+DEFINE_int32(block_size, rocksdb::BlockBasedTableOptions().block_size,
              "Number of bytes in a block.");
 
-DEFINE_int32(block_restart_interval, rocksdb::Options().block_restart_interval,
+DEFINE_int32(block_restart_interval,
+             rocksdb::BlockBasedTableOptions().block_restart_interval,
              "Number of keys between restart points "
              "for delta encoding of keys.");
 
@@ -302,7 +315,7 @@ DEFINE_string(wal_dir, "", "If not empty, use the given dir for WAL");
 
 DEFINE_int32(num_levels, 7, "The total number of levels");
 
-DEFINE_int32(target_file_size_base, 2 * 1048576, "Target file size at level-1");
+DEFINE_int64(target_file_size_base, 2 * 1048576, "Target file size at level-1");
 
 DEFINE_int32(target_file_size_multiplier, 1,
              "A multiplier to compute target level-N file size (N >= 2)");
@@ -509,6 +522,9 @@ DEFINE_int64(keys_per_prefix, 0, "control average number of keys generated "
              "i.e. use the prefix comes with the generated random number.");
 DEFINE_bool(enable_io_prio, false, "Lower the background flush/compaction "
             "threads' IO priority");
+DEFINE_bool(identity_as_first_hash, false, "the first hash function of cuckoo "
+            "table becomes an identity function. This is only valid when key "
+            "is 8 bytes");
 
 enum RepFactory {
   kSkipList,
@@ -543,14 +559,21 @@ DEFINE_string(memtablerep, "skip_list", "");
 DEFINE_int64(hash_bucket_count, 1024 * 1024, "hash bucket count");
 DEFINE_bool(use_plain_table, false, "if use plain table "
             "instead of block-based table format");
+DEFINE_bool(use_cuckoo_table, false, "if use cuckoo table format");
+DEFINE_double(cuckoo_hash_ratio, 0.9, "Hash ratio for Cuckoo SST table.");
 DEFINE_bool(use_hash_search, false, "if use kHashSearch "
             "instead of kBinarySearch. "
             "This is valid if only we use BlockTable");
-
+DEFINE_bool(use_block_based_filter, false, "if use kBlockBasedFilter "
+            "instead of kFullFilter for filter block. "
+            "This is valid if only we use BlockTable");
 DEFINE_string(merge_operator, "", "The merge operator to use with the database."
               "If a new merge operator is specified, be sure to use fresh"
               " database The possible merge operators are defined in"
               " utilities/merge_operators.h");
+DEFINE_int32(skip_list_lookahead, 0, "Used with skip_list memtablerep; try "
+             "linear search first for this many steps from the previous "
+             "position");
 
 static const bool FLAGS_soft_rate_limit_dummy __attribute__((unused)) =
     RegisterFlagValidator(&FLAGS_soft_rate_limit, &ValidateRateLimit);
@@ -622,6 +645,14 @@ static void AppendWithSpace(std::string* str, Slice msg) {
   str->append(msg.data(), msg.size());
 }
 
+struct DBWithColumnFamilies {
+  std::vector<ColumnFamilyHandle*> cfh;
+  DB* db;
+  DBWithColumnFamilies() : db(nullptr) {
+    cfh.clear();
+  }
+};
+
 class Stats {
  private:
   int id_;
@@ -685,7 +716,7 @@ class Stats {
   void SetId(int id) { id_ = id; }
   void SetExcludeFromMerge() { exclude_from_merge_ = true; }
 
-  void FinishedOps(DB* db, int64_t num_ops) {
+  void FinishedOps(DBWithColumnFamilies* db_with_cfh, DB* db, int64_t num_ops) {
     if (FLAGS_histogram) {
       double now = FLAGS_env->NowMicros();
       double micros = now - last_op_finish_;
@@ -725,8 +756,17 @@ class Stats {
 
         if (FLAGS_stats_per_interval) {
           std::string stats;
-          if (db && db->GetProperty("rocksdb.stats", &stats))
+
+          if (db_with_cfh && db_with_cfh->cfh.size()) {
+            for (size_t i = 0; i < db_with_cfh->cfh.size(); ++i) {
+              if (db->GetProperty(db_with_cfh->cfh[i], "rocksdb.cfstats",
+                                  &stats))
+                fprintf(stderr, "%s\n", stats.c_str());
+            }
+
+          } else if (db && db->GetProperty("rocksdb.stats", &stats)) {
             fprintf(stderr, "%s\n", stats.c_str());
+          }
         }
 
         fflush(stderr);
@@ -841,12 +881,12 @@ class Duration {
 
 class Benchmark {
  private:
-  shared_ptr<Cache> cache_;
-  shared_ptr<Cache> compressed_cache_;
-  const FilterPolicy* filter_policy_;
+  std::shared_ptr<Cache> cache_;
+  std::shared_ptr<Cache> compressed_cache_;
+  std::shared_ptr<const FilterPolicy> filter_policy_;
   const SliceTransform* prefix_extractor_;
-  DB* db_;
-  std::vector<DB*> multi_dbs_;
+  DBWithColumnFamilies db_;
+  std::vector<DBWithColumnFamilies> multi_dbs_;
   int64_t num_;
   int value_size_;
   int key_size_;
@@ -1062,11 +1102,10 @@ class Benchmark {
            (FLAGS_cache_numshardbits >= 1 ?
             NewLRUCache(FLAGS_compressed_cache_size, FLAGS_cache_numshardbits) :
             NewLRUCache(FLAGS_compressed_cache_size)) : nullptr),
-    filter_policy_(FLAGS_bloom_bits >= 0
-                   ? NewBloomFilterPolicy(FLAGS_bloom_bits)
-                   : nullptr),
+    filter_policy_(FLAGS_bloom_bits >= 0 ?
+        NewBloomFilterPolicy(FLAGS_bloom_bits, FLAGS_use_block_based_filter)
+        : nullptr),
     prefix_extractor_(NewFixedPrefixTransform(FLAGS_prefix_size)),
-    db_(nullptr),
     num_(FLAGS_num),
     value_size_(FLAGS_value_size),
     key_size_(FLAGS_key_size),
@@ -1097,8 +1136,9 @@ class Benchmark {
   }
 
   ~Benchmark() {
-    delete db_;
-    delete filter_policy_;
+    std::for_each(db_.cfh.begin(), db_.cfh.end(),
+                  [](ColumnFamilyHandle* cfh) { delete cfh; });
+    delete db_.db;
     delete prefix_extractor_;
   }
 
@@ -1155,6 +1195,16 @@ class Benchmark {
 
   std::string GetDbNameForMultiple(std::string base_name, size_t id) {
     return base_name + std::to_string(id);
+  }
+
+  std::string ColumnFamilyName(int i) {
+    if (i == 0) {
+      return kDefaultColumnFamilyName;
+    } else {
+      char name[100];
+      snprintf(name, sizeof(name), "column_family_name_%06d", i);
+      return std::string(name);
+    }
   }
 
   void Run() {
@@ -1233,7 +1283,12 @@ class Benchmark {
         method = &Benchmark::ReadReverse;
       } else if (name == Slice("readrandom")) {
         method = &Benchmark::ReadRandom;
+      } else if (name == Slice("readrandomfast")) {
+        method = &Benchmark::ReadRandomFast;
       } else if (name == Slice("multireadrandom")) {
+        entries_per_batch_ = FLAGS_batch_size;
+        fprintf(stderr, "entries_per_batch = %" PRIi64 "\n",
+                entries_per_batch_);
         method = &Benchmark::MultiReadRandom;
       } else if (name == Slice("readmissing")) {
         ++key_size_;
@@ -1280,6 +1335,8 @@ class Benchmark {
         method = &Benchmark::MergeRandom;
       } else if (name == Slice("randomwithverify")) {
         method = &Benchmark::RandomWithVerify;
+      } else if (name == Slice("fillseekseq")) {
+        method = &Benchmark::WriteSeqSeekSeq;
       } else if (name == Slice("compact")) {
         method = &Benchmark::Compact;
       } else if (name == Slice("crc32c")) {
@@ -1311,13 +1368,16 @@ class Benchmark {
                   name.ToString().c_str());
           method = nullptr;
         } else {
-          if (db_ != nullptr) {
-            delete db_;
-            db_ = nullptr;
+          if (db_.db != nullptr) {
+            std::for_each(db_.cfh.begin(), db_.cfh.end(),
+                          [](ColumnFamilyHandle* cfh) { delete cfh; });
+            delete db_.db;
+            db_.db = nullptr;
+            db_.cfh.clear();
             DestroyDB(FLAGS_db, Options());
           }
           for (size_t i = 0; i < multi_dbs_.size(); i++) {
-            delete multi_dbs_[i];
+            delete multi_dbs_[i].db;
             DestroyDB(GetDbNameForMultiple(FLAGS_db, i), Options());
           }
           multi_dbs_.clear();
@@ -1442,7 +1502,7 @@ class Benchmark {
     uint32_t crc = 0;
     while (bytes < 500 * 1048576) {
       crc = crc32c::Value(data.data(), size);
-      thread->stats.FinishedOps(nullptr, 1);
+      thread->stats.FinishedOps(nullptr, nullptr, 1);
       bytes += size;
     }
     // Print so result is not dead
@@ -1461,7 +1521,7 @@ class Benchmark {
     unsigned int xxh32 = 0;
     while (bytes < 500 * 1048576) {
       xxh32 = XXH32(data.data(), size, 0);
-      thread->stats.FinishedOps(nullptr, 1);
+      thread->stats.FinishedOps(nullptr, nullptr, 1);
       bytes += size;
     }
     // Print so result is not dead
@@ -1482,14 +1542,14 @@ class Benchmark {
         ptr = ap.Acquire_Load();
       }
       count++;
-      thread->stats.FinishedOps(nullptr, 1);
+      thread->stats.FinishedOps(nullptr, nullptr, 1);
     }
     if (ptr == nullptr) exit(1); // Disable unused variable warning.
   }
 
   void Compress(ThreadState *thread) {
     RandomGenerator gen;
-    Slice input = gen.Generate(Options().block_size);
+    Slice input = gen.Generate(FLAGS_block_size);
     int64_t bytes = 0;
     int64_t produced = 0;
     bool ok = true;
@@ -1523,7 +1583,7 @@ class Benchmark {
       }
       produced += compressed.size();
       bytes += input.size();
-      thread->stats.FinishedOps(nullptr, 1);
+      thread->stats.FinishedOps(nullptr, nullptr, 1);
     }
 
     if (!ok) {
@@ -1539,7 +1599,7 @@ class Benchmark {
 
   void Uncompress(ThreadState *thread) {
     RandomGenerator gen;
-    Slice input = gen.Generate(Options().block_size);
+    Slice input = gen.Generate(FLAGS_block_size);
     std::string compressed;
 
     bool ok;
@@ -1604,7 +1664,7 @@ class Benchmark {
       }
       delete[] uncompressed;
       bytes += input.size();
-      thread->stats.FinishedOps(nullptr, 1);
+      thread->stats.FinishedOps(nullptr, nullptr, 1);
     }
 
     if (!ok) {
@@ -1615,14 +1675,10 @@ class Benchmark {
   }
 
   void Open() {
-    assert(db_ == nullptr);
+    assert(db_.db == nullptr);
     Options options;
     options.create_if_missing = !FLAGS_use_existing_db;
-    options.block_cache = cache_;
-    options.block_cache_compressed = compressed_cache_;
-    if (cache_ == nullptr) {
-      options.no_block_cache = true;
-    }
+    options.create_missing_column_families = FLAGS_num_column_families > 1;
     options.write_buffer_size = FLAGS_write_buffer_size;
     options.max_write_buffer_number = FLAGS_max_write_buffer_number;
     options.min_write_buffer_number_to_merge =
@@ -1630,12 +1686,16 @@ class Benchmark {
     options.max_background_compactions = FLAGS_max_background_compactions;
     options.max_background_flushes = FLAGS_max_background_flushes;
     options.compaction_style = FLAGS_compaction_style_e;
-    options.block_size = FLAGS_block_size;
-    options.block_restart_interval = FLAGS_block_restart_interval;
-    options.filter_policy = filter_policy_;
     if (FLAGS_prefix_size != 0) {
       options.prefix_extractor.reset(
           NewFixedPrefixTransform(FLAGS_prefix_size));
+    }
+    if (FLAGS_use_uint64_comparator) {
+      options.comparator = test::Uint64Comparator();
+      if (FLAGS_key_size != 8) {
+        fprintf(stderr, "Using Uint64 comparator but key size is not 8.\n");
+        exit(1);
+      }
     }
     options.memtable_prefix_bloom_bits = FLAGS_memtable_bloom_bits;
     options.bloom_locality = FLAGS_bloom_locality;
@@ -1668,7 +1728,8 @@ class Benchmark {
             FLAGS_hash_bucket_count));
         break;
       case kSkipList:
-        // no need to do anything
+        options.memtable_factory.reset(new SkipListFactory(
+            FLAGS_skip_list_lookahead));
         break;
       case kHashLinkedList:
         options.memtable_factory.reset(NewHashLinkListRepFactory(
@@ -1705,6 +1766,16 @@ class Benchmark {
       plain_table_options.hash_table_ratio = 0.75;
       options.table_factory = std::shared_ptr<TableFactory>(
           NewPlainTableFactory(plain_table_options));
+    } else if (FLAGS_use_cuckoo_table) {
+      if (FLAGS_cuckoo_hash_ratio > 1 || FLAGS_cuckoo_hash_ratio < 0) {
+        fprintf(stderr, "Invalid cuckoo_hash_ratio\n");
+        exit(1);
+      }
+      rocksdb::CuckooTableOptions table_options;
+      table_options.hash_table_ratio = FLAGS_cuckoo_hash_ratio;
+      table_options.identity_as_first_hash = FLAGS_identity_as_first_hash;
+      options.table_factory = std::shared_ptr<TableFactory>(
+          NewCuckooTableFactory(table_options));
     } else {
       BlockBasedTableOptions block_based_options;
       if (FLAGS_use_hash_search) {
@@ -1717,6 +1788,14 @@ class Benchmark {
       } else {
         block_based_options.index_type = BlockBasedTableOptions::kBinarySearch;
       }
+      if (cache_ == nullptr) {
+        block_based_options.no_block_cache = true;
+      }
+      block_based_options.block_cache = cache_;
+      block_based_options.block_cache_compressed = compressed_cache_;
+      block_based_options.block_size = FLAGS_block_size;
+      block_based_options.block_restart_interval = FLAGS_block_restart_interval;
+      block_based_options.filter_policy = filter_policy_;
       options.table_factory.reset(
           NewBlockBasedTableFactory(block_based_options));
     }
@@ -1807,10 +1886,9 @@ class Benchmark {
       OpenDb(options, FLAGS_db, &db_);
     } else {
       multi_dbs_.clear();
+      multi_dbs_.resize(FLAGS_num_multi_db);
       for (int i = 0; i < FLAGS_num_multi_db; i++) {
-        DB* db;
-        OpenDb(options, GetDbNameForMultiple(FLAGS_db, i), &db);
-        multi_dbs_.push_back(db);
+        OpenDb(options, GetDbNameForMultiple(FLAGS_db, i), &multi_dbs_[i]);
       }
     }
     if (FLAGS_min_level_to_compress >= 0) {
@@ -1818,12 +1896,27 @@ class Benchmark {
     }
   }
 
-  void OpenDb(Options options, std::string db_name, DB** db) {
+  void OpenDb(const Options& options, const std::string& db_name,
+      DBWithColumnFamilies* db) {
     Status s;
-    if(FLAGS_readonly) {
-      s = DB::OpenForReadOnly(options, db_name, db);
+    // Open with column families if necessary.
+    if (FLAGS_num_column_families > 1) {
+      db->cfh.resize(FLAGS_num_column_families);
+      std::vector<ColumnFamilyDescriptor> column_families;
+      for (int i = 0; i < FLAGS_num_column_families; i++) {
+        column_families.push_back(ColumnFamilyDescriptor(
+              ColumnFamilyName(i), ColumnFamilyOptions(options)));
+      }
+      if (FLAGS_readonly) {
+        s = DB::OpenForReadOnly(options, db_name, column_families,
+            &db->cfh, &db->db);
+      } else {
+        s = DB::Open(options, db_name, column_families, &db->cfh, &db->db);
+      }
+    } else if (FLAGS_readonly) {
+      s = DB::OpenForReadOnly(options, db_name, &db->db);
     } else {
-      s = DB::Open(options, db_name, db);
+      s = DB::Open(options, db_name, &db->db);
     }
     if (!s.ok()) {
       fprintf(stderr, "open error: %s\n", s.ToString().c_str());
@@ -1891,10 +1984,18 @@ class Benchmark {
   };
 
   DB* SelectDB(ThreadState* thread) {
-    if (db_ != nullptr) {
-      return db_;
-    } else {
-      return multi_dbs_[thread->rand.Next() % multi_dbs_.size()];
+    return SelectDBWithCfh(thread)->db;
+  }
+
+  DBWithColumnFamilies* SelectDBWithCfh(ThreadState* thread) {
+    return SelectDBWithCfh(thread->rand.Next());
+  }
+
+  DBWithColumnFamilies* SelectDBWithCfh(uint64_t rand_int) {
+    if (db_.db != nullptr) {
+      return &db_;
+    } else  {
+      return &multi_dbs_[rand_int % multi_dbs_.size()];
     }
   }
 
@@ -1903,7 +2004,7 @@ class Benchmark {
     const int64_t num_ops = writes_ == 0 ? num_ : writes_;
 
     size_t num_key_gens = 1;
-    if (db_ == nullptr) {
+    if (db_.db == nullptr) {
       num_key_gens = multi_dbs_.size();
     }
     std::vector<std::unique_ptr<KeyGenerator>> key_gens(num_key_gens);
@@ -1926,20 +2027,26 @@ class Benchmark {
     Slice key = AllocateKey();
     std::unique_ptr<const char[]> key_guard(key.data());
     while (!duration.Done(entries_per_batch_)) {
-      size_t id = 0;
-      DB* db_to_write = db_;
-      if (db_to_write == nullptr) {
-        id = thread->rand.Next() % num_key_gens;
-        db_to_write = multi_dbs_[id];
-      }
+      size_t id = thread->rand.Next() % num_key_gens;
+      DBWithColumnFamilies* db_with_cfh = SelectDBWithCfh(id);
       batch.Clear();
       for (int64_t j = 0; j < entries_per_batch_; j++) {
-        GenerateKeyFromInt(key_gens[id]->Next(), FLAGS_num, &key);
-        batch.Put(key, gen.Generate(value_size_));
+        int64_t rand_num = key_gens[id]->Next();
+        GenerateKeyFromInt(rand_num, FLAGS_num, &key);
+        if (FLAGS_num_column_families <= 1) {
+          batch.Put(key, gen.Generate(value_size_));
+        } else {
+          // We use same rand_num as seed for key and column family so that we
+          // can deterministically find the cfh corresponding to a particular
+          // key while reading the key.
+          batch.Put(db_with_cfh->cfh[rand_num % db_with_cfh->cfh.size()],
+              key, gen.Generate(value_size_));
+        }
         bytes += value_size_ + key_size_;
       }
-      s = db_to_write->Write(write_options_, &batch);
-      thread->stats.FinishedOps(db_to_write, entries_per_batch_);
+      s = db_with_cfh->db->Write(write_options_, &batch);
+      thread->stats.FinishedOps(db_with_cfh, db_with_cfh->db,
+                                entries_per_batch_);
       if (!s.ok()) {
         fprintf(stderr, "put error: %s\n", s.ToString().c_str());
         exit(1);
@@ -1949,11 +2056,11 @@ class Benchmark {
   }
 
   void ReadSequential(ThreadState* thread) {
-    if (db_ != nullptr) {
-      ReadSequential(thread, db_);
+    if (db_.db != nullptr) {
+      ReadSequential(thread, db_.db);
     } else {
-      for (DB* db : multi_dbs_) {
-        ReadSequential(thread, db);
+      for (const auto& db_with_cfh : multi_dbs_) {
+        ReadSequential(thread, db_with_cfh.db);
       }
     }
   }
@@ -1964,7 +2071,7 @@ class Benchmark {
     int64_t bytes = 0;
     for (iter->SeekToFirst(); i < reads_ && iter->Valid(); iter->Next()) {
       bytes += iter->key().size() + iter->value().size();
-      thread->stats.FinishedOps(db, 1);
+      thread->stats.FinishedOps(nullptr, db, 1);
       ++i;
     }
     delete iter;
@@ -1972,11 +2079,11 @@ class Benchmark {
   }
 
   void ReadReverse(ThreadState* thread) {
-    if (db_ != nullptr) {
-      ReadReverse(thread, db_);
+    if (db_.db != nullptr) {
+      ReadReverse(thread, db_.db);
     } else {
-      for (DB* db : multi_dbs_) {
-        ReadReverse(thread, db);
+      for (const auto& db_with_cfh : multi_dbs_) {
+        ReadReverse(thread, db_with_cfh.db);
       }
     }
   }
@@ -1987,11 +2094,54 @@ class Benchmark {
     int64_t bytes = 0;
     for (iter->SeekToLast(); i < reads_ && iter->Valid(); iter->Prev()) {
       bytes += iter->key().size() + iter->value().size();
-      thread->stats.FinishedOps(db_, 1);
+      thread->stats.FinishedOps(nullptr, db, 1);
       ++i;
     }
     delete iter;
     thread->stats.AddBytes(bytes);
+  }
+
+  void ReadRandomFast(ThreadState* thread) {
+    int64_t read = 0;
+    int64_t found = 0;
+    int64_t nonexist = 0;
+    ReadOptions options(FLAGS_verify_checksum, true);
+    Slice key = AllocateKey();
+    std::unique_ptr<const char[]> key_guard(key.data());
+    std::string value;
+    DB* db = SelectDBWithCfh(thread)->db;
+
+    int64_t pot = 1;
+    while (pot < FLAGS_num) {
+      pot <<= 1;
+    }
+
+    Duration duration(FLAGS_duration, reads_);
+    do {
+      for (int i = 0; i < 100; ++i) {
+        int64_t key_rand = thread->rand.Next() & (pot - 1);
+        GenerateKeyFromInt(key_rand, FLAGS_num, &key);
+        ++read;
+        if (db->Get(options, key, &value).ok()) {
+          ++found;
+        }
+        if (key_rand >= FLAGS_num) {
+          ++nonexist;
+        }
+      }
+      thread->stats.FinishedOps(nullptr, db, 100);
+    } while (!duration.Done(100));
+
+    char msg[100];
+    snprintf(msg, sizeof(msg), "(%" PRIu64 " of %" PRIu64 " found, "
+             "issued %" PRIu64 " non-exist keys)\n",
+             found, read, nonexist);
+
+    thread->stats.AddMessage(msg);
+
+    if (FLAGS_perf_level > 0) {
+      thread->stats.AddMessage(perf_context.ToString());
+    }
   }
 
   void ReadRandom(ThreadState* thread) {
@@ -2004,13 +2154,24 @@ class Benchmark {
 
     Duration duration(FLAGS_duration, reads_);
     while (!duration.Done(1)) {
-      DB* db = SelectDB(thread);
-      GenerateKeyFromInt(thread->rand.Next() % FLAGS_num, FLAGS_num, &key);
+      DBWithColumnFamilies* db_with_cfh = SelectDBWithCfh(thread);
+      // We use same key_rand as seed for key and column family so that we can
+      // deterministically find the cfh corresponding to a particular key, as it
+      // is done in DoWrite method.
+      int64_t key_rand = thread->rand.Next() % FLAGS_num;
+      GenerateKeyFromInt(key_rand, FLAGS_num, &key);
       read++;
-      if (db->Get(options, key, &value).ok()) {
+      Status s;
+      if (FLAGS_num_column_families > 1) {
+        s = db_with_cfh->db->Get(options,
+            db_with_cfh->cfh[key_rand % db_with_cfh->cfh.size()], key, &value);
+      } else {
+        s = db_with_cfh->db->Get(options, key, &value);
+      }
+      if (s.ok()) {
         found++;
       }
-      thread->stats.FinishedOps(db_, 1);
+      thread->stats.FinishedOps(db_with_cfh, db_with_cfh->db, 1);
     }
 
     char msg[100];
@@ -2052,6 +2213,7 @@ class Benchmark {
           ++found;
         }
       }
+      thread->stats.FinishedOps(nullptr, db, entries_per_batch_);
     }
     for (auto& k : keys) {
       delete k.data();
@@ -2070,7 +2232,7 @@ class Benchmark {
       DB* db = SelectDB(thread);
       Iterator* iter = db->NewIterator(options);
       delete iter;
-      thread->stats.FinishedOps(db, 1);
+      thread->stats.FinishedOps(nullptr, db, 1);
     }
   }
 
@@ -2090,11 +2252,11 @@ class Benchmark {
 
     Iterator* single_iter = nullptr;
     std::vector<Iterator*> multi_iters;
-    if (db_ != nullptr) {
-      single_iter = db_->NewIterator(options);
+    if (db_.db != nullptr) {
+      single_iter = db_.db->NewIterator(options);
     } else {
-      for (DB* db : multi_dbs_) {
-        multi_iters.push_back(db->NewIterator(options));
+      for (const auto& db_with_cfh : multi_dbs_) {
+        multi_iters.push_back(db_with_cfh.db->NewIterator(options));
       }
     }
     uint64_t last_refresh = FLAGS_env->NowMicros();
@@ -2107,16 +2269,16 @@ class Benchmark {
       if (!FLAGS_use_tailing_iterator && FLAGS_iter_refresh_interval_us >= 0) {
         uint64_t now = FLAGS_env->NowMicros();
         if (now - last_refresh > (uint64_t)FLAGS_iter_refresh_interval_us) {
-          if (db_ != nullptr) {
+          if (db_.db != nullptr) {
             delete single_iter;
-            single_iter = db_->NewIterator(options);
+            single_iter = db_.db->NewIterator(options);
           } else {
             for (auto iter : multi_iters) {
               delete iter;
             }
             multi_iters.clear();
-            for (DB* db : multi_dbs_) {
-              multi_iters.push_back(db->NewIterator(options));
+            for (const auto& db_with_cfh : multi_dbs_) {
+              multi_iters.push_back(db_with_cfh.db->NewIterator(options));
             }
           }
         }
@@ -2134,7 +2296,7 @@ class Benchmark {
       if (iter_to_use->Valid() && iter_to_use->key().compare(key) == 0) {
         found++;
       }
-      thread->stats.FinishedOps(db_, 1);
+      thread->stats.FinishedOps(&db_, db_.db, 1);
     }
     delete single_iter;
     for (auto iter : multi_iters) {
@@ -2174,7 +2336,7 @@ class Benchmark {
         batch.Delete(key);
       }
       auto s = db->Write(write_options_, &batch);
-      thread->stats.FinishedOps(db, entries_per_batch_);
+      thread->stats.FinishedOps(nullptr, db, entries_per_batch_);
       if (!s.ok()) {
         fprintf(stderr, "del error: %s\n", s.ToString().c_str());
         exit(1);
@@ -2234,7 +2396,7 @@ class Benchmark {
         fprintf(stderr, "put error: %s\n", s.ToString().c_str());
         exit(1);
       }
-      thread->stats.FinishedOps(db_, 1);
+      thread->stats.FinishedOps(&db_, db_.db, 1);
 
       ++num_writes;
       if (writes_per_second_by_10 && num_writes >= writes_per_second_by_10) {
@@ -2394,7 +2556,7 @@ class Benchmark {
         deletes_done++;
       }
 
-      thread->stats.FinishedOps(db_, 1);
+      thread->stats.FinishedOps(&db_, db_.db, 1);
     }
     char msg[100];
     snprintf(msg, sizeof(msg),
@@ -2452,7 +2614,7 @@ class Benchmark {
         put_weight--;
         writes_done++;
       }
-      thread->stats.FinishedOps(db, 1);
+      thread->stats.FinishedOps(nullptr, db, 1);
     }
     char msg[100];
     snprintf(msg, sizeof(msg), "( reads:%" PRIu64 " writes:%" PRIu64 \
@@ -2486,7 +2648,7 @@ class Benchmark {
         fprintf(stderr, "put error: %s\n", s.ToString().c_str());
         exit(1);
       }
-      thread->stats.FinishedOps(db, 1);
+      thread->stats.FinishedOps(nullptr, db, 1);
     }
     char msg[100];
     snprintf(msg, sizeof(msg),
@@ -2533,7 +2695,7 @@ class Benchmark {
         fprintf(stderr, "put error: %s\n", s.ToString().c_str());
         exit(1);
       }
-      thread->stats.FinishedOps(db_, 1);
+      thread->stats.FinishedOps(nullptr, db, 1);
     }
 
     char msg[100];
@@ -2569,7 +2731,7 @@ class Benchmark {
         fprintf(stderr, "merge error: %s\n", s.ToString().c_str());
         exit(1);
       }
-      thread->stats.FinishedOps(db_, 1);
+      thread->stats.FinishedOps(nullptr, db, 1);
     }
 
     // Print some statistics
@@ -2630,7 +2792,7 @@ class Benchmark {
 
       }
 
-      thread->stats.FinishedOps(db_, 1);
+      thread->stats.FinishedOps(nullptr, db, 1);
     }
 
     char msg[100];
@@ -2641,17 +2803,47 @@ class Benchmark {
     thread->stats.AddMessage(msg);
   }
 
+  void WriteSeqSeekSeq(ThreadState* thread) {
+    writes_ = FLAGS_num;
+    DoWrite(thread, SEQUENTIAL);
+    // exclude writes from the ops/sec calculation
+    thread->stats.Start(thread->tid);
+
+    DB* db = SelectDB(thread);
+    std::unique_ptr<Iterator> iter(
+      db->NewIterator(ReadOptions(FLAGS_verify_checksum, true)));
+
+    Slice key = AllocateKey();
+    for (int64_t i = 0; i < FLAGS_num; ++i) {
+      GenerateKeyFromInt(i, FLAGS_num, &key);
+      iter->Seek(key);
+      assert(iter->Valid() && iter->key() == key);
+      thread->stats.FinishedOps(nullptr, db, 1);
+
+      for (int j = 0; j < FLAGS_seekseq_next && i+1 < FLAGS_num; ++j) {
+        iter->Next();
+        GenerateKeyFromInt(++i, FLAGS_num, &key);
+        assert(iter->Valid() && iter->key() == key);
+        thread->stats.FinishedOps(nullptr, db, 1);
+      }
+
+      iter->Seek(key);
+      assert(iter->Valid() && iter->key() == key);
+      thread->stats.FinishedOps(nullptr, db, 1);
+    }
+  }
+
   void Compact(ThreadState* thread) {
     DB* db = SelectDB(thread);
     db->CompactRange(nullptr, nullptr);
   }
 
   void PrintStats(const char* key) {
-    if (db_ != nullptr) {
-      PrintStats(db_, key, false);
+    if (db_.db != nullptr) {
+      PrintStats(db_.db, key, false);
     }
-    for (DB* db : multi_dbs_) {
-      PrintStats(db, key, true);
+    for (const auto& db_with_cfh : multi_dbs_) {
+      PrintStats(db_with_cfh.db, key, true);
     }
   }
 
