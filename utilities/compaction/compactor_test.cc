@@ -299,7 +299,7 @@ class FullCompactorFactory : public CompactorFactory {
 
 TEST(CompactorTEST, PluggableCompactor) {
   Options options;
-  // disable RocksDB BG compaction
+  // use internal pluggable compaction
   options.compaction_style = static_cast<CompactionStyle>(
       kCompactionStyleNone + 1);
   DBImpl::TEST_SetCompactorFactory(
