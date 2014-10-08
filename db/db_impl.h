@@ -462,7 +462,7 @@ class DBImpl : public DB {
   Status CompactFilesImpl(
       const CompactionOptions& compact_options, ColumnFamilyData* cfd,
       Version* version, const std::vector<uint64_t>& input_file_numbers,
-      const int output_level, const int output_path_id);
+      const int output_level, int output_path_id);
 
   void MaybeScheduleFlushOrCompaction();
   static void BGWorkCompaction(void* db);

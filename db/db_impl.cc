@@ -1736,7 +1736,7 @@ Status DBImpl::CompactFiles(
 Status DBImpl::CompactFilesImpl(
     const CompactionOptions& compact_options, ColumnFamilyData* cfd,
     Version* version, const std::vector<uint64_t>& input_file_numbers,
-    const int output_level, const int output_path_id) {
+    const int output_level, int output_path_id) {
   mutex_.AssertHeld();
 
   if (shutting_down_.Acquire_Load()) {
@@ -1750,9 +1750,13 @@ Status DBImpl::CompactFilesImpl(
   version->GetColumnFamilyMetaData(&cf_meta, options_);
 
   if (output_path_id < 0) {
-    return Status::NotSupported(
-        "Automatic output path selection is not "
-        "yet supported in CompactFiles()");
+    if (options_.db_paths.size() == 1U) {
+      output_path_id = 0;
+    } else {
+      return Status::NotSupported(
+          "Automatic output path selection is not "
+          "yet supported in CompactFiles()");
+    }
   }
 
   Status s = cfd->compaction_picker()->SanitizeCompactionInputFiles(
@@ -1800,13 +1804,7 @@ Status DBImpl::CompactFilesImpl(
     c->ReleaseCompactionFiles(s);
     bg_compaction_scheduled_--;
   } else {
-    if (output_path_id < 0) {
-      // TODO(yhchiang): find the best suitable output path
-      // find the best fit path_id here
-      // c->SetOutputPathId(FindBestSuitablePathId(c));
-    } else {
-      c->SetOutputPathId(static_cast<uint32_t>(output_path_id));
-    }
+    c->SetOutputPathId(static_cast<uint32_t>(output_path_id));
 
     bg_compaction_scheduled_++;
 

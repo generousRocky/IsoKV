@@ -7880,7 +7880,7 @@ TEST(DBTest, CompactFilesOnLevelCompaction) {
     ASSERT_OK(dbfull()->CompactFiles(
         CompactionOptions(), "pikachu",
         compaction_input_file_numbers,
-        output_level, 0));
+        output_level));
 
     // Make sure all overlapping files do not exist after compaction
     dbfull()->GetColumnFamilyMetaData(&cf_meta, "pikachu");
@@ -7932,14 +7932,13 @@ TEST(DBTest, CompactFilesOnUniversalCompaction) {
   // expect fail since universal compaction only allow L0 output
   ASSERT_TRUE(!dbfull()->CompactFiles(
       CompactionOptions(), "pikachu",
-      compaction_input_file_numbers,
-      1, 0).ok());
+      compaction_input_file_numbers, 1).ok());
 
   // expect ok and verify the compacted files no longer exist.
   ASSERT_OK(dbfull()->CompactFiles(
       CompactionOptions(), "pikachu",
-      compaction_input_file_numbers,
-      0, 0));
+      compaction_input_file_numbers, 0));
+
   dbfull()->GetColumnFamilyMetaData(&cf_meta, "pikachu");
   VerifyCompactionResult(
       cf_meta,
@@ -7957,8 +7956,8 @@ TEST(DBTest, CompactFilesOnUniversalCompaction) {
           cf_meta.levels[0].files.size() - 1].file_number);
   ASSERT_OK(dbfull()->CompactFiles(
       CompactionOptions(), "pikachu",
-      compaction_input_file_numbers,
-      0, 0));
+      compaction_input_file_numbers, 0));
+
   dbfull()->GetColumnFamilyMetaData(&cf_meta, "pikachu");
   ASSERT_EQ(cf_meta.levels[0].files.size(), 1U);
 }
@@ -7987,7 +7986,7 @@ TEST(DBTest, CompactFilesDeletion) {
 
     // issue deletion compaction
     ASSERT_OK(db_->CompactFiles(CompactionOptions(),
-        {file_number}, kDeletionCompaction, 0));
+        {file_number}, kDeletionCompaction));
 
     // verify the deleted file does not exist.
     db_->GetColumnFamilyMetaData(&cf_meta);
@@ -8018,15 +8017,15 @@ TEST(DBTest, CompactFilesSanitize) {
   auto file_number = PickFileRandomly(cf_meta, &rnd)->file_number;
   ASSERT_EQ(FileExists(cf_meta, file_number), true);
   ASSERT_OK(db_->CompactFiles(CompactionOptions(),
-      {file_number}, kDeletionCompaction, 0));
+      {file_number}, kDeletionCompaction));
 
   // run the same compaction but expect file-not-exist error.
   ASSERT_TRUE(db_->CompactFiles(CompactionOptions(),
-      {file_number}, kDeletionCompaction, 0).IsInvalidArgument());
+      {file_number}, kDeletionCompaction).IsInvalidArgument());
 
   // run with empty compaction input and expect error.
   ASSERT_TRUE(db_->CompactFiles(CompactionOptions(),
-      {}, kDeletionCompaction, 0).IsInvalidArgument());
+      {}, kDeletionCompaction).IsInvalidArgument());
 }
 
 }  // namespace rocksdb
