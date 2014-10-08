@@ -131,8 +131,6 @@ class CompactionPicker {
   // Will return false if it is impossible to apply this compaction.
   bool ExpandWhileOverlapping(Compaction* c);
 
-  uint64_t ExpandedCompactionByteSizeLimit(int level);
-
   // Returns true if any one of the parent files are being compacted
   bool ParentRangeInCompaction(Version* version, const InternalKey* smallest,
                                const InternalKey* largest, int level,
@@ -144,7 +142,7 @@ class CompactionPicker {
   const ImmutableCFOptions& ioptions_;
 
   // A helper function to SanitizeCompactionInputFiles() that
-  // tries to add more files into "input_files" when necessary.
+  // sanitizes "input_files" by adding necessary files.
   virtual Status SanitizeCompactionInputFilesForAllLevels(
       std::set<uint64_t>* input_files,
       const ColumnFamilyMetaData& cf_meta,
@@ -162,8 +160,6 @@ class CompactionPicker {
 
   // record all the ongoing compactions for all levels
   std::vector<std::set<Compaction*>> compactions_in_progress_;
-
-  int num_levels_;
 
   const InternalKeyComparator* const icmp_;
 };
