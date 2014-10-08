@@ -239,7 +239,7 @@ TEST(CompactorTEST, PureExternalCompaction) {
 namespace {
 class FullCompactor : public Compactor {
  public:
-  explicit FullCompactor(
+  FullCompactor(
       const ImmutableCFOptions& ioptions,
       const CompactionOptions& coptions) :
       Compactor(ioptions, coptions) {}
@@ -286,7 +286,7 @@ class FullCompactor : public Compactor {
 
 class FullCompactorFactory : public CompactorFactory {
  public:
-  FullCompactorFactory(const CompactionOptions& coptions)
+  explicit FullCompactorFactory(const CompactionOptions& coptions)
       : CompactorFactory(coptions) {}
 
   virtual Compactor* CreateCompactor(

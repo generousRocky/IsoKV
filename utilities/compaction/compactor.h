@@ -79,7 +79,7 @@ class CompactorFactory {
   // Creates a pointer to a Compactor object.
   virtual Compactor* CreateCompactor(
       const ImmutableCFOptions& options) = 0;
-  
+
   const CompactionOptions compact_options_;
 };
 
