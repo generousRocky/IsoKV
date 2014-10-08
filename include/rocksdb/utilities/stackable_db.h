@@ -214,6 +214,8 @@ class StackableDB : public DB {
     return db_->Flush(fopts, column_family);
   }
 
+#ifndef ROCKSDB_LITE
+
   virtual Status AddListener(EventListener* listener) override {
     return db_->AddListener(listener);
   }
@@ -238,6 +240,7 @@ class StackableDB : public DB {
   virtual void GetDatabaseMetaData(DatabaseMetaData* metadata) override {
     db_->GetDatabaseMetaData(metadata);
   }
+#endif  // ROCKSDB_LITE
 
   virtual Status GetLiveFiles(std::vector<std::string>& vec, uint64_t* mfs,
                               bool flush_memtable = true) override {

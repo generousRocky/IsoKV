@@ -397,11 +397,13 @@ DBImpl::~DBImpl() {
     bg_cv_.Wait();
   }
 
+#ifndef ROCKSDB_LITE
   // Clear event listeners
   {
     MutexLock l(&listener_mutex_);
     listeners_.clear();
   }
+#endif  // ROCKSDB_LITE
   flush_scheduler_.Clear();
 
   if (default_cf_handle_ != nullptr) {
@@ -1667,9 +1669,11 @@ Status DBImpl::FlushMemTableToOutputFile(
     bg_error_ = s;
   }
   RecordFlushIOStats();
+#ifndef ROCKSDB_LITE
   if (s.ok()) {
     NotifyOnFlushCompleted(cfd, file_number);
   }
+#endif  // ROCKSDB_LITE
   return s;
 }
 
@@ -1744,8 +1748,8 @@ Status DBImpl::CompactFiles(
     return Status::InvalidArgument("ColumnFamilyHandle must be non-null.");
   }
 
-  auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
-  auto cfd = cfh->cfd();
+  auto cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family)->cfd();
+  assert(cfd);
   cfd->Ref();
   auto version = cfd->current();
   version->Ref();
@@ -1794,6 +1798,8 @@ Status DBImpl::CompactFilesImpl(
     Version* version, const std::vector<uint64_t>& input_file_numbers,
     const int output_level, int output_path_id) {
   mutex_.AssertHeld();
+    
+  LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL, db_options_.info_log.get());
 
   if (shutting_down_.Acquire_Load()) {
     return Status::ShutdownInProgress();
@@ -1837,7 +1843,6 @@ Status DBImpl::CompactFilesImpl(
   }
 
   unique_ptr<Compaction> c;
-
   assert(cfd->compaction_picker());
   c.reset(cfd->compaction_picker()->FormCompaction(
         compact_options, input_files,
@@ -1848,10 +1853,12 @@ Status DBImpl::CompactFilesImpl(
   DeletionState deletion_state(true);
 
   if (c->IsDeletionCompaction()) {
+    int deleted_file_count = 0;
     for (int input_level = 0;
          input_level < c->num_input_levels(); ++input_level) {
       for (const auto& f : *c->inputs(input_level)) {
         c->edit()->DeleteFile(c->level(input_level), f->fd.GetNumber());
+        deleted_file_count++;
       }
     }
     bg_compaction_scheduled_++;
@@ -1862,6 +1869,9 @@ Status DBImpl::CompactFilesImpl(
         c->edit(), &mutex_, db_directory_.get());
     InstallSuperVersion(
         c->column_family_data(), deletion_state, mutable_cf_options);
+    LogToBuffer(&log_buffer, "[%s] Deleted %d files\n",
+                c->column_family_data()->GetName().c_str(),
+                deleted_file_count);
     c->ReleaseCompactionFiles(s);
     bg_compaction_scheduled_--;
   } else {
@@ -1869,7 +1879,6 @@ Status DBImpl::CompactFilesImpl(
 
     bg_compaction_scheduled_++;
 
-    LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL, db_options_.info_log.get());
     CompactionState* compact = new CompactionState(c.get());
     // May unlock and lock inside DoCompactionWork
     s = DoCompactionWork(compact, *c->mutable_cf_options(),
@@ -1896,8 +1905,7 @@ Status DBImpl::CompactFilesImpl(
     // states of DB so info_log might not be available after that point.
     // It also applies to access other states that DB owns.
 
-    // TODO(yhchiang): add log buffer
-    // log_buffer.FlushBufferToLog();
+    log_buffer.FlushBufferToLog();
     if (deletion_state.HaveSomethingToDelete()) {
       PurgeObsoleteFiles(deletion_state);
     }
@@ -1952,6 +1960,8 @@ Status DBImpl::ScheduleCompactFiles(
 void DBImpl::BGWorkCompactFiles(void* job) {
   IOSTATS_SET_THREAD_POOL_ID(Env::Priority::LOW);
   CompactionJob* compact_job = reinterpret_cast<CompactionJob*>(job);
+  // TODO(yhchiang): could record the compaction stats such as elapsed time
+  //                 and pass them to EventListener callback.
   Status s = compact_job->db->CompactFiles(
       compact_job->compact_options,
       compact_job->column_family_name,
@@ -1959,21 +1969,10 @@ void DBImpl::BGWorkCompactFiles(void* job) {
       compact_job->output_level,
       compact_job->output_path_id);
   DBImpl* db_impl = reinterpret_cast<DBImpl*>(compact_job->db);
+#ifndef ROCKSDB_LITE
   db_impl->NotifyOnBackgroundCompactFilesCompleted(compact_job->id, s);
   delete compact_job;
-}
-
-void DBImpl::NotifyOnBackgroundCompactFilesCompleted(
-    const std::string& job_id, const Status& s) {
-  MutexLock l(&listener_mutex_);
-  if (shutting_down_.Acquire_Load()) {
-    return;
-  }
-
-  for (auto listener : listeners_) {
-    // make defensive string copy here for job_id
-    listener->OnBackgroundCompactFilesCompleted(this, job_id, s);
-  }
+#endif  // ROCKSDB_LITE
 }
 
 bool DBImpl::SetOptions(ColumnFamilyHandle* column_family,
@@ -4838,6 +4837,19 @@ void DBImpl::NotifyOnFlushCompleted(
         // Use path 0 as fulled memtables are first flushed into path 0.
         MakeTableFileName(db_options_.db_paths[0].path, file_number),
         triggered_flush_slowdown, triggered_flush_stop);
+  }
+}
+
+void DBImpl::NotifyOnBackgroundCompactFilesCompleted(
+    const std::string& job_id, const Status& s) {
+  MutexLock l(&listener_mutex_);
+  if (shutting_down_.Acquire_Load()) {
+    return;
+  }
+
+  for (auto listener : listeners_) {
+    // make defensive string copy here for job_id
+    listener->OnBackgroundCompactFilesCompleted(this, job_id, s);
   }
 }
 

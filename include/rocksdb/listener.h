@@ -4,6 +4,8 @@
 
 #pragma once
 
+#ifndef ROCKSDB_LITE
+
 #include <string>
 #include "rocksdb/status.h"
 
@@ -58,3 +60,5 @@ class EventListener {
 };
 
 }  // namespace rocksdb
+
+#endif  // ROCKSDB_LITE

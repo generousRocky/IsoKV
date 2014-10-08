@@ -32,6 +32,8 @@
 #include "util/sync_point.h"
 #include "util/testutil.h"
 
+#ifndef ROCKSDB_LITE
+
 namespace rocksdb {
 
 class EventListenerTest {
@@ -340,6 +342,8 @@ TEST(EventListenerTest, DisableBGCompaction) {
 }
 
 }  // namespace rocksdb
+
+#endif  // ROCKSDB_LITE
 
 int main(int argc, char** argv) {
   return rocksdb::test::RunAllTests();

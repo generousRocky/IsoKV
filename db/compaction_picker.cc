@@ -533,7 +533,7 @@ Status CompactionPicker::SanitizeCompactionInputFilesForAllLevels(
       }
     }
 
-    SstFileMetaData super_file_meta(
+    SstFileMetaData aggregated_file_meta(
         0, "", 0, 0, 0, 0,
         smallestkey,
         largestkey, false);
@@ -542,7 +542,7 @@ Status CompactionPicker::SanitizeCompactionInputFilesForAllLevels(
     for (int m = l + 1; m <= output_level; ++m) {
       for (auto& next_lv_file : levels[m].files) {
         if (HaveOverlappingKeyRanges(
-            comparator, super_file_meta, next_lv_file)) {
+            comparator, aggregated_file_meta, next_lv_file)) {
           if (next_lv_file.being_compacted) {
             return Status::Aborted(
                 "File " + std::to_string(next_lv_file.file_number) +

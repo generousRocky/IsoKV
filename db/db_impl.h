@@ -47,9 +47,7 @@ class VersionSet;
 class CompactionFilterV2;
 class Arena;
 
-// A structure that describes a compaction job.  Will move to
-// include/rocksdb/db.h once the PluggableCompactionPicker has
-// been fully developed.
+// A structure that describes a compaction job.
 struct CompactionJob {
   DB* db;
   std::string column_family_name;
@@ -286,7 +284,7 @@ class DBImpl : public DB {
   // REQUIRES: mutex locked
   // pass the pointer that you got from TEST_BeginWrite()
   void TEST_EndWrite(void* w);
-#endif  // NDEBUG
+#endif  // ROCKSDB_LITE
 
   // Structure to store information for candidate files to delete.
   struct CandidateFileInfo {
@@ -505,10 +503,6 @@ class DBImpl : public DB {
       const MutableCFOptions& mutable_cf_options, LogBuffer* log_buffer);
   void AllocateCompactionOutputFileNumbers(CompactionState* compact);
   void ReleaseCompactionUnusedFileNumbers(CompactionState* compact);
-  void NotifyOnFlushCompleted(ColumnFamilyData* cfd, uint64_t file_number);
-  void NotifyOnBackgroundCompactFilesCompleted(
-      const std::string& job_id, const Status& s);
-  ColumnFamilyData* GetColumnFamilyDataByName(const std::string& cf_name);
 
 #ifdef ROCKSDB_LITE
   void PurgeObsoleteWALFiles() {
@@ -516,6 +510,10 @@ class DBImpl : public DB {
     // ROCKSDB_LITE
   }
 #else
+  ColumnFamilyData* GetColumnFamilyDataByName(const std::string& cf_name);
+  void NotifyOnFlushCompleted(ColumnFamilyData* cfd, uint64_t file_number);
+  void NotifyOnBackgroundCompactFilesCompleted(
+      const std::string& job_id, const Status& s);
   void PurgeObsoleteWALFiles();
 
   Status GetSortedWalsOfType(const std::string& path,
@@ -688,11 +686,13 @@ class DBImpl : public DB {
   // Indicate DB was opened successfully
   bool opened_successfully_;
 
+#ifndef ROCKSDB_LITE
   // The mutex for listeners_.
   port::Mutex listener_mutex_;
 
   // The list of registered event listeners.
   std::list<EventListener*> listeners_;
+#endif  // ROCKSDB_LITE
 
   // No copying allowed
   DBImpl(const DBImpl&);
