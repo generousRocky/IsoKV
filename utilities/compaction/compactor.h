@@ -27,8 +27,9 @@ struct Options;
 class Compactor {
  public:
   // Constructs a compactor given the currently used options.
-  explicit Compactor(const ImmutableCFOptions& ioptions) :
-      ioptions_(ioptions) {}
+  explicit Compactor(const ImmutableCFOptions& ioptions,
+                     const CompactionOptions& coptions) :
+      ioptions_(ioptions), compact_options_(coptions) {}
 
   // Given the meta data describes the current state of a column
   // family, this function will determine a list of compaction
@@ -61,15 +62,25 @@ class Compactor {
       const ColumnFamilyMetaData& cf_meta,
       const int output_level) = 0;
 
+  const CompactionOptions& compact_options() {
+    return compact_options_;
+  }
+
  protected:
   const ImmutableCFOptions& ioptions_;
+  const CompactionOptions& compact_options_;
 };
 
 class CompactorFactory {
  public:
+  explicit CompactorFactory(const CompactionOptions& coptions)
+      : compact_options_(coptions) {}
+
   // Creates a pointer to a Compactor object.
   virtual Compactor* CreateCompactor(
       const ImmutableCFOptions& options) = 0;
+  
+  const CompactionOptions compact_options_;
 };
 
 }  // namespace rocksdb

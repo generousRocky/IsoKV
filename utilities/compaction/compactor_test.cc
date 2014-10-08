@@ -239,8 +239,10 @@ TEST(CompactorTEST, PureExternalCompaction) {
 namespace {
 class FullCompactor : public Compactor {
  public:
-  explicit FullCompactor(const ImmutableCFOptions& ioptions) :
-      Compactor(ioptions) {}
+  explicit FullCompactor(
+      const ImmutableCFOptions& ioptions,
+      const CompactionOptions& coptions) :
+      Compactor(ioptions, coptions) {}
 
   virtual Status SanitizeCompactionInputFiles(
       std::set<uint64_t>* input_files,
@@ -284,11 +286,12 @@ class FullCompactor : public Compactor {
 
 class FullCompactorFactory : public CompactorFactory {
  public:
-  FullCompactorFactory() {}
+  FullCompactorFactory(const CompactionOptions& coptions)
+      : CompactorFactory(coptions) {}
 
   virtual Compactor* CreateCompactor(
       const ImmutableCFOptions& ioptions) {
-    return new FullCompactor(ioptions);
+    return new FullCompactor(ioptions, compact_options_);
   }
 };
 
@@ -299,7 +302,8 @@ TEST(CompactorTEST, PluggableCompactor) {
   // disable RocksDB BG compaction
   options.compaction_style = static_cast<CompactionStyle>(
       kCompactionStyleNone + 1);
-  DBImpl::TEST_SetCompactorFactory(new FullCompactorFactory());
+  DBImpl::TEST_SetCompactorFactory(
+      new FullCompactorFactory(CompactionOptions()));
   // configure DB in a way that it will hang if custom
   // compactor is not working properly.
   options.level0_slowdown_writes_trigger = 2;

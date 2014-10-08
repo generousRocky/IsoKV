@@ -1261,18 +1261,16 @@ Compaction* PluggableCompactionPicker::PickCompaction(
     return nullptr;
   }
 
-  // TODO(yhchiang): may need to add CompactionOptions to
-  // PickCompaction.
-  CompactionOptions compact_options;
   autovector<CompactionInputFiles> input_files;
   s = GetCompactionInputsFromFileNumbers(
-      &input_files, &input_set, version, compact_options);
+      &input_files, &input_set, version,
+      compactor_->compact_options());
   if (!s.ok() || input_files.size() == 0U) {
     return nullptr;
   }
 
   return FormCompaction(
-      compact_options, input_files,
+      compactor_->compact_options(), input_files,
       output_level, version, mutable_cf_options);
 }
 

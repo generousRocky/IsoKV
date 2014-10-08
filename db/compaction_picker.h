@@ -264,7 +264,7 @@ class PluggableCompactionPicker : public CompactionPicker {
   PluggableCompactionPicker(
       const ImmutableCFOptions& options,
       const InternalKeyComparator* icmp,
-      Compactor* compactor )
+      Compactor* compactor)
       : CompactionPicker(options, icmp) {
     compactor_.reset(compactor);
   }
