@@ -407,6 +407,7 @@ Compaction* CompactionPicker::CompactRange(
 }
 
 namespace {
+// Test whether two files have overlapping key-ranges.
 bool HaveOverlappingKeyRanges(
     const Comparator* c,
     const SstFileMetaData& a, const SstFileMetaData& b) {
@@ -446,11 +447,21 @@ Status CompactionPicker::SanitizeCompactionInputFilesForAllLevels(
   bool is_first = false;
   const int kNotFound = -1;
 
+  // For each level, it does the following things:
+  // 1. Find the first and the last compaction input files
+  //    in the current level.
+  // 2. Include all files between the first and the last
+  //    compaction input files.
+  // 3. Update the compaction key-range.
+  // 4. For all remaining levels, include files that have
+  //    overlapping key-range with the compaction key-range.
   for (int l = 0; l <= output_level; ++l) {
     auto& current_files = levels[l].files;
     int first_included = static_cast<int>(current_files.size());
     int last_included = kNotFound;
-    // first, make sure all files being picked are in continuous order.
+
+    // identify the first and the last compaction input files
+    // in the current level.
     for (size_t f = 0; f < current_files.size(); ++f) {
       if (input_files->find(current_files[f].file_number) !=
           input_files->end()) {
@@ -467,7 +478,28 @@ Status CompactionPicker::SanitizeCompactionInputFilesForAllLevels(
       continue;
     }
 
-    // include all files between the first and the last included ones.
+    if (l != 0) {
+      // expend the compaction input of the current level if it
+      // has overlapping key-range with other non-compaction input
+      // files in the same level.
+      while (first_included > 0) {
+        if (current_files[first_included - 1].largestkey <
+            current_files[first_included].smallestkey) {
+          break;
+        }
+        first_included--;
+      }
+
+      while (last_included < static_cast<int>(current_files.size()) - 1) {
+        if (current_files[last_included + 1].smallestkey >
+            current_files[last_included].largestkey) {
+          break;
+        }
+        last_included++;
+      }
+    }
+
+    // include all files between the first and the last compaction input files.
     for (int f = first_included; f <= last_included; ++f) {
       if (current_files[f].being_compacted) {
         return Status::Aborted(

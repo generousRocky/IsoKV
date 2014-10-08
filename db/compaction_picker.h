@@ -254,7 +254,7 @@ class FIFOCompactionPicker : public CompactionPicker {
 
 
 // A compaction picker that has a pluggable component to allow developers
-// to write their own compaction strategies.
+// to inject custom compaction strategy.
 class PluggableCompactionPicker : public CompactionPicker {
  public:
   PluggableCompactionPicker(
