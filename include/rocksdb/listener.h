@@ -14,6 +14,14 @@ namespace rocksdb {
 class DB;
 class Status;
 
+// Reason for write stall.
+enum WriteStallReason : char {
+  kWriteStallNone = 0x0,
+  kWriteStallMemTableFull = 0x1,
+  kWriteStallLevel0Stop = 0x2,
+  kWriteStallLevel0SlowDown = 0x3,
+};
+
 // The event listener of RocksDB which contains a set of call-back
 // functions triggerred by specific RocksDB events such as flush.
 //
@@ -56,7 +64,12 @@ class EventListener {
   // it should not run for an extended period of time before the function
   // returns.  Otherwise, RocksDB may be blocked.
   virtual void OnBackgroundCompactFilesCompleted(
-      DB* db, std::string job_id, Status s) {}
+      DB* db, const std::string& column_family_name,
+      const std::string job_id, const Status s) {}
+
+  virtual void OnWriteStall(
+      DB* db, const std::string& column_family_name,
+      const WriteStallReason reason) {}
 };
 
 }  // namespace rocksdb

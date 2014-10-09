@@ -251,6 +251,14 @@ class ColumnFamilyData {
 
   void ResetThreadLocalSuperVersions();
 
+  bool IsMaxWriteBufferNumberReached();
+
+  bool IsLevel0StopWritesTriggered(
+      const MutableCFOptions& mutable_cf_options);
+
+  bool IsLevel0SlowDownWritesTriggered(
+      const MutableCFOptions& mutable_cf_options);
+
  private:
   friend class ColumnFamilySet;
   ColumnFamilyData(uint32_t id, const std::string& name,

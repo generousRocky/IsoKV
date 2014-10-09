@@ -378,6 +378,12 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
 
 DBImpl::~DBImpl() {
   mutex_.Lock();
+#ifndef ROCKSDB_LITE
+  // Clear event listeners
+  listener_mutex_.Lock();
+  listeners_.clear();
+#endif  // ROCKSDB_LITE
+
   if (flush_on_destroy_) {
     for (auto cfd : *versions_->GetColumnFamilySet()) {
       if (!cfd->mem()->IsEmpty()) {
@@ -398,12 +404,9 @@ DBImpl::~DBImpl() {
   }
 
 #ifndef ROCKSDB_LITE
-  // Clear event listeners
-  {
-    MutexLock l(&listener_mutex_);
-    listeners_.clear();
-  }
+  listener_mutex_.Unlock();
 #endif  // ROCKSDB_LITE
+
   flush_scheduler_.Clear();
 
   if (default_cf_handle_ != nullptr) {
@@ -1671,7 +1674,9 @@ Status DBImpl::FlushMemTableToOutputFile(
   RecordFlushIOStats();
 #ifndef ROCKSDB_LITE
   if (s.ok()) {
+    mutex_.Unlock();
     NotifyOnFlushCompleted(cfd, file_number);
+    mutex_.Lock();
   }
 #endif  // ROCKSDB_LITE
   return s;
@@ -1763,6 +1768,10 @@ Status DBImpl::CompactFiles(
 ColumnFamilyData* DBImpl::GetColumnFamilyDataByName(
     const std::string& cf_name) {
   mutex_.AssertHeld();
+  if (shutting_down_.Acquire_Load()) {
+    return nullptr;
+  }
+
   for (auto cfd : *versions_->GetColumnFamilySet()) {
     if (cfd->GetName() == cf_name) {
       return cfd;
@@ -1798,7 +1807,7 @@ Status DBImpl::CompactFilesImpl(
     Version* version, const std::vector<uint64_t>& input_file_numbers,
     const int output_level, int output_path_id) {
   mutex_.AssertHeld();
-    
+
   LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL, db_options_.info_log.get());
 
   if (shutting_down_.Acquire_Load()) {
@@ -1852,6 +1861,7 @@ Status DBImpl::CompactFilesImpl(
 
   DeletionState deletion_state(true);
 
+  bg_compaction_scheduled_++;
   if (c->IsDeletionCompaction()) {
     int deleted_file_count = 0;
     for (int input_level = 0;
@@ -1861,7 +1871,6 @@ Status DBImpl::CompactFilesImpl(
         deleted_file_count++;
       }
     }
-    bg_compaction_scheduled_++;
     const MutableCFOptions mutable_cf_options =
         *cfd->GetLatestMutableCFOptions();
     s = versions_->LogAndApply(
@@ -1873,11 +1882,8 @@ Status DBImpl::CompactFilesImpl(
                 c->column_family_data()->GetName().c_str(),
                 deleted_file_count);
     c->ReleaseCompactionFiles(s);
-    bg_compaction_scheduled_--;
   } else {
     c->SetOutputPathId(static_cast<uint32_t>(output_path_id));
-
-    bg_compaction_scheduled_++;
 
     CompactionState* compact = new CompactionState(c.get());
     // May unlock and lock inside DoCompactionWork
@@ -1887,7 +1893,6 @@ Status DBImpl::CompactFilesImpl(
     CleanupCompaction(compact, s);
     c->ReleaseCompactionFiles(s);
     c->ReleaseInputs();
-    bg_compaction_scheduled_--;
   }
 
   // If !s.ok(), this means that Compaction failed. In that case, we want
@@ -1911,6 +1916,9 @@ Status DBImpl::CompactFilesImpl(
     }
     mutex_.Lock();
   }
+  bg_compaction_scheduled_--;
+
+  versions_->GetColumnFamilySet()->FreeDeadColumnFamilies();
 
   if (bg_compaction_scheduled_ == 0 || bg_manual_only_ > 0) {
     // signal if
@@ -1942,17 +1950,13 @@ Status DBImpl::ScheduleCompactFiles(
     const std::string& column_family_name,
     const std::vector<uint64_t>& input_file_numbers,
     const int output_level, const int output_path_id) {
-  CompactionJob* job = new CompactionJob();
-  job->db = this;
-  job->id = env_->GenerateUniqueId();
+  CompactionJob* job = new CompactionJob(
+      this, column_family_name, env_->GenerateUniqueId(),
+      input_file_numbers, output_level, output_path_id,
+      compact_options);
   if (job_id != nullptr) {
     *job_id = job->id;
   }
-  job->column_family_name = column_family_name;
-  job->input_file_numbers = input_file_numbers;
-  job->output_level = output_level;
-  job->output_path_id = output_path_id;
-  job->compact_options = compact_options;
   env_->Schedule(&DBImpl::BGWorkCompactFiles, job, Env::Priority::LOW);
   return Status::OK();
 }
@@ -1970,7 +1974,8 @@ void DBImpl::BGWorkCompactFiles(void* job) {
       compact_job->output_path_id);
   DBImpl* db_impl = reinterpret_cast<DBImpl*>(compact_job->db);
 #ifndef ROCKSDB_LITE
-  db_impl->NotifyOnBackgroundCompactFilesCompleted(compact_job->id, s);
+  db_impl->NotifyOnBackgroundCompactFilesCompleted(
+      compact_job->column_family_name, compact_job->id, s);
   delete compact_job;
 #endif  // ROCKSDB_LITE
 }
@@ -3749,6 +3754,9 @@ void DBImpl::InstallSuperVersion(
       cfd->InstallSuperVersion(new_superversion, &mutex_, mutable_cf_options);
   deletion_state.new_superversion = nullptr;
   deletion_state.superversions_to_free.push_back(old_superversion);
+#ifndef ROCKSDB_LITE
+  MaybeNotifyOnWriteStall(cfd, mutable_cf_options);
+#endif
 }
 
 Status DBImpl::GetImpl(const ReadOptions& options,
@@ -4796,10 +4804,10 @@ Status DBImpl::GetColumnFamilyMetaData(
 }
 
 Status DBImpl::AddListener(EventListener* listener) {
-  MutexLock l(&listener_mutex_);
   if (shutting_down_.Acquire_Load()) {
     return Status::ShutdownInProgress();
   }
+  MutexLock l(&listener_mutex_);
   auto iter = std::find(listeners_.begin(), listeners_.end(), listener);
   if (iter != listeners_.end()) {
     return Status::InvalidArgument(
@@ -4810,20 +4818,20 @@ Status DBImpl::AddListener(EventListener* listener) {
 }
 
 Status DBImpl::RemoveListener(EventListener* listener) {
-  MutexLock l(&listener_mutex_);
   if (shutting_down_.Acquire_Load()) {
     return Status::ShutdownInProgress();
   }
+  MutexLock l(&listener_mutex_);
   listeners_.remove(listener);
   return Status::OK();
 }
 
 void DBImpl::NotifyOnFlushCompleted(
     ColumnFamilyData* cfd, uint64_t file_number) {
-  MutexLock l(&listener_mutex_);
   if (shutting_down_.Acquire_Load()) {
     return;
   }
+  MutexLock l(&listener_mutex_);
   bool triggered_flush_slowdown =
       (cfd->current()->NumLevelFiles(0) >=
        cfd->options()->level0_slowdown_writes_trigger);
@@ -4841,15 +4849,46 @@ void DBImpl::NotifyOnFlushCompleted(
 }
 
 void DBImpl::NotifyOnBackgroundCompactFilesCompleted(
-    const std::string& job_id, const Status& s) {
-  MutexLock l(&listener_mutex_);
+    const std::string& cf_name, const std::string& job_id, const Status& s) {
   if (shutting_down_.Acquire_Load()) {
     return;
   }
+  MutexLock l(&listener_mutex_);
 
   for (auto listener : listeners_) {
     // make defensive string copy here for job_id
-    listener->OnBackgroundCompactFilesCompleted(this, job_id, s);
+    listener->OnBackgroundCompactFilesCompleted(
+        this, cf_name, job_id, s);
+  }
+}
+
+void DBImpl::MaybeNotifyOnWriteStall(
+    ColumnFamilyData* cfd, const MutableCFOptions& mutable_cf_options) {
+  mutex_.AssertHeld();
+  if (shutting_down_.Acquire_Load()) {
+    return;
+  }
+  MutexLock l(&listener_mutex_);
+
+  WriteStallReason reason = kWriteStallNone;
+
+  if (cfd->IsMaxWriteBufferNumberReached()) {
+    reason = kWriteStallMemTableFull;
+  } else if (cfd->IsLevel0StopWritesTriggered(mutable_cf_options)) {
+    reason = kWriteStallLevel0Stop;
+  } else if (cfd->IsLevel0SlowDownWritesTriggered(mutable_cf_options)) {
+    reason = kWriteStallLevel0SlowDown;
+  }
+
+  if (reason != kWriteStallNone) {
+    mutex_.Unlock();
+
+    for (auto listener : listeners_) {
+      // make defensive string copy here for job_id
+      listener->OnWriteStall(
+          this, cfd->GetName(), reason);
+    }
+    mutex_.Lock();
   }
 }
 

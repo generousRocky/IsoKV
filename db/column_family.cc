@@ -348,6 +348,23 @@ ColumnFamilyData::~ColumnFamilyData() {
   }
 }
 
+bool ColumnFamilyData::IsMaxWriteBufferNumberReached() {
+  return imm()->size() == options_.max_write_buffer_number;
+}
+
+bool ColumnFamilyData::IsLevel0StopWritesTriggered(
+    const MutableCFOptions& mutable_cf_options) {
+  return current_->NumLevelFiles(0) >=
+         mutable_cf_options.level0_stop_writes_trigger;
+}
+
+bool ColumnFamilyData::IsLevel0SlowDownWritesTriggered(
+    const MutableCFOptions& mutable_cf_options) {
+  return mutable_cf_options.level0_slowdown_writes_trigger >= 0 &&
+         current_->NumLevelFiles(0) >=
+             mutable_cf_options.level0_slowdown_writes_trigger;
+}
+
 void ColumnFamilyData::RecalculateWriteStallConditions(
       const MutableCFOptions& mutable_cf_options) {
   if (current_ != nullptr) {
@@ -356,23 +373,20 @@ void ColumnFamilyData::RecalculateWriteStallConditions(
 
     auto write_controller = column_family_set_->write_controller_;
 
-    if (imm()->size() == options_.max_write_buffer_number) {
+    if (IsMaxWriteBufferNumberReached()) {
       write_controller_token_ = write_controller->GetStopToken();
       internal_stats_->AddCFStats(InternalStats::MEMTABLE_COMPACTION, 1);
       Log(ioptions_.info_log,
           "[%s] Stopping writes because we have %d immutable memtables "
           "(waiting for flush)",
           name_.c_str(), imm()->size());
-    } else if (current_->NumLevelFiles(0) >=
-               mutable_cf_options.level0_stop_writes_trigger) {
+    } else if (IsLevel0StopWritesTriggered(mutable_cf_options)) {
       write_controller_token_ = write_controller->GetStopToken();
       internal_stats_->AddCFStats(InternalStats::LEVEL0_NUM_FILES, 1);
       Log(ioptions_.info_log,
           "[%s] Stopping writes because we have %d level-0 files",
           name_.c_str(), current_->NumLevelFiles(0));
-    } else if (mutable_cf_options.level0_slowdown_writes_trigger >= 0 &&
-               current_->NumLevelFiles(0) >=
-                   mutable_cf_options.level0_slowdown_writes_trigger) {
+    } else if (IsLevel0SlowDownWritesTriggered(mutable_cf_options)) {
       uint64_t slowdown = SlowdownAmount(
           current_->NumLevelFiles(0),
           mutable_cf_options.level0_slowdown_writes_trigger,

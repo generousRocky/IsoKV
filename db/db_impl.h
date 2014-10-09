@@ -50,12 +50,30 @@ class Arena;
 // A structure that describes a compaction job.
 struct CompactionJob {
   DB* db;
-  std::string column_family_name;
+  const std::string& column_family_name;
+  std::string id;
+  std::vector<uint64_t> input_file_numbers;
   int output_level;
   int output_path_id;
-  std::vector<uint64_t> input_file_numbers;
   CompactionOptions compact_options;
-  std::string id;
+
+  CompactionJob(
+      DB* db, const std::string& column_family_name)
+      : db(db), column_family_name(column_family_name) {}
+
+  CompactionJob(
+      DB* db, const std::string& column_family_name,
+      const std::string& job_id,
+      const std::vector<uint64_t>& input_file_numbers,
+      int output_level, int output_path_id,
+      const CompactionOptions& compact_options)
+          : db(db),
+            column_family_name(column_family_name),
+            id(job_id),
+            input_file_numbers(input_file_numbers),
+            output_level(output_level),
+            output_path_id(output_path_id),
+            compact_options(compact_options) {}
 };
 
 class DBImpl : public DB {
@@ -203,6 +221,12 @@ class DBImpl : public DB {
 
   using DB::RemoveListener;
   virtual Status RemoveListener(EventListener* listener) override;
+
+  void NotifyOnFlushCompleted(ColumnFamilyData* cfd, uint64_t file_number);
+  void NotifyOnBackgroundCompactFilesCompleted(
+      const std::string& cf_name, const std::string& job_id, const Status& s);
+  void MaybeNotifyOnWriteStall(
+      ColumnFamilyData* cfd, const MutableCFOptions& mutable_cf_options);
 
 #endif  // ROCKSDB_LITE
 
@@ -511,9 +535,6 @@ class DBImpl : public DB {
   }
 #else
   ColumnFamilyData* GetColumnFamilyDataByName(const std::string& cf_name);
-  void NotifyOnFlushCompleted(ColumnFamilyData* cfd, uint64_t file_number);
-  void NotifyOnBackgroundCompactFilesCompleted(
-      const std::string& job_id, const Status& s);
   void PurgeObsoleteWALFiles();
 
   Status GetSortedWalsOfType(const std::string& path,

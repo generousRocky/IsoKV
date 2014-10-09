@@ -100,10 +100,8 @@ class EnvFullCompactor : public EnvCompactor {
     db->GetDatabaseMetaData(&meta);
     std::vector<uint64_t> input_file_numbers;
 
-    CompactionJob* job = new CompactionJob();
-    job->db = db;
+    CompactionJob* job = new CompactionJob(db, cf_name);
     job->output_path_id = 0;  // set output_path_id = 0 for now
-    job->column_family_name = cf_name;
     job->compact_options = CompactionOptions();
 
     int last_level_with_files = 0;
