@@ -10,7 +10,7 @@
 
 using namespace std;
 
-const char DBPath[] = "/dev/test";
+const char DBPath[] = "/home/raven/thesis/rocks_test";
 
 int main(int argc, char **argv)
 {

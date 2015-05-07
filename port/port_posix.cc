@@ -7,7 +7,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include "port/port_posix.h"
+#ifdef ROCKSDB_PLATFORM_POSIX
+
+#include "port/port.h"
 
 #include <stdio.h>
 #include <assert.h>
@@ -135,3 +137,5 @@ void InitOnce(OnceType* once, void (*initializer)()) {
 
 }  // namespace port
 }  // namespace rocksdb
+
+#endif

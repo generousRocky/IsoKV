@@ -29,7 +29,7 @@ LIB_SOURCES =                                                   \
   db/merge_helper.cc                                            \
   db/merge_operator.cc                                          \
   db/repair.cc                                                  \
-  db/slice.cc                                                  \
+  db/slice.cc							\
   db/table_cache.cc                                             \
   db/table_properties_collector.cc                              \
   db/transaction_log_impl.cc                                    \
@@ -43,6 +43,7 @@ LIB_SOURCES =                                                   \
   db/write_thread.cc                                            \
   port/stack_trace.cc                                           \
   port/port_posix.cc                                            \
+  port/port_nvm.cc						\
   table/adaptive_table_factory.cc                               \
   table/block_based_filter_block.cc                             \
   table/block_based_table_builder.cc                            \
@@ -83,6 +84,7 @@ LIB_SOURCES =                                                   \
   util/env.cc                                                   \
   util/env_hdfs.cc                                              \
   util/env_posix.cc                                             \
+  util/env_nvm.cc						\
   util/file_util.cc                                             \
   util/filter_policy.cc                                         \
   util/hash.cc                                                  \

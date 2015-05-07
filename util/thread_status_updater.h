@@ -38,7 +38,7 @@
 
 #include "rocksdb/status.h"
 #include "rocksdb/thread_status.h"
-#include "port/port_posix.h"
+#include "port/port.h"
 #include "util/thread_operation.h"
 
 namespace rocksdb {

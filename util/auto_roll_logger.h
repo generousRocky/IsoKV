@@ -11,7 +11,7 @@
 
 #include "db/filename.h"
 #include "port/port.h"
-#include "util/posix_logger.h"
+#include "util/logger.h"
 
 namespace rocksdb {
 
