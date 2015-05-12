@@ -821,7 +821,13 @@ TEST_F(EnvPosixTest, InvalidateCache) {
 #endif  // not TRAVIS
 #endif  // OS_LINUX
 
-TEST_F(EnvPosixTest, PosixRandomRWFileTest) {
+TEST_F(EnvPosixTest,
+#if defined(ROCKSDB_PLATFORM_NVM)
+       NVMRandomRWFileTest
+#else
+       PosixRandomRWFileTest
+#endif
+       ) {
   EnvOptions soptions;
   soptions.use_mmap_writes = soptions.use_mmap_reads = false;
   std::string fname = test::TmpDir() + "/" + "testfile";
