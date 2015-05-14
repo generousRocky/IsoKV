@@ -43,7 +43,7 @@
 #include <signal.h>
 #include <algorithm>
 #include "rocksdb/env.h"
-#include "nvm/nvm_debug.h"
+#include "nvm/nvm.h"
 #include "rocksdb/slice.h"
 #include "port/port.h"
 #include "util/coding.h"
@@ -1490,6 +1490,8 @@ class NVMEnv : public Env
 	    // All threads must be joined before the deletion of
 	    // thread_status_updater_.
 	    delete thread_status_updater_;
+
+	    nvm_api_close();
 	}
 
 	void SetFD_CLOEXEC(int fd, const EnvOptions* options)
@@ -2047,9 +2049,179 @@ class NVMEnv : public Env
 	}
 
     private:
+	struct nvm *nvm_api = NULL;
+
 	bool checkedDiskForMmap_;
 	bool forceMmapOff; // do we override Env options?
 
+	int open_nvm_device(const char *file)
+	{
+	    std::string cmd = std::string("echo \"nba ") + std::string(file) +
+			      std::string(" 0:0\" > /sys/block/nvme0n1/nvm/configure");
+
+	    if(system(cmd.c_str()))
+	    {
+		return -1;
+	    }
+
+	    cmd = std::string("/dev") + std::string(file);
+
+	    return open(cmd.c_str(), O_RDWR);
+	}
+
+	int nvm_api_init(const int fd)
+	{
+	    int ret;
+
+	    unsigned long i;
+	    unsigned long j;
+
+	    struct nba_channel chnl_desc;
+
+	    ALLOC_MEMORY(nvm_api, 1, struct nvm);
+
+	    nvm_api->fd = fd;
+
+	    if (nvm_api->fd < 0)
+	    {
+		NVM_ERROR("");
+
+		goto err;
+	    }
+
+	    ret = ioctl(nvm_api->fd, NVMLUNSNRGET, &nvm_api->nr_luns);
+
+	    if(ret != 0)
+	    {
+		NVM_ERROR("%d", ret);
+
+		goto err;
+	    }
+
+	    NVM_DEBUG("We have %lu luns", nvm_api->nr_luns);
+
+	    ALLOC_MEMORY(nvm_api->luns, nvm_api->nr_luns, struct nvm_lun);
+
+	    for(i = 0; i < nvm_api->nr_luns; ++i)
+	    {
+		nvm_api->luns[i].nr_blocks = i;
+
+		ret = ioctl(nvm_api->fd, NVMBLOCKSNRGET, &nvm_api->luns[i].nr_blocks);
+
+		if(ret != 0)
+		{
+		    NVM_ERROR("%d", ret);
+
+		    goto err;
+		}
+
+		NVM_DEBUG("Lun %lu has %lu blocks", i, nvm_api->luns[i].nr_blocks);
+
+		ALLOC_MEMORY(nvm_api->luns[i].blocks, nvm_api->luns[i].nr_blocks, struct nvm_block);
+
+		for(j = 0; j < nvm_api->luns[i].nr_blocks; ++j)
+		{
+		    nvm_api->luns[i].blocks[j].id = j;
+		    nvm_api->luns[i].blocks[j].lun = i;
+
+		    ret = ioctl(nvm_api->fd, NVMBLOCKGETBYID, &nvm_api->luns[i].blocks[j]);
+
+		    if(ret)
+		    {
+			NVM_ERROR("%d", ret);
+
+			goto err;
+		    }
+		}
+
+		nvm_api->luns[i].nr_pages_per_blk = i;
+
+		ret = ioctl(nvm_api->fd, NVMPAGESNRGET, &nvm_api->luns[i].nr_pages_per_blk);
+
+		if(ret != 0)
+		{
+		    NVM_ERROR("%d", ret);
+
+		    goto err;
+		}
+
+		NVM_DEBUG("Lun %lu has %lu pages per block", i, nvm_api->luns[i].nr_pages_per_blk);
+
+		nvm_api->luns[i].nchannels = i;
+
+		ret = ioctl(nvm_api->fd, NVMCHANNELSNRGET, &nvm_api->luns[i].nchannels);
+
+		if(ret != 0)
+		{
+		    NVM_ERROR("%d", ret);
+
+		    goto err;
+		}
+
+		NVM_DEBUG("Lun %lu has %lu channels", i, nvm_api->luns[i].nchannels);
+
+		ALLOC_MEMORY(nvm_api->luns[i].channels, nvm_api->luns[i].nchannels, struct nvm_channel);
+
+		chnl_desc.lun_idx = i;
+
+		for(j = 0; j < nvm_api->luns[i].nchannels; ++j)
+		{
+		    chnl_desc.chnl_idx = j;
+
+		    ret = ioctl(nvm_api->fd, NVMPAGESIZEGET, &chnl_desc);
+
+		    if(ret != 0)
+		    {
+			NVM_ERROR("%d", ret);
+
+			goto err;
+		    }
+
+		    nvm_api->luns[i].channels[j].gran_erase = chnl_desc.gran_erase;
+		    nvm_api->luns[i].channels[j].gran_read = chnl_desc.gran_read;
+		    nvm_api->luns[i].channels[j].gran_write = chnl_desc.gran_write;
+
+		    NVM_DEBUG("Lun %lu channel %lu has %u writes %u reads and %u erase", i, nvm_api->luns[i].nchannels,
+											    nvm_api->luns[i].channels[j].gran_write,
+											    nvm_api->luns[i].channels[j].gran_read,
+											    nvm_api->luns[i].channels[j].gran_erase);
+		}
+	    }
+
+	    return 0;
+
+	err:
+	    close(nvm_api->fd);
+
+	    free(nvm_api);
+
+	    return 1;
+	}
+
+	void nvm_api_close()
+	{
+	    unsigned long i;
+
+	    if(!nvm_api)
+	    {
+		return;
+	    }
+
+	    close(nvm_api->fd);
+
+	    if(nvm_api->nr_luns > 0)
+	    {
+		for(i = 0; i < nvm_api->nr_luns; ++i)
+		{
+		    free(nvm_api->luns[i].channels);
+		}
+		free(nvm_api->luns);
+	    }
+
+	    free(nvm_api);
+
+	    NVM_DEBUG("api closed");
+	}
 
 	// Returns true iff the named directory exists and is a directory.
 	virtual bool DirExists(const std::string& dname)
@@ -2478,6 +2650,8 @@ NVMEnv::NVMEnv() :
 	    page_size_(getpagesize()),
 	    thread_pools_(Priority::TOTAL)
 {
+    int fd;
+
     PthreadCall("mutex_init", pthread_mutex_init(&mu_, nullptr));
     for (int pool_id = 0; pool_id < Env::Priority::TOTAL; ++pool_id)
     {
@@ -2487,6 +2661,22 @@ NVMEnv::NVMEnv() :
 	thread_pools_[pool_id].SetHostEnv(this);
     }
     thread_status_updater_ = CreateThreadStatusUpdater();
+
+    fd = open_nvm_device("/rocksdb");
+
+    if(fd < 0)
+    {
+	NVM_ERROR("");
+
+	exit(EXIT_FAILURE);
+    }
+
+    if(nvm_api_init(fd))
+    {
+	NVM_ERROR("");
+
+	exit(EXIT_FAILURE);
+    }
 }
 
 void NVMEnv::Schedule(void (*function)(void* arg1), void* arg, Priority pri, void* tag)
