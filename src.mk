@@ -86,6 +86,8 @@ LIB_SOURCES =                                                   \
   util/env_hdfs.cc                                              \
   util/env_posix.cc                                             \
   util/env_nvm.cc						\
+  util/nvm_files.cc						\
+  util/nvm_threading.cc						\
   util/file_util.cc                                             \
   util/filter_policy.cc                                         \
   util/hash.cc                                                  \
