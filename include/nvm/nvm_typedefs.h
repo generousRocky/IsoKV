@@ -24,15 +24,6 @@ struct nvm_block
     void *internals;
 };
 
-struct nvm
-{
-    unsigned long nr_luns;
-
-    struct nvm_lun *luns;
-
-    int fd;
-};
-
 struct nvm_channel
 {
     unsigned int gran_write;
@@ -51,6 +42,24 @@ struct nvm_lun
     unsigned long nchannels;
 
     struct nvm_channel *channels;
+};
+
+class nvm
+{
+    public:
+	unsigned long nr_luns;
+
+	struct nvm_lun *luns;
+
+	int fd;
+
+	nvm();
+	~nvm();
+
+    private:
+	int open_nvm_device(const char *file);
+	int ioctl_initialize();
+
 };
 
 #endif

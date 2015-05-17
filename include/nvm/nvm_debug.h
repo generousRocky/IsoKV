@@ -6,6 +6,7 @@
 #define NVM_DEBUG_ENABLED
 
 #define NVM_ERROR(x, ...) printf("%s:%s - %d %s" x "\n", __FILE__, __FUNCTION__, __LINE__, strerror(errno), ##__VA_ARGS__);
+#define NVM_FATAL(x, ...) printf("%s:%s - %d %s" x "\n", __FILE__, __FUNCTION__, __LINE__, strerror(errno), ##__VA_ARGS__);exit(EXIT_FAILURE)
 
 #ifdef NVM_DEBUG_ENABLED
 

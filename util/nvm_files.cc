@@ -5,21 +5,6 @@
 namespace rocksdb
 {
 
-// A wrapper for fadvise, if the platform doesn't support fadvise,
-// it will simply return Status::NotSupport.
-int Fadvise(int fd, off_t offset, size_t len, int advice)
-{
-#ifdef OS_LINUX
-
-    return posix_fadvise(fd, offset, len, advice);
-
-#else
-
-    return 0;  // simply do nothing.
-
-#endif
-}
-
 #if defined(OS_LINUX)
 
 static size_t GetUniqueIdFromFile(int fd, char* id, size_t max_size)
@@ -111,12 +96,6 @@ Status NVMSequentialFile::Read(size_t n, Slice* result, char* scratch)
 	}
     }
 
-    if (!use_os_buffer_)
-    {
-	// we need to fadvise away the entire range of pages because
-	// we do not want readahead pages to be cached.
-	Fadvise(fd_, 0, 0, NVM_FADV_DONTNEED); // free OS pages
-    }
     return s;
 }
 
@@ -131,20 +110,7 @@ Status NVMSequentialFile::Skip(uint64_t n)
 
 Status NVMSequentialFile::InvalidateCache(size_t offset, size_t length)
 {
-#ifndef OS_LINUX
-
     return Status::OK();
-
-#else
-
-    // free OS pages
-    int ret = Fadvise(fd_, offset, length, NVM_FADV_DONTNEED);
-    if (ret == 0)
-    {
-	return Status::OK();
-    }
-    return IOError(filename_, errno);
-#endif
 }
 
 // pread() based random-access
@@ -196,12 +162,6 @@ Status NVMRandomAccessFile::Read(uint64_t offset, size_t n, Slice* result, char*
 	// An error: return a non-ok status
 	s = IOError(filename_, errno);
     }
-    if (!use_os_buffer_)
-    {
-	// we need to fadvise away the entire range of pages because
-	// we do not want readahead pages to be cached.
-	Fadvise(fd_, 0, 0, NVM_FADV_DONTNEED); // free OS pages
-    }
     return s;
 }
 
@@ -214,63 +174,12 @@ size_t NVMRandomAccessFile::GetUniqueId(char* id, size_t max_size) const
 
 void NVMRandomAccessFile::Hint(AccessPattern pattern)
 {
-    switch(pattern)
-    {
-	case NORMAL:
-	{
-	    Fadvise(fd_, 0, 0, NVM_FADV_NORMAL);
-	}
-	break;
 
-	case RANDOM:
-	{
-	    Fadvise(fd_, 0, 0, NVM_FADV_RANDOM);
-	}
-	break;
-
-	case SEQUENTIAL:
-	{
-	    Fadvise(fd_, 0, 0, NVM_FADV_SEQUENTIAL);
-	}
-	break;
-
-	case WILLNEED:
-	{
-	    Fadvise(fd_, 0, 0, NVM_FADV_WILLNEED);
-	}
-	break;
-
-	case DONTNEED:
-	{
-	    Fadvise(fd_, 0, 0, NVM_FADV_DONTNEED);
-	}
-	break;
-
-	default:
-	{
-	    assert(false);
-	}
-	break;
-    }
 }
 
 Status NVMRandomAccessFile::InvalidateCache(size_t offset, size_t length)
 {
-#ifndef OS_LINUX
-
     return Status::OK();
-
-#else
-
-    // free OS pages
-    int ret = Fadvise(fd_, offset, length, NVM_FADV_DONTNEED);
-    if (ret == 0)
-    {
-	return Status::OK();
-    }
-    return IOError(filename_, errno);
-
-#endif
 }
 
 
@@ -314,19 +223,7 @@ Status NVMMmapReadableFile::Read(uint64_t offset, size_t n, Slice* result, char*
 
 Status NVMMmapReadableFile::InvalidateCache(size_t offset, size_t length)
 {
-#ifndef OS_LINUX
-
     return Status::OK();
-
-#else
-    // free OS pages
-    int ret = Fadvise(fd_, offset, length, NVM_FADV_DONTNEED);
-    if (ret == 0)
-    {
-	return Status::OK();
-    }
-    return IOError(filename_, errno);
-#endif
 }
 
 // Roundup x to a multiple of y
@@ -593,20 +490,7 @@ uint64_t NVMMmapFile::GetFileSize()
 
 Status NVMMmapFile::InvalidateCache(size_t offset, size_t length)
 {
-#ifndef OS_LINUX
-
     return Status::OK();
-
-#else
-
-    // free OS pages
-    int ret = Fadvise(fd_, offset, length, NVM_FADV_DONTNEED);
-    if (ret == 0)
-    {
-	return Status::OK();
-    }
-    return IOError(filename_, errno);
-#endif
 }
 
 #ifdef ROCKSDB_FALLOCATE_PRESENT
@@ -856,20 +740,7 @@ uint64_t NVMWritableFile::GetFileSize()
 
 Status NVMWritableFile::InvalidateCache(size_t offset, size_t length)
 {
-#ifndef OS_LINUX
-
     return Status::OK();
-#else
-
-    // free OS pages
-    int ret = Fadvise(fd_, offset, length, NVM_FADV_DONTNEED);
-    if (ret == 0)
-    {
-	return Status::OK();
-    }
-    return IOError(filename_, errno);
-
-#endif
 }
 
 #ifdef ROCKSDB_FALLOCATE_PRESENT
