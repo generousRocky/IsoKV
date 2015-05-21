@@ -17,4 +17,12 @@ if(!(x))\
     exit(EXIT_FAILURE);\
 }
 
+#define SAFE_ALLOC(x, y) \
+x = new y;\
+if(!(x))\
+{\
+    printf("out of memory\n");\
+    exit(EXIT_FAILURE);\
+}
+
 #endif /* MEM_H_ */

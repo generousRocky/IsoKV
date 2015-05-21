@@ -1,8 +1,6 @@
 #ifndef _NVM_FILES_
 #define _NVM_FILES_
 
-#include "nvm.h"
-
 namespace rocksdb
 {
 
@@ -13,19 +11,71 @@ class NVMFileLock : public FileLock
 	std::string filename;
 };
 
+class nvm_file
+{
+    private:
+	char *name;
+
+	unsigned long size;
+
+	struct list_node *first_page;
+
+    public:
+	nvm_file(const char *_name);
+	~nvm_file();
+
+	char *GetName();
+
+	unsigned long GetSize();
+
+	struct list_node *GetNVMPagesList();
+};
+
+//TODO: improve running time to log n lookup.
+//This is fine for a small number of files
+class NVMFileManager
+{
+    private:
+	nvm *nvm_api;
+
+	//list of nvm_files
+	list_node *head;
+
+	//looks up if the file is in the list
+	list_node *look_up(const char *filename);
+
+	pthread_mutex_t list_update_mtx;
+
+	//we only have 1 target device
+	//we need a mutex to control the file pointer
+	//should be removed when moving to a real machine
+	pthread_mutex_t rw_mtx;
+
+    public:
+	NVMFileManager(nvm *_nvm_api);
+	~NVMFileManager();
+
+	nvm_file *nvm_fopen(const char *filename, const char *mode);
+	void nvm_fclose(nvm_file *file);
+
+	size_t nvm_fread(void *data, const unsigned long offset, const size_t len, nvm_file *fd);
+};
+
 class NVMSequentialFile: public SequentialFile
 {
     private:
 	std::string filename_;
 
-	FILE* file_;
+	nvm_file *file_;
 
-	int fd_;
+	unsigned long file_pointer;
 
 	bool use_os_buffer_;
 
+	NVMFileManager *file_manager_;
+
     public:
-	NVMSequentialFile(const std::string& fname, FILE* f, const EnvOptions& options);
+	NVMSequentialFile(const std::string& fname, nvm_file *f, const EnvOptions& options, NVMFileManager *file_manager);
 	virtual ~NVMSequentialFile();
 
 	virtual Status Read(size_t n, Slice* result, char* scratch) override;

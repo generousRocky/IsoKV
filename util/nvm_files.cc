@@ -44,67 +44,84 @@ static size_t GetUniqueIdFromFile(int fd, char* id, size_t max_size)
 
 #endif
 
-NVMSequentialFile::NVMSequentialFile(const std::string& fname, FILE* f, const EnvOptions& options) :
+nvm_file::nvm_file(const char *_name)
+{
+    SAFE_ALLOC(name, char[strlen(_name) + 1]);
+    strcpy(name, _name);
+
+    size = 0;
+
+    first_page = nullptr;
+}
+
+nvm_file::~nvm_file()
+{
+    delete[] name;
+}
+
+char *nvm_file::GetName()
+{
+    return name;
+}
+
+unsigned long nvm_file::GetSize()
+{
+    return size;
+}
+
+struct list_node *nvm_file::GetNVMPagesList()
+{
+    return first_page;
+}
+
+NVMSequentialFile::NVMSequentialFile(const std::string& fname, nvm_file *f, const EnvOptions& options, NVMFileManager *file_manager) :
 		filename_(fname),
-		file_(f),
-		fd_(fileno(f)),
 		use_os_buffer_(options.use_os_buffer)
 {
+    file_ = f;
+
+    file_manager_ = file_manager;
+
+    file_pointer = 0;
 }
 
 NVMSequentialFile::~NVMSequentialFile()
 {
-    fclose(file_);
+    file_manager_->nvm_fclose(file_);
 }
 
 Status NVMSequentialFile::Read(size_t n, Slice* result, char* scratch)
 {
-    Status s;
-
     size_t r = 0;
 
-    do
+    if(file_pointer < file_->GetSize())
     {
-#ifndef CYGWIN
+	r = file_manager_->nvm_fread(scratch, file_pointer, n, file_);
+	file_pointer += r;
 
-	r = fread_unlocked(scratch, 1, n, file_);
-
-#else
-
-	r = fread(scratch, 1, n, file_);
-
-#endif
+	if(r == 0)
+	{
+	    return IOError(filename_, errno);
+	}
     }
-    while (r == 0 && ferror(file_) && errno == EINTR);
 
     IOSTATS_ADD(bytes_read, r);
     *result = Slice(scratch, r);
 
-    if (r < n)
-    {
-	if (feof(file_))
-	{
-	    // We leave status as ok if we hit the end of the file
-	    // We also clear the error so that the reads can continue
-	    // if a new data is written to the file
-	    clearerr(file_);
-	}
-	else
-	{
-	    // A partial read with an error: return a non-ok status
-	    s = IOError(filename_, errno);
-	}
-    }
-
-    return s;
+    return Status::OK();
 }
 
 Status NVMSequentialFile::Skip(uint64_t n)
 {
-    if (fseek(file_, static_cast<long int>(n), SEEK_CUR))
+    if(file_pointer + n >= file_->GetSize())
     {
-	return IOError(filename_, errno);
+	file_pointer = file_->GetSize();
     }
+    else
+    {
+	file_pointer += n;
+    }
+
     return Status::OK();
 }
 

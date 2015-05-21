@@ -263,6 +263,7 @@ TESTS = \
 	json_document_test \
 	spatial_db_test \
 	version_edit_test \
+	nvm_file_manager_test \
 	version_set_test \
 	compaction_picker_test \
 	version_builder_test \
@@ -747,6 +748,9 @@ skiplist_test: db/skiplist_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 version_edit_test: db/version_edit_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+nvm_file_manager_test: unit_tests/nvm_file_manager_test.o  $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 version_set_test: db/version_set_test.o $(LIBOBJECTS) $(TESTHARNESS)

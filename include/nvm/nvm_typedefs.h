@@ -33,6 +33,10 @@ struct nvm_channel
 
 struct nvm_page
 {
+    unsigned long lun_id;
+    unsigned long block_id;
+    unsigned long id;
+
     bool allocated;
     bool erased;
 
@@ -41,6 +45,8 @@ struct nvm_page
 
 struct nvm_block
 {
+    bool has_stale_pages;
+
     struct nba_block *block;
     struct nvm_page *pages;
 };
@@ -56,6 +62,24 @@ struct nvm_lun
     unsigned long nchannels;
 
     struct nvm_channel *channels;
+};
+
+class list_node
+{
+    private:
+	void *data;
+
+	list_node *next;
+
+    public:
+	list_node(void *_data);
+	~list_node();
+
+	list_node *GetNext();
+
+	void *GetData();
+	void *SetData(void *_data);
+	void *SetNext(list_node *_next);
 };
 
 class nvm

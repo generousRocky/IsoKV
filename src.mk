@@ -86,6 +86,7 @@ LIB_SOURCES =                                                   \
   util/env_hdfs.cc                                              \
   util/env_posix.cc                                             \
   util/env_nvm.cc						\
+  util/nvm_file_manager.cc					\
   util/nvm.cc							\
   util/nvm_files.cc						\
   util/nvm_threading.cc						\
@@ -195,6 +196,7 @@ TEST_BENCH_SOURCES =                                                    \
   table/table_test.cc                                                   \
   tools/db_sanity_test.cc                                               \
   tools/reduce_levels_test.cc                                           \
+  unit_tests/nvm_file_manager_test.cc						\
   util/arena_test.cc                                                    \
   util/auto_roll_logger_test.cc                                         \
   util/autovector_test.cc                                               \

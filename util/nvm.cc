@@ -2,6 +2,45 @@
 
 #include "nvm/nvm.h"
 
+list_node::list_node(void *_data)
+{
+    data = _data;
+
+    next = nullptr;
+}
+
+list_node::~list_node()
+{
+}
+
+list_node *list_node::GetNext()
+{
+    return next;
+}
+
+void *list_node::GetData()
+{
+    return data;
+}
+
+void *list_node::SetData(void *_data)
+{
+    void *ret = data;
+
+    data = _data;
+
+    return ret;
+}
+
+void *list_node::SetNext(list_node *_next)
+{
+    void *ret = next;
+
+    next = _next;
+
+    return ret;
+}
+
 nvm::nvm()
 {
     fd = open_nvm_device("/rocksdb");
@@ -170,11 +209,16 @@ int nvm::ioctl_initialize()
 	    }
 
 	    process_blk->block = blk;
+	    process_blk->has_stale_pages = true;
 
 	    ALLOC_STRUCT(process_blk->pages, luns[i].nr_pages_per_blk, struct nvm_page);
 
 	    for(k = 0; k < luns[i].nr_pages_per_blk; ++k)
 	    {
+		process_blk->pages[k].lun_id = i;
+		process_blk->pages[k].block_id = j;
+		process_blk->pages[k].id = k;
+
 		process_blk->pages[k].allocated = false;
 		process_blk->pages[k].erased = false;
 

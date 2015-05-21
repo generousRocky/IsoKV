@@ -110,7 +110,6 @@ class NVMEnv : public Env
 	    thread_pools_(Priority::TOTAL)
 	{
 
-
 	    PthreadCall("mutex_init", pthread_mutex_init(&mu_, nullptr));
 	    for (int pool_id = 0; pool_id < Env::Priority::TOTAL; ++pool_id)
 	    {
@@ -122,6 +121,7 @@ class NVMEnv : public Env
 	    thread_status_updater_ = CreateThreadStatusUpdater();
 
 	    ALLOC_CLASS(nvm_api, nvm());
+	    ALLOC_CLASS(file_manager, NVMFileManager(nvm_api))
 	}
 
 	virtual ~NVMEnv()
@@ -139,27 +139,17 @@ class NVMEnv : public Env
 	    // All threads must be joined before the deletion of
 	    // thread_status_updater_.
 	    delete thread_status_updater_;
+	    delete file_manager;
 	    delete nvm_api;
-	}
-
-	void SetFD_CLOEXEC(int fd, const EnvOptions* options)
-	{
-	    if ((options == nullptr || options->set_fd_cloexec) && fd > 0)
-	    {
-		fcntl(fd, F_SETFD, fcntl(fd, F_GETFD) | FD_CLOEXEC);
-	    }
 	}
 
 	virtual Status NewSequentialFile(const std::string& fname, unique_ptr<SequentialFile>* result, const EnvOptions& options) override
 	{
 	    result->reset();
 
-	    FILE* f = nullptr;
+	    nvm_file *f;
 
-	    do
-	    {
-		f = fopen(fname.c_str(), "r");
-	    } while (f == nullptr && errno == EINTR);
+	    f = file_manager->nvm_fopen(fname.c_str(), "r");
 
 	    if (f == nullptr)
 	    {
@@ -168,9 +158,7 @@ class NVMEnv : public Env
 	    }
 	    else
 	    {
-		int fd = fileno(f);
-		SetFD_CLOEXEC(fd, &options);
-		result->reset(new NVMSequentialFile(fname, f, options));
+		result->reset(new NVMSequentialFile(fname, f, options, file_manager));
 		return Status::OK();
 	    }
 	}
@@ -182,7 +170,6 @@ class NVMEnv : public Env
 	    Status s;
 
 	    int fd = open(fname.c_str(), O_RDONLY);
-	    SetFD_CLOEXEC(fd, &options);
 	    if (fd < 0)
 	    {
 		s = IOError(fname, errno);
@@ -235,7 +222,6 @@ class NVMEnv : public Env
 	    }
 	    else
 	    {
-		SetFD_CLOEXEC(fd, &options);
 		if (options.use_mmap_writes)
 		{
 		    if (!checkedDiskForMmap_)
@@ -282,7 +268,6 @@ class NVMEnv : public Env
 	    }
 	    else
 	    {
-		SetFD_CLOEXEC(fd, &options);
 		result->reset(new NVMRandomRWFile(fname, fd, options));
 	    }
 	    return s;
@@ -448,8 +433,6 @@ class NVMEnv : public Env
 	    }
 	    else
 	    {
-		SetFD_CLOEXEC(fd, nullptr);
-
 		NVMFileLock* my_lock = new NVMFileLock;
 		my_lock->fd_ = fd;
 		my_lock->filename = fname;
@@ -561,8 +544,6 @@ class NVMEnv : public Env
 	    }
 	    else
 	    {
-		int fd = fileno(f);
-		SetFD_CLOEXEC(fd, nullptr);
 		result->reset(new NVMLogger(f, &NVMEnv::gettid, this));
 		return Status::OK();
 	    }
@@ -729,6 +710,8 @@ class NVMEnv : public Env
 
     private:
 	nvm *nvm_api;
+
+	NVMFileManager *file_manager;
 
 	bool checkedDiskForMmap_;
 	bool forceMmapOff; // do we override Env options?
