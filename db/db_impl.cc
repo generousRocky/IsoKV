@@ -425,7 +425,7 @@ const Status DBImpl::CreateArchivalDirectory() {
 void DBImpl::PrintStatistics() {
   auto dbstats = db_options_.statistics.get();
   if (dbstats) {
-    Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
+    Log(InfoLogLevel::WARN_LEVEL, db_options_.info_log,
         "STATISTICS:\n %s",
         dbstats->ToString().c_str());
   }
@@ -464,9 +464,9 @@ void DBImpl::MaybeDumpStats() {
                                                     DB::Properties::kDBStats,
                                                     &stats);
     }
-    Log(InfoLogLevel::INFO_LEVEL,
+    Log(InfoLogLevel::WARN_LEVEL,
         db_options_.info_log, "------- DUMPING STATS -------");
-    Log(InfoLogLevel::INFO_LEVEL,
+    Log(InfoLogLevel::WARN_LEVEL,
         db_options_.info_log, "%s", stats.c_str());
 #endif  // !ROCKSDB_LITE
 
@@ -1312,13 +1312,9 @@ Status DBImpl::CompactRange(ColumnFamilyHandle* column_family,
   if (cfd->ioptions()->compaction_style == kCompactionStyleUniversal &&
       cfd->NumberLevels() > 1) {
     // Always compact all files together.
-    int output_level = 0;
-    if (cfd->ioptions()->compaction_style == kCompactionStyleUniversal &&
-        cfd->NumberLevels() > 1) {
-      output_level = cfd->NumberLevels() - 1;
-    }
     s = RunManualCompaction(cfd, ColumnFamilyData::kCompactAllLevels,
-                            output_level, target_path_id, begin, end);
+                            cfd->NumberLevels() - 1, target_path_id, begin,
+                            end);
   } else {
     for (int level = 0; level <= max_level_with_files; level++) {
       // in case the compaction is unversal or if we're compacting the
@@ -1330,13 +1326,20 @@ Status DBImpl::CompactRange(ColumnFamilyHandle* column_family,
           (level == max_level_with_files && level > 0)) {
         s = RunManualCompaction(cfd, level, level, target_path_id, begin, end);
       } else {
-        // TODO(sdong) Skip empty levels if possible.
-        s = RunManualCompaction(cfd, level, level + 1, target_path_id, begin,
+        int output_level = level + 1;
+        if (cfd->ioptions()->compaction_style == kCompactionStyleLevel &&
+            cfd->ioptions()->level_compaction_dynamic_level_bytes &&
+            level == 0) {
+          output_level = ColumnFamilyData::kCompactToBaseLevel;
+        }
+        s = RunManualCompaction(cfd, level, output_level, target_path_id, begin,
                                 end);
       }
       if (!s.ok()) {
         break;
       }
+      TEST_SYNC_POINT("DBImpl::RunManualCompaction()::1");
+      TEST_SYNC_POINT("DBImpl::RunManualCompaction()::2");
     }
   }
   if (!s.ok()) {
@@ -1864,9 +1867,6 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
   } else if (shutting_down_.load(std::memory_order_acquire)) {
     // DB is being deleted; no more background compactions
     return;
-  } else if (bg_manual_only_) {
-    // manual only
-    return;
   }
 
   while (unscheduled_flushes_ > 0 &&
@@ -1874,6 +1874,12 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
     unscheduled_flushes_--;
     bg_flush_scheduled_++;
     env_->Schedule(&DBImpl::BGWorkFlush, this, Env::Priority::HIGH, this);
+  }
+
+  if (bg_manual_only_) {
+    // only manual compactions are allowed to run. don't schedule automatic
+    // compactions
+    return;
   }
 
   if (db_options_.max_background_flushes == 0 &&
@@ -2234,16 +2240,23 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress, JobContext* job_context,
           m->output_path_id, m->begin, m->end, &manual_end));
     if (!c) {
       m->done = true;
+      LogToBuffer(log_buffer,
+                  "[%s] Manual compaction from level-%d from %s .. "
+                  "%s; nothing to do\n",
+                  m->cfd->GetName().c_str(), m->input_level,
+                  (m->begin ? m->begin->DebugString().c_str() : "(begin)"),
+                  (m->end ? m->end->DebugString().c_str() : "(end)"));
+    } else {
+      LogToBuffer(log_buffer,
+                  "[%s] Manual compaction from level-%d to level-%d from %s .. "
+                  "%s; will stop at %s\n",
+                  m->cfd->GetName().c_str(), m->input_level, c->output_level(),
+                  (m->begin ? m->begin->DebugString().c_str() : "(begin)"),
+                  (m->end ? m->end->DebugString().c_str() : "(end)"),
+                  ((m->done || manual_end == nullptr)
+                       ? "(end)"
+                       : manual_end->DebugString().c_str()));
     }
-    LogToBuffer(log_buffer,
-                "[%s] Manual compaction from level-%d to level-%d from %s .. "
-                "%s; will stop at %s\n",
-                m->cfd->GetName().c_str(), m->input_level, m->output_level,
-                (m->begin ? m->begin->DebugString().c_str() : "(begin)"),
-                (m->end ? m->end->DebugString().c_str() : "(end)"),
-                ((m->done || manual_end == nullptr)
-                     ? "(end)"
-                     : manual_end->DebugString().c_str()));
   } else if (!compaction_queue_.empty()) {
     // cfd is referenced here
     auto cfd = PopFirstFromCompactionQueue();
@@ -3442,7 +3455,7 @@ Status DBImpl::SetNewMemtableAndNewLogFile(ColumnFamilyData* cfd,
     if (creating_new_log) {
       s = env_->NewWritableFile(
           LogFileName(db_options_.wal_dir, new_log_number), &lfile,
-          env_->OptimizeForLogWrite(env_options_));
+          env_->OptimizeForLogWrite(env_options_, db_options_));
       if (s.ok()) {
         // Our final size should be less than write_buffer_size
         // (compression, etc) but err on the side of caution.
@@ -3952,7 +3965,8 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
     EnvOptions soptions(db_options);
     s = impl->db_options_.env->NewWritableFile(
         LogFileName(impl->db_options_.wal_dir, new_log_number), &lfile,
-        impl->db_options_.env->OptimizeForLogWrite(soptions));
+        impl->db_options_.env->OptimizeForLogWrite(soptions,
+                                                   impl->db_options_));
     if (s.ok()) {
       lfile->SetPreallocationBlockSize(1.1 * max_write_buffer_size);
       impl->logfile_number_ = new_log_number;
