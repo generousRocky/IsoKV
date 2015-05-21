@@ -13,7 +13,7 @@ struct nba_channel
     unsigned int gran_erase;
 };
 
-struct nvm_block
+struct nba_block
 {
     unsigned long lun;
 
@@ -29,6 +29,20 @@ struct nvm_channel
     unsigned int gran_write;
     unsigned int gran_read;
     unsigned int gran_erase;
+};
+
+struct nvm_page
+{
+    bool allocated;
+    bool erased;
+
+    unsigned int size;
+};
+
+struct nvm_block
+{
+    struct nba_block *block;
+    struct nvm_page *pages;
 };
 
 struct nvm_lun
