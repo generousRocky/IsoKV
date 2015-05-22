@@ -11,8 +11,6 @@
 
 #pragma once
 
-#include <atomic>
- 
 namespace rocksdb {
 
 class WriteBuffer {
@@ -22,7 +20,7 @@ class WriteBuffer {
 
   ~WriteBuffer() {}
 
-  size_t memory_usage() const { return memory_used_.load(); }
+  size_t memory_usage() const { return memory_used_; }
   size_t buffer_size() const { return buffer_size_; }
 
   // Should only be called from write thread
@@ -31,12 +29,12 @@ class WriteBuffer {
   }
 
   // Should only be called from write thread
-  void ReserveMem(size_t mem) { memory_used_.fetch_add(mem); }
-  void FreeMem(size_t mem) { memory_used_.fetch_sub(mem); }
+  void ReserveMem(size_t mem) { memory_used_ += mem; }
+  void FreeMem(size_t mem) { memory_used_ -= mem; }
 
  private:
   const size_t buffer_size_;
-  std::atomic<size_t> memory_used_;
+  size_t memory_used_;
 
   // No copying allowed
   WriteBuffer(const WriteBuffer&);

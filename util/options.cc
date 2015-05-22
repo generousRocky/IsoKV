@@ -252,7 +252,6 @@ DBOptions::DBOptions()
       db_write_buffer_size(0),
       access_hint_on_compaction_start(NORMAL),
       use_adaptive_mutex(false),
-	  allow_concurrent_write_operations(false),
       bytes_per_sync(0),
       enable_thread_tracking(false) {
 }
@@ -296,7 +295,6 @@ DBOptions::DBOptions(const Options& options)
       db_write_buffer_size(options.db_write_buffer_size),
       access_hint_on_compaction_start(options.access_hint_on_compaction_start),
       use_adaptive_mutex(options.use_adaptive_mutex),
-	  allow_concurrent_write_operations(options.allow_concurrent_write_operations),
       bytes_per_sync(options.bytes_per_sync),
       enable_thread_tracking(options.enable_thread_tracking) {}
 
@@ -360,8 +358,6 @@ void DBOptions::Dump(Logger* log) const {
         access_hints[access_hint_on_compaction_start]);
     Log(log, "                      Options.use_adaptive_mutex: %d",
         use_adaptive_mutex);
-	Log(log, "                      Options.allow_concurrent_write_operations: %d",
-        allow_concurrent_write_operations);
     Log(log, "                            Options.rate_limiter: %p",
         rate_limiter.get());
     Log(log, "                          Options.bytes_per_sync: %" PRIu64,

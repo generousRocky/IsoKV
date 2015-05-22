@@ -11,11 +11,6 @@
 
 namespace rocksdb {
 
-FlushScheduler::FlushScheduler()
-{
-  is_empty_ = true;
-} 
-
 void FlushScheduler::ScheduleFlush(ColumnFamilyData* cfd) {
 #ifndef NDEBUG
   assert(column_families_set_.find(cfd) == column_families_set_.end());
@@ -23,7 +18,6 @@ void FlushScheduler::ScheduleFlush(ColumnFamilyData* cfd) {
 #endif  // NDEBUG
   cfd->Ref();
   column_families_.push_back(cfd);
-  is_empty_ = false;
 }
 
 ColumnFamilyData* FlushScheduler::GetNextColumnFamily() {
@@ -40,7 +34,6 @@ ColumnFamilyData* FlushScheduler::GetNextColumnFamily() {
       break;
     }
   }
-  is_empty_ = column_families_.empty();  
 #ifndef NDEBUG
   if (cfd != nullptr) {
     auto itr = column_families_set_.find(cfd);
@@ -51,7 +44,7 @@ ColumnFamilyData* FlushScheduler::GetNextColumnFamily() {
   return cfd;
 }
 
-bool FlushScheduler::Empty() { return is_empty_.load(); }
+bool FlushScheduler::Empty() { return column_families_.empty(); }
 
 void FlushScheduler::Clear() {
   for (auto cfd : column_families_) {
@@ -65,7 +58,6 @@ void FlushScheduler::Clear() {
     }
   }
   column_families_.clear();
-  is_empty_ = true;
 }
 
 }  // namespace rocksdb

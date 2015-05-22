@@ -6,16 +6,17 @@
 #pragma once
 
 #include <stdint.h>
-#include <atomic>
+
 #include <memory>
 
 namespace rocksdb {
 
 class WriteControllerToken;
- 
+
 // WriteController is controlling write stalls in our write code-path. Write
 // stalls happen when compaction can't keep up with write rate.
-// All of the methods here are thread-safe
+// All of the methods here (including WriteControllerToken's destructors) need
+// to be called while holding DB mutex
 class WriteController {
  public:
   WriteController() : total_stopped_(0), total_delay_us_(0) {}
@@ -38,8 +39,8 @@ class WriteController {
   friend class StopWriteToken;
   friend class DelayWriteToken;
 
-  std::atomic<int> total_stopped_;
-  std::atomic<uint64_t> total_delay_us_;
+  int total_stopped_;
+  uint64_t total_delay_us_;
 };
 
 class WriteControllerToken {

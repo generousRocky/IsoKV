@@ -43,7 +43,6 @@
 #include "db/write_controller.h"
 #include "db/flush_scheduler.h"
 #include "db/write_thread.h"
-#include "util/read_write_lock.h"
 
 namespace rocksdb {
 
@@ -278,10 +277,6 @@ class DBImpl : public DB {
   unique_ptr<VersionSet> versions_;
   const DBOptions db_options_;
   Statistics* stats_;
-  ReadWriteLock updatesSynchronizer;
- 		 
-  virtual Status SerialWrite(const WriteOptions& options, WriteBatch* updates);
-  virtual Status ConcurrentWrite(const WriteOptions& options, WriteBatch* updates);
 
   Iterator* NewInternalIterator(const ReadOptions&, ColumnFamilyData* cfd,
                                 SuperVersion* super_version, Arena* arena);
@@ -461,7 +456,7 @@ class DBImpl : public DB {
     bool getting_flushed;
   };
   std::deque<LogFileNumberSize> alive_log_files_;
-  std::atomic<uint64_t> total_log_size_; 
+  uint64_t total_log_size_;
   // only used for dynamically adjusting max_total_wal_size. it is a sum of
   // [write_buffer_size * max_write_buffer_number] over all column families
   uint64_t max_total_in_memory_state_;
