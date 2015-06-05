@@ -99,7 +99,7 @@ nvm::~nvm()
 int nvm::open_nvm_device(const char *file)
 {
     std::string cmd = std::string("echo \"nba ") + std::string(file) +
-		      std::string(" 0:0\" > /sys/block/nvme0n1/nvm/configure");
+		      std::string(" 0:0\" > /sys/block/nvme0n1/lightnvm/configure");
 
     if(system(cmd.c_str()))
     {
