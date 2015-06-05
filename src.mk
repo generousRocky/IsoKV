@@ -196,7 +196,8 @@ TEST_BENCH_SOURCES =                                                    \
   table/table_test.cc                                                   \
   tools/db_sanity_test.cc                                               \
   tools/reduce_levels_test.cc                                           \
-  unit_tests/nvm_file_manager_test.cc						\
+  unit_tests/nvm_file_manager_test.cc					\
+  unit_tests/nvm_sequential_file_test.cc				\
   util/arena_test.cc                                                    \
   util/auto_roll_logger_test.cc                                         \
   util/autovector_test.cc                                               \

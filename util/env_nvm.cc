@@ -100,6 +100,11 @@ static void PthreadCall(const char* label, int result)
     }
 }
 
+//we only have 1 target device
+//we need a mutex to control the file pointer
+//should be removed when moving to a real machine
+pthread_mutex_t rw_mtx;
+
 class NVMEnv : public Env
 {
     public:
@@ -122,6 +127,8 @@ class NVMEnv : public Env
 
 	    ALLOC_CLASS(nvm_api, nvm());
 	    ALLOC_CLASS(file_manager, NVMFileManager(nvm_api))
+
+	    pthread_mutex_init(&rw_mtx, nullptr);
 	}
 
 	virtual ~NVMEnv()
@@ -158,7 +165,7 @@ class NVMEnv : public Env
 	    }
 	    else
 	    {
-		result->reset(new NVMSequentialFile(fname, f, options, file_manager));
+		result->reset(new NVMSequentialFile(fname, f, file_manager, nvm_api));
 		return Status::OK();
 	    }
 	}

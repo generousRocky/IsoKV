@@ -40,7 +40,8 @@ struct nvm_page
     bool allocated;
     bool erased;
 
-    unsigned int size;
+    unsigned int sizes_no;
+    unsigned int *sizes;
 };
 
 struct nvm_block
@@ -69,6 +70,7 @@ class list_node
     private:
 	void *data;
 
+	list_node *prev;
 	list_node *next;
 
     public:
@@ -76,10 +78,12 @@ class list_node
 	~list_node();
 
 	list_node *GetNext();
+	list_node *GetPrev();
 
 	void *GetData();
 	void *SetData(void *_data);
 	void *SetNext(list_node *_next);
+	void *SetPrev(list_node *_prev);
 };
 
 class nvm

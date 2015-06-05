@@ -5,6 +5,8 @@
 namespace rocksdb
 {
 
+extern pthread_mutex_t rw_mtx;
+
 #if defined(OS_LINUX)
 
 static size_t GetUniqueIdFromFile(int fd, char* id, size_t max_size)
@@ -44,14 +46,18 @@ static size_t GetUniqueIdFromFile(int fd, char* id, size_t max_size)
 
 #endif
 
-nvm_file::nvm_file(const char *_name)
+nvm_file::nvm_file(const char *_name, const int fd)
 {
     SAFE_ALLOC(name, char[strlen(_name) + 1]);
     strcpy(name, _name);
 
     size = 0;
 
+    fd_ = fd;
+
     first_page = nullptr;
+
+    pthread_mutex_init(&page_update_mtx, nullptr);
 }
 
 nvm_file::~nvm_file()
@@ -64,25 +70,121 @@ char *nvm_file::GetName()
     return name;
 }
 
+int nvm_file::GetFD()
+{
+    return fd_;
+}
+
 unsigned long nvm_file::GetSize()
 {
-    return size;
+    unsigned long ret;
+
+    pthread_mutex_lock(&page_update_mtx);
+
+    ret = size;
+
+    pthread_mutex_unlock(&page_update_mtx);
+
+    return ret;
+}
+
+void nvm_file::make_dummy(struct nvm *nvm_api)
+{
+    for(int i = 0; i < 5; ++i)
+    {
+	for(int j = 0; j < 128; ++j)
+	{
+	    list_node *temp;
+	    ALLOC_CLASS(temp, list_node(&nvm_api->luns[0].blocks[i].pages[j]));
+
+	    size += nvm_api->luns[0].blocks[i].pages[j].sizes[0];
+
+	    if(first_page == nullptr)
+	    {
+		first_page = temp;
+		continue;
+	    }
+
+	    first_page->SetPrev(temp);
+	    temp->SetNext(first_page);
+
+	    first_page = temp;
+	}
+    }
+
+    list_node *enumerator = first_page;
+
+    while(enumerator != nullptr)
+    {
+	struct nvm_page *pg = (struct nvm_page *)enumerator->GetData();
+
+	NVM_DEBUG("dummy file has page %lu %lu %lu", pg->lun_id, pg->block_id, pg->id);
+
+	enumerator = enumerator->GetNext();
+    }
 }
 
 struct list_node *nvm_file::GetNVMPagesList()
 {
-    return first_page;
+    struct list_node *ret;
+
+    pthread_mutex_lock(&page_update_mtx);
+
+    ret = first_page;
+
+    pthread_mutex_unlock(&page_update_mtx);
+
+    return ret;
 }
 
-NVMSequentialFile::NVMSequentialFile(const std::string& fname, nvm_file *f, const EnvOptions& options, NVMFileManager *file_manager) :
-		filename_(fname),
-		use_os_buffer_(options.use_os_buffer)
+size_t nvm_file::ReadPage(const nvm_page *page, const unsigned long channel, struct nvm *nvm_api, void *data)
+{
+    unsigned long offset;
+
+    unsigned long page_size = page->sizes[channel];
+    unsigned long block_size = nvm_api->luns[page->lun_id].nr_pages_per_blk * page_size;
+    unsigned long lun_size = nvm_api->luns[page->lun_id].nr_blocks * block_size;
+
+    offset = page->lun_id * lun_size + page->block_id * block_size + page->id * page_size;
+
+    NVM_DEBUG("%lu %lu %lu translates to %lu", page->lun_id, page->block_id, page->id, offset);
+
+    pthread_mutex_lock(&rw_mtx);
+
+    if(lseek(fd_, offset, SEEK_SET) < 0)
+    {
+	pthread_mutex_unlock(&rw_mtx);
+
+	return -1;
+    }
+
+    if((unsigned)read(fd_, data, page_size) != page_size)
+    {
+	pthread_mutex_unlock(&rw_mtx);
+
+	return -1;
+    }
+
+    pthread_mutex_unlock(&rw_mtx);
+
+    return page_size;
+}
+
+NVMSequentialFile::NVMSequentialFile(const std::string& fname, nvm_file *f, NVMFileManager *file_manager, struct nvm *_nvm_api) :
+		filename_(fname)
 {
     file_ = f;
 
     file_manager_ = file_manager;
 
     file_pointer = 0;
+
+    crt_page = file_->GetNVMPagesList();
+    page_pointer = 0;
+
+    channel = 0;
+
+    nvm_api = _nvm_api;
 }
 
 NVMSequentialFile::~NVMSequentialFile()
@@ -90,37 +192,124 @@ NVMSequentialFile::~NVMSequentialFile()
     file_manager_->nvm_fclose(file_);
 }
 
+void NVMSequentialFile::SeekPage(const unsigned long offset)
+{
+    NVM_ASSERT(crt_page != nullptr, "crt_page is null");
+
+    page_pointer += offset;
+
+    nvm_page *pg = (nvm_page *)crt_page->GetData();
+
+    while(page_pointer >= pg->sizes[channel])
+    {
+	page_pointer -= pg->sizes[channel];
+
+	NVM_DEBUG("moved from page %lu %lu %lu", pg->lun_id, pg->block_id, pg->id);
+
+	crt_page = crt_page->GetNext();
+
+	if(crt_page == nullptr)
+	{
+	    //we have reached end of file
+	    return;
+	}
+
+	pg = (nvm_page *)crt_page->GetData();
+    }
+}
+
 Status NVMSequentialFile::Read(size_t n, Slice* result, char* scratch)
 {
-    size_t r = 0;
-
-    if(file_pointer < file_->GetSize())
+    if(file_pointer + n > file_->GetSize())
     {
-	r = file_manager_->nvm_fread(scratch, file_pointer, n, file_);
-	file_pointer += r;
-
-	if(r == 0)
-	{
-	    return IOError(filename_, errno);
-	}
+	NVM_DEBUG("Adjusted n from %lu to %lu", n, file_->GetSize() - file_pointer);
+	n = file_->GetSize() - file_pointer;
     }
 
-    IOSTATS_ADD(bytes_read, r);
-    *result = Slice(scratch, r);
+    if(n <= 0)
+    {
+	*result = Slice(scratch, n);
+	return Status::OK();
+    }
+
+    if(crt_page == nullptr)
+    {
+	*result = Slice(scratch, 0);
+	return Status::OK();
+    }
+
+    size_t len = n;
+    size_t l;
+    size_t scratch_offset = 0;
+    size_t size_to_copy;
+
+    char *data;
+
+    while(len > 0)
+    {
+	nvm_page *pg = (nvm_page *)crt_page->GetData();
+
+	SAFE_ALLOC(data, char[pg->sizes[channel]]);
+
+	l = file_->ReadPage(pg, channel, nvm_api, data);
+
+	NVM_DEBUG("read from %lu %lu %lu bytes: %lu", pg->lun_id, pg->block_id, pg->id, l);
+
+	if(len > l - page_pointer)
+	{
+	    size_to_copy = l - page_pointer;
+	}
+	else
+	{
+	    size_to_copy = len;
+	}
+
+	NVM_DEBUG("size to copy is %lu", size_to_copy);
+
+	memcpy(scratch + scratch_offset, data + page_pointer, size_to_copy);
+
+	len -= size_to_copy;
+	scratch_offset += size_to_copy;
+
+	SeekPage(size_to_copy);
+
+	delete[] data;
+    }
+
+    file_pointer += n;
+
+    *result = Slice(scratch, n);
+
+    NVM_DEBUG("file pointer is %lu", file_pointer);
+    NVM_DEBUG("page pointer is %lu", page_pointer);
 
     return Status::OK();
 }
 
+//n is unsigned -> skip is only allowed forward
 Status NVMSequentialFile::Skip(uint64_t n)
 {
-    if(file_pointer + n >= file_->GetSize())
+    if(n == 0)
     {
-	file_pointer = file_->GetSize();
+	return Status::OK();
     }
-    else
+
+    if(crt_page == nullptr)
     {
-	file_pointer += n;
+	return Status::IOError(filename_, "EINVAL crt page is null");
     }
+
+    if(file_pointer + n > file_->GetSize())
+    {
+	return Status::IOError(filename_, "EINVAL file pointer goes out of bounds");
+    }
+
+    SeekPage(n - file_pointer);
+
+    file_pointer += n;
+
+    NVM_DEBUG("file pointer is %lu", file_pointer);
+    NVM_DEBUG("page pointer is %lu", page_pointer);
 
     return Status::OK();
 }
@@ -129,8 +318,6 @@ Status NVMSequentialFile::InvalidateCache(size_t offset, size_t length)
 {
     return Status::OK();
 }
-
-// pread() based random-access
 
 NVMRandomAccessFile::NVMRandomAccessFile(const std::string& fname, int fd, const EnvOptions& options) :
 		    filename_(fname),

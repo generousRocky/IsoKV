@@ -7,6 +7,7 @@ list_node::list_node(void *_data)
     data = _data;
 
     next = nullptr;
+    prev = nullptr;
 }
 
 list_node::~list_node()
@@ -16,6 +17,11 @@ list_node::~list_node()
 list_node *list_node::GetNext()
 {
     return next;
+}
+
+list_node *list_node::GetPrev()
+{
+    return prev;
 }
 
 void *list_node::GetData()
@@ -37,6 +43,15 @@ void *list_node::SetNext(list_node *_next)
     void *ret = next;
 
     next = _next;
+
+    return ret;
+}
+
+void *list_node::SetPrev(list_node *_prev)
+{
+    void *ret = prev;
+
+    prev = _prev;
 
     return ret;
 }
@@ -103,6 +118,7 @@ int nvm::ioctl_initialize()
     unsigned long i;
     unsigned long j;
     unsigned long k;
+    unsigned long l;
 
     struct nba_channel chnl_desc;
 
@@ -222,7 +238,13 @@ int nvm::ioctl_initialize()
 		process_blk->pages[k].allocated = false;
 		process_blk->pages[k].erased = false;
 
-		process_blk->pages[k].size = luns[i].channels[0].gran_write;
+		process_blk->pages[k].sizes_no = luns[i].nchannels;
+		SAFE_MALLOC(process_blk->pages[k].sizes, luns[i].nchannels, unsigned int)
+
+		for(l = 0; l < process_blk->pages[k].sizes_no; ++l)
+		{
+		    process_blk->pages[k].sizes[l] = luns[i].channels[l].gran_write;
+		}
 	    }
 	}
     }

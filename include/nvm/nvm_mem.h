@@ -25,4 +25,6 @@ if(!(x))\
     exit(EXIT_FAILURE);\
 }
 
+#define SAFE_MALLOC(x, y, z) ALLOC_STRUCT(x, y, z)
+
 #endif /* MEM_H_ */

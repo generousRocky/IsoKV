@@ -16,19 +16,31 @@ class nvm_file
     private:
 	char *name;
 
+	pthread_mutex_t page_update_mtx;
+
 	unsigned long size;
+
+	int fd_;
 
 	struct list_node *first_page;
 
     public:
-	nvm_file(const char *_name);
+	nvm_file(const char *_name, const int fd);
 	~nvm_file();
 
 	char *GetName();
 
 	unsigned long GetSize();
 
+	int GetFD();
+
+	size_t ReadPage(const nvm_page *page, const unsigned long channel, struct nvm *nvm_api, void *data);
+
 	struct list_node *GetNVMPagesList();
+
+	size_t nvm_fread(void *data, const unsigned long offset, const size_t len);
+
+	void make_dummy(struct nvm *nvm_api);
 };
 
 //TODO: improve running time to log n lookup.
@@ -46,10 +58,8 @@ class NVMFileManager
 
 	pthread_mutex_t list_update_mtx;
 
-	//we only have 1 target device
-	//we need a mutex to control the file pointer
-	//should be removed when moving to a real machine
-	pthread_mutex_t rw_mtx;
+	nvm_file *create_file(const char *filename);
+	nvm_file *open_file_if_exists(const char *filename);
 
     public:
 	NVMFileManager(nvm *_nvm_api);
@@ -57,8 +67,6 @@ class NVMFileManager
 
 	nvm_file *nvm_fopen(const char *filename, const char *mode);
 	void nvm_fclose(nvm_file *file);
-
-	size_t nvm_fread(void *data, const unsigned long offset, const size_t len, nvm_file *fd);
 };
 
 class NVMSequentialFile: public SequentialFile
@@ -69,13 +77,18 @@ class NVMSequentialFile: public SequentialFile
 	nvm_file *file_;
 
 	unsigned long file_pointer;
+	unsigned long channel;
+	unsigned long page_pointer;
 
-	bool use_os_buffer_;
+	struct list_node *crt_page;
+	struct nvm *nvm_api;
 
 	NVMFileManager *file_manager_;
 
+	void SeekPage(const unsigned long offset);
+
     public:
-	NVMSequentialFile(const std::string& fname, nvm_file *f, const EnvOptions& options, NVMFileManager *file_manager);
+	NVMSequentialFile(const std::string& fname, nvm_file *f, NVMFileManager *file_manager, struct nvm *_nvm_api);
 	virtual ~NVMSequentialFile();
 
 	virtual Status Read(size_t n, Slice* result, char* scratch) override;

@@ -15,11 +15,6 @@ NVMFileManager::NVMFileManager(nvm *_nvm_api)
     {
 	NVM_FATAL("");
     }
-
-    if(pthread_mutex_init(&rw_mtx, nullptr))
-    {
-	NVM_FATAL("");
-    }
 }
 
 NVMFileManager::~NVMFileManager()
@@ -68,11 +63,28 @@ list_node *NVMFileManager::look_up(const char *filename)
     return nullptr;
 }
 
-//opens existing file or creates a new one
-nvm_file *NVMFileManager::nvm_fopen(const char *filename, const char *mode)
+nvm_file *NVMFileManager::create_file(const char *filename)
 {
-    nvm_file *to_create;
+    nvm_file *fd;
+    list_node *file_node;
 
+    ALLOC_CLASS(fd, nvm_file(filename, nvm_api->fd));
+    ALLOC_CLASS(file_node, list_node(fd));
+
+    pthread_mutex_lock(&list_update_mtx);
+
+    file_node->SetNext(head);
+    head = file_node;
+
+    pthread_mutex_unlock(&list_update_mtx);
+
+    NVM_DEBUG("created file %s at %p", filename, fd);
+
+    return fd;
+}
+
+nvm_file *NVMFileManager::open_file_if_exists(const char *filename)
+{
     list_node *file_node = look_up(filename);
 
     if(file_node)
@@ -84,83 +96,32 @@ nvm_file *NVMFileManager::nvm_fopen(const char *filename, const char *mode)
 	return process;
     }
 
+    return nullptr;
+}
+
+//opens existing file or creates a new one
+nvm_file *NVMFileManager::nvm_fopen(const char *filename, const char *mode)
+{
+    nvm_file *fd = open_file_if_exists(filename);
+
+    if(fd != nullptr)
+    {
+	return fd;
+    }
+
     if(mode[0] != 'a' && mode[0] != 'w')
     {
 	return nullptr;
     }
 
-    if(nvm_api == nullptr)
-    {
-	NVM_FATAL("api is null");
-    }
+    NVM_ASSERT(nvm_api != nullptr, "api is null");
 
-    ALLOC_CLASS(to_create, nvm_file(filename));
-    ALLOC_CLASS(file_node, list_node(to_create));
-
-    pthread_mutex_lock(&list_update_mtx);
-
-    file_node->SetNext(head);
-    head = file_node;
-
-    pthread_mutex_unlock(&list_update_mtx);
-
-    NVM_DEBUG("created file %s at %p", filename, to_create);
-
-    return to_create;
+    return create_file(filename);
 }
 
 void NVMFileManager::nvm_fclose(nvm_file *file)
 {
     NVM_DEBUG("closing file %s at %p", file->GetName(), file);
-}
-
-size_t NVMFileManager::nvm_fread(void *data, const unsigned long offset, const size_t len, nvm_file *fd)
-{
-    pthread_mutex_lock(&rw_mtx);
-
-    if(fd->GetNVMPagesList() == NULL)
-    {
-	pthread_mutex_unlock(&rw_mtx);
-	return 0;
-    }
-
-    /*unsigned long offset_ = offset;
-
-    list_node *crt_node = fd->GetNVMPagesList();
-    nvm_page *process_page = (nvm_page *)crt_node->GetData();
-
-    while(crt_node != NULL && offset_ >= process_page->size)
-    {
-	offset_ -= process_page->size;
-
-	crt_node = crt_node->GetNext();
-
-	if(crt_node)
-	{
-	    process_page = (nvm_page *)crt_node->GetData();
-	}
-    }
-
-    if(crt_node == NULL)
-    {
-	return 0;
-    }
-
-    unsigned char *page_data;
-
-    //select channel to read from
-    struct nvm_channel  *chnl = &nvm_api->luns[process_page->lun_id]->channels[0];
-
-    SAFE_ALLOC(page_data, unsigned char[chnl->grab_read]);
-
-    unsigned int file_offset =
-
-    if(lseek(nvm_api->fd, , ))
-
-    delete[] page_data;*/
-
-    pthread_mutex_unlock(&rw_mtx);
-    return 0;
 }
 
 }
