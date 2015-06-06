@@ -174,40 +174,20 @@ class NVMEnv : public Env
 	{
 	    result->reset();
 
-	    Status s;
+	    nvm_file *f;
 
-	    int fd = open(fname.c_str(), O_RDONLY);
-	    if (fd < 0)
-	    {
-		s = IOError(fname, errno);
-	    }
-	    else if (options.use_mmap_reads && sizeof(void*) >= 8)
-	    {
-		// Use of mmap for random reads has been removed because it
-		// kills performance when storage is fast.
-		// Use mmap when virtual address-space is plentiful.
+	    f = file_manager->nvm_fopen(fname.c_str(), "r");
 
-		uint64_t size;
-		s = GetFileSize(fname, &size);
-		if (s.ok())
-		{
-		    void* base = mmap(nullptr, size, PROT_READ, MAP_SHARED, fd, 0);
-		    if (base != MAP_FAILED)
-		    {
-			result->reset(new NVMMmapReadableFile(fd, fname, base, size, options));
-		    }
-		    else
-		    {
-			s = IOError(fname, errno);
-		    }
-		}
-		close(fd);
+	    if (f == nullptr)
+	    {
+		*result = nullptr;
+		return IOError(fname, errno);
 	    }
 	    else
 	    {
-		result->reset(new NVMRandomAccessFile(fname, fd, options));
+		result->reset(new NVMRandomAccessFile(fname, f, file_manager, nvm_api));
+		return Status::OK();
 	    }
-	    return s;
 	}
 
 	virtual Status NewWritableFile(const std::string& fname, unique_ptr<WritableFile>* result, const EnvOptions& options) override

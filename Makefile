@@ -265,6 +265,7 @@ TESTS = \
 	version_edit_test \
 	nvm_file_manager_test \
 	nvm_sequential_file_test \
+	nvm_random_access_file_test \
 	version_set_test \
 	compaction_picker_test \
 	version_builder_test \
@@ -755,6 +756,9 @@ nvm_file_manager_test: unit_tests/nvm_file_manager_test.o  $(LIBOBJECTS) $(TESTH
 	$(AM_LINK)
 
 nvm_sequential_file_test: unit_tests/nvm_sequential_file_test.o  $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+nvm_random_access_file_test: unit_tests/nvm_random_access_file_test.o  $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 version_set_test: db/version_set_test.o $(LIBOBJECTS) $(TESTHARNESS)

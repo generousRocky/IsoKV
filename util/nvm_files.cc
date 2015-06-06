@@ -9,39 +9,25 @@ extern pthread_mutex_t rw_mtx;
 
 #if defined(OS_LINUX)
 
-static size_t GetUniqueIdFromFile(int fd, char* id, size_t max_size)
+static size_t GetUniqueIdFromFile(nvm_file *fd, char* id, size_t max_size)
 {
     if (max_size < kMaxVarint64Length*3)
     {
 	return 0;
     }
 
-    struct stat buf;
-
-    int result = fstat(fd, &buf);
-    if (result == -1)
-    {
-	return 0;
-    }
-
-    long version = 0;
-
-    result = ioctl(fd, FS_IOC_GETVERSION, &version);
-    if (result == -1)
-    {
-	return 0;
-    }
-
-    uint64_t uversion = (uint64_t)version;
-
     char* rid = id;
 
-    rid = EncodeVarint64(rid, buf.st_dev);
-    rid = EncodeVarint64(rid, buf.st_ino);
-    rid = EncodeVarint64(rid, uversion);
-    assert(rid >= id);
+    rid = EncodeVarint64(rid, (uint64_t)fd);
 
-    return static_cast<size_t>(rid-id);
+    if(rid >= id)
+    {
+	return static_cast<size_t>(rid - id);
+    }
+    else
+    {
+	return static_cast<size_t>(id - rid);
+    }
 }
 
 #endif
@@ -147,8 +133,6 @@ size_t nvm_file::ReadPage(const nvm_page *page, const unsigned long channel, str
 
     offset = page->lun_id * lun_size + page->block_id * block_size + page->id * page_size;
 
-    NVM_DEBUG("%lu %lu %lu translates to %lu", page->lun_id, page->block_id, page->id, offset);
-
     pthread_mutex_lock(&rw_mtx);
 
     if(lseek(fd_, offset, SEEK_SET) < 0)
@@ -204,8 +188,6 @@ void NVMSequentialFile::SeekPage(const unsigned long offset)
     {
 	page_pointer -= pg->sizes[channel];
 
-	NVM_DEBUG("moved from page %lu %lu %lu", pg->lun_id, pg->block_id, pg->id);
-
 	crt_page = crt_page->GetNext();
 
 	if(crt_page == nullptr)
@@ -222,13 +204,12 @@ Status NVMSequentialFile::Read(size_t n, Slice* result, char* scratch)
 {
     if(file_pointer + n > file_->GetSize())
     {
-	NVM_DEBUG("Adjusted n from %lu to %lu", n, file_->GetSize() - file_pointer);
 	n = file_->GetSize() - file_pointer;
     }
 
     if(n <= 0)
     {
-	*result = Slice(scratch, n);
+	*result = Slice(scratch, 0);
 	return Status::OK();
     }
 
@@ -253,8 +234,6 @@ Status NVMSequentialFile::Read(size_t n, Slice* result, char* scratch)
 
 	l = file_->ReadPage(pg, channel, nvm_api, data);
 
-	NVM_DEBUG("read from %lu %lu %lu bytes: %lu", pg->lun_id, pg->block_id, pg->id, l);
-
 	if(len > l - page_pointer)
 	{
 	    size_to_copy = l - page_pointer;
@@ -263,8 +242,6 @@ Status NVMSequentialFile::Read(size_t n, Slice* result, char* scratch)
 	{
 	    size_to_copy = len;
 	}
-
-	NVM_DEBUG("size to copy is %lu", size_to_copy);
 
 	memcpy(scratch + scratch_offset, data + page_pointer, size_to_copy);
 
@@ -279,9 +256,6 @@ Status NVMSequentialFile::Read(size_t n, Slice* result, char* scratch)
     file_pointer += n;
 
     *result = Slice(scratch, n);
-
-    NVM_DEBUG("file pointer is %lu", file_pointer);
-    NVM_DEBUG("page pointer is %lu", page_pointer);
 
     return Status::OK();
 }
@@ -308,9 +282,6 @@ Status NVMSequentialFile::Skip(uint64_t n)
 
     file_pointer += n;
 
-    NVM_DEBUG("file pointer is %lu", file_pointer);
-    NVM_DEBUG("page pointer is %lu", page_pointer);
-
     return Status::OK();
 }
 
@@ -319,60 +290,132 @@ Status NVMSequentialFile::InvalidateCache(size_t offset, size_t length)
     return Status::OK();
 }
 
-NVMRandomAccessFile::NVMRandomAccessFile(const std::string& fname, int fd, const EnvOptions& options) :
-		    filename_(fname),
-		    fd_(fd),
-		    use_os_buffer_(options.use_os_buffer)
+NVMRandomAccessFile::NVMRandomAccessFile(const std::string& fname, nvm_file *f, NVMFileManager *file_manager, struct nvm *_nvm_api) :
+		    filename_(fname)
 {
-    assert(!options.use_mmap_reads || sizeof(void*) < 8);
+    file_ = f;
+
+    file_manager_ = file_manager;
+
+    first_page = file_->GetNVMPagesList();
+
+    channel = 0;
+
+    nvm_api = _nvm_api;
 }
 
 NVMRandomAccessFile::~NVMRandomAccessFile()
 {
-    close(fd_);
+    file_manager_->nvm_fclose(file_);
+}
+
+struct list_node *NVMRandomAccessFile::SeekPage(const unsigned long offset, unsigned long *page_pointer) const
+{
+    NVM_ASSERT(first_page != nullptr, "first_page is null");
+
+    *page_pointer = offset;
+
+    struct list_node *crt_page = first_page;
+
+    nvm_page *pg = (nvm_page *)crt_page->GetData();
+
+    while(*page_pointer >= pg->sizes[channel])
+    {
+	*page_pointer -= pg->sizes[channel];
+
+	crt_page = crt_page->GetNext();
+
+	if(crt_page == nullptr)
+	{
+	    //we have reached end of file
+	    return nullptr;
+	}
+
+	pg = (nvm_page *)crt_page->GetData();
+    }
+
+    return crt_page;
 }
 
 Status NVMRandomAccessFile::Read(uint64_t offset, size_t n, Slice* result, char* scratch) const
 {
-    Status s;
+    unsigned long page_pointer;
 
-    ssize_t r = -1;
-
-    size_t left = n;
-
-    char* ptr = scratch;
-
-    while (left > 0)
+    if(offset + n > file_->GetSize())
     {
-	r = pread(fd_, ptr, left, static_cast<off_t>(offset));
-	if (r <= 0)
+	n = file_->GetSize() - offset;
+    }
+
+    if(n <= 0)
+    {
+	NVM_DEBUG("n is <= 0");
+
+	*result = Slice(scratch, 0);
+	return Status::OK();
+    }
+
+    if(first_page == nullptr)
+    {
+	NVM_DEBUG("first page is null");
+
+	*result = Slice(scratch, 0);
+	return Status::OK();
+    }
+
+    size_t len = n;
+    size_t l;
+    size_t scratch_offset = 0;
+    size_t size_to_copy;
+
+    char *data;
+
+    struct list_node *crt_page = SeekPage(offset, &page_pointer);
+
+    while(len > 0)
+    {
+	if(crt_page == nullptr)
 	{
-	    if (errno == EINTR)
-	    {
-		continue;
-	    }
+	    n -= len;
 	    break;
 	}
-	ptr += r;
-	offset += r;
-	left -= r;
+
+	nvm_page *pg = (nvm_page *)crt_page->GetData();
+
+	SAFE_ALLOC(data, char[pg->sizes[channel]]);
+
+	l = file_->ReadPage(pg, channel, nvm_api, data);
+
+	if(len > l - page_pointer)
+	{
+	    size_to_copy = l - page_pointer;
+	}
+	else
+	{
+	    size_to_copy = len;
+	}
+
+	memcpy(scratch + scratch_offset, data + page_pointer, size_to_copy);
+
+	len -= size_to_copy;
+	scratch_offset += size_to_copy;
+
+	crt_page = crt_page->GetNext();
+	page_pointer = 0;
+
+	delete[] data;
     }
 
-    IOSTATS_ADD_IF_POSITIVE(bytes_read, n - left);
+    NVM_DEBUG("read %lu bytes", n);
 
-    *result = Slice(scratch, (r < 0) ? 0 : n - left);
-    if (r < 0)
-    {
-	// An error: return a non-ok status
-	s = IOError(filename_, errno);
-    }
-    return s;
+    *result = Slice(scratch, n);
+
+    return Status::OK();
 }
 
 #ifdef OS_LINUX
 size_t NVMRandomAccessFile::GetUniqueId(char* id, size_t max_size) const
 {
-    return GetUniqueIdFromFile(fd_, id, max_size);
+    return GetUniqueIdFromFile(file_, id, max_size);
 }
 #endif
 
@@ -382,50 +425,6 @@ void NVMRandomAccessFile::Hint(AccessPattern pattern)
 }
 
 Status NVMRandomAccessFile::InvalidateCache(size_t offset, size_t length)
-{
-    return Status::OK();
-}
-
-
-	    // base[0,length-1] contains the mmapped contents of the file.
-NVMMmapReadableFile::NVMMmapReadableFile(const int fd, const std::string& fname, void* base, size_t length, const EnvOptions& options) :
-		fd_(fd),
-		filename_(fname),
-		mmapped_region_(base),
-		length_(length)
-{
-    fd_ = fd_ + 0;  // suppress the warning for used variables
-
-    assert(options.use_mmap_reads);
-    assert(options.use_os_buffer);
-}
-
-NVMMmapReadableFile::~NVMMmapReadableFile()
-{
-    int ret = munmap(mmapped_region_, length_);
-    if (ret != 0)
-    {
-	fprintf(stdout, "failed to munmap %p length %zu \n", mmapped_region_, length_);
-    }
-}
-
-Status NVMMmapReadableFile::Read(uint64_t offset, size_t n, Slice* result, char* scratch) const
-{
-    Status s;
-
-    if (offset + n > length_)
-    {
-	*result = Slice();
-	s = IOError(filename_, EINVAL);
-    }
-    else
-    {
-	*result = Slice(reinterpret_cast<char*>(mmapped_region_) + offset, n);
-    }
-    return s;
-}
-
-Status NVMMmapReadableFile::InvalidateCache(size_t offset, size_t length)
 {
     return Status::OK();
 }
@@ -976,7 +975,8 @@ Status NVMWritableFile::RangeSync(off_t offset, off_t nbytes)
 
 size_t NVMWritableFile::GetUniqueId(char* id, size_t max_size) const
 {
-    return GetUniqueIdFromFile(fd_, id, max_size);
+    //return GetUniqueIdFromFile(fd_, id, max_size);
+    return 0;
 }
 
 #endif

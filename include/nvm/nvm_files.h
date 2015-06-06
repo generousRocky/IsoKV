@@ -101,12 +101,19 @@ class NVMRandomAccessFile: public RandomAccessFile
     private:
 	std::string filename_;
 
-	int fd_;
+	nvm_file *file_;
 
-	bool use_os_buffer_;
+	unsigned long channel;
+
+	struct list_node *first_page;
+	struct nvm *nvm_api;
+
+	NVMFileManager *file_manager_;
+
+	struct list_node *SeekPage(const unsigned long offset, unsigned long *page_pointer) const;
 
     public:
-	NVMRandomAccessFile(const std::string& fname, int fd, const EnvOptions& options);
+	NVMRandomAccessFile(const std::string& fname, nvm_file *f, NVMFileManager *file_manager, struct nvm *_nvm_api);
 	virtual ~NVMRandomAccessFile();
 
 	virtual Status Read(uint64_t offset, size_t n, Slice* result, char* scratch) const override;
@@ -117,26 +124,6 @@ class NVMRandomAccessFile: public RandomAccessFile
 
 	virtual void Hint(AccessPattern pattern) override;
 
-	virtual Status InvalidateCache(size_t offset, size_t length) override;
-};
-
-class NVMMmapReadableFile : public RandomAccessFile
-{
-    private:
-	int fd_;
-
-	std::string filename_;
-
-	void* mmapped_region_;
-
-	size_t length_;
-
-    public:
-	// base[0,length-1] contains the mmapped contents of the file.
-	NVMMmapReadableFile(const int fd, const std::string& fname, void* base, size_t length, const EnvOptions& options);
-	virtual ~NVMMmapReadableFile();
-
-	virtual Status Read(uint64_t offset, size_t n, Slice* result, char* scratch) const override;
 	virtual Status InvalidateCache(size_t offset, size_t length) override;
 };
 
