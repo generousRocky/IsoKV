@@ -85,6 +85,22 @@ int main(int argc, char **argv)
     }
     file_manager->nvm_fclose(open1);
 
+    unsigned long size;
+
+    if(file_manager->GetFileSize("bla.c", &size) == 0)
+    {
+	NVM_FATAL("");
+    }
+
+    NVM_DEBUG("size is %lu", size);
+
+    if(file_manager->GetFileSize("test.c", &size) != 0)
+    {
+	NVM_FATAL("");
+    }
+
+    NVM_DEBUG("size is %lu", size);
+
     delete file_manager;
     delete nvm_api;
 

@@ -351,20 +351,12 @@ class NVMEnv : public Env
 
 	virtual Status GetFileSize(const std::string& fname, uint64_t* size) override
 	{
-	    Status s;
-
-	    struct stat sbuf;
-
-	    if (stat(fname.c_str(), &sbuf) != 0)
+	    if(file_manager->GetFileSize(fname.c_str(), size))
 	    {
-		*size = 0;
-		s = IOError(fname, errno);
+		return Status::IOError("get file size failed");
 	    }
-	    else
-	    {
-		*size = sbuf.st_size;
-	    }
-	    return s;
+
+	    return Status::OK();
 	}
 
 	virtual Status GetFileModificationTime(const std::string& fname, uint64_t* file_mtime) override

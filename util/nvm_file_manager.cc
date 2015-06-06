@@ -124,6 +124,24 @@ void NVMFileManager::nvm_fclose(nvm_file *file)
     NVM_DEBUG("closing file %s at %p", file->GetName(), file);
 }
 
+int NVMFileManager::GetFileSize(const char *filename, unsigned long *size)
+{
+    list_node *file_node = look_up(filename);
+
+    if(file_node)
+    {
+	nvm_file *process = (nvm_file *)file_node->GetData();
+
+	NVM_DEBUG("found file %s at %p", filename, process);
+
+	*size = process->GetSize();
+	return 0;
+    }
+
+    *size = 0;
+    return 1;
+}
+
 }
 
 #endif

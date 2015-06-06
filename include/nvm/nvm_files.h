@@ -67,6 +67,8 @@ class NVMFileManager
 
 	nvm_file *nvm_fopen(const char *filename, const char *mode);
 	void nvm_fclose(nvm_file *file);
+
+	int GetFileSize(const char *filename, unsigned long *size);
 };
 
 class NVMSequentialFile: public SequentialFile
