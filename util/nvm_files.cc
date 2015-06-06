@@ -47,6 +47,7 @@ nvm_file::nvm_file(const char *_name, const int fd)
 
     pthread_mutex_init(&page_update_mtx, nullptr);
     pthread_mutex_init(&meta_mtx, nullptr);
+    pthread_mutex_init(&file_lock, nullptr);
 }
 
 nvm_file::~nvm_file()
@@ -67,6 +68,17 @@ nvm_file::~nvm_file()
 
     pthread_mutex_destroy(&page_update_mtx);
     pthread_mutex_destroy(&meta_mtx);
+    pthread_mutex_destroy(&file_lock);
+}
+
+int nvm_file::LockFile()
+{
+    return pthread_mutex_lock(&file_lock);
+}
+
+void nvm_file::UnlockFile()
+{
+    pthread_mutex_unlock(&file_lock);
 }
 
 time_t nvm_file::GetLastModified()

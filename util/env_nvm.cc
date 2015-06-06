@@ -41,16 +41,13 @@ ThreadStatusUpdater* CreateThreadStatusUpdater()
     return new ThreadStatusUpdater();
 }
 
-static int LockOrUnlock(const std::string& fname, int fd, bool lock)
+static int LockOrUnlock(const std::string& fname, nvm_file *fd, bool lock)
 {
     mutex_lockedFiles.Lock();
     if (lock)
     {
 	// If it already exists in the lockedFiles set, then it is already locked,
 	// and fail this lock attempt. Otherwise, insert it into lockedFiles.
-	// This check is needed because fcntl() does not detect lock conflict
-	// if the fcntl is issued by the same thread that earlier acquired
-	// this lock.
 	if (lockedFiles.insert(fname).second == false)
 	{
 	    mutex_lockedFiles.Unlock();
@@ -72,23 +69,20 @@ static int LockOrUnlock(const std::string& fname, int fd, bool lock)
 
     errno = 0;
 
-    struct flock f;
-
-    memset(&f, 0, sizeof(f));
-    f.l_type = (lock ? F_WRLCK : F_UNLCK);
-    f.l_whence = SEEK_SET;
-    f.l_start = 0;
-    f.l_len = 0;        // Lock/unlock entire file
-
-    int value = fcntl(fd, F_SETLK, &f);
-    if (value == -1 && lock)
+    if(lock)
     {
-	// if there is an error in locking, then remove the pathname from lockedfiles
-	lockedFiles.erase(fname);
+	if(fd->LockFile())
+	{
+	    return -1;
+	}
+    }
+    else
+    {
+	fd->UnlockFile();
     }
 
     mutex_lockedFiles.Unlock();
-    return value;
+    return 0;
 }
 
 static void PthreadCall(const char* label, int result)
@@ -397,25 +391,25 @@ class NVMEnv : public Env
 	{
 	    *lock = nullptr;
 
+	    nvm_file *f;
+
 	    Status result;
 
-	    int fd = open(fname.c_str(), O_RDWR | O_CREAT, 0644);
-	    if (fd < 0)
-	    {
-		result = IOError(fname, errno);
-	    }
-	    else if (LockOrUnlock(fname, fd, true) == -1)
+	    f = file_manager->nvm_fopen(fname.c_str(), "w");
+
+	    if (LockOrUnlock(fname, f, true) == -1)
 	    {
 		result = IOError("lock " + fname, errno);
-		close(fd);
+		file_manager->nvm_fclose(f);
 	    }
 	    else
 	    {
-		NVMFileLock* my_lock = new NVMFileLock;
-		my_lock->fd_ = fd;
+		NVMFileLock *my_lock = new NVMFileLock;
+		my_lock->fd_ = f;
 		my_lock->filename = fname;
 		*lock = my_lock;
 	    }
+
 	    return result;
 	}
 
@@ -424,11 +418,14 @@ class NVMEnv : public Env
 	    NVMFileLock* my_lock = reinterpret_cast<NVMFileLock*>(lock);
 
 	    Status result;
+
 	    if (LockOrUnlock(my_lock->filename, my_lock->fd_, false) == -1)
 	    {
 		result = IOError("unlock", errno);
 	    }
-	    close(my_lock->fd_);
+
+	    file_manager->nvm_fclose(my_lock->fd_);
+
 	    delete my_lock;
 	    return result;
 	}

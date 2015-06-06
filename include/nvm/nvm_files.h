@@ -4,13 +4,6 @@
 namespace rocksdb
 {
 
-class NVMFileLock : public FileLock
-{
-    public:
-	int fd_;
-	std::string filename;
-};
-
 class nvm_file
 {
     private:
@@ -27,6 +20,7 @@ class nvm_file
 	time_t last_modified;
 
 	pthread_mutex_t meta_mtx;
+	pthread_mutex_t file_lock;
 
     public:
 	nvm_file(const char *_name, const int fd);
@@ -51,6 +45,16 @@ class nvm_file
 	void make_dummy(struct nvm *nvm_api);
 
 	void Delete(struct nvm *nvm_api);
+
+	int LockFile();
+	void UnlockFile();
+};
+
+class NVMFileLock : public FileLock
+{
+    public:
+	nvm_file *fd_;
+	std::string filename;
 };
 
 //TODO: improve running time to log n lookup.
