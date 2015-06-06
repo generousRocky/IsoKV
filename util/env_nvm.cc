@@ -302,13 +302,13 @@ class NVMEnv : public Env
 
 	virtual Status DeleteFile(const std::string& fname) override
 	{
-	    Status result;
-	    if (unlink(fname.c_str()) != 0)
+	    if(file_manager->DeleteFile(fname.c_str()))
 	    {
-		result = IOError(fname, errno);
+		return Status::IOError("delete file failed");
 	    }
-	    return result;
-	};
+
+	    return Status::OK();
+	}
 
 	virtual Status CreateDir(const std::string& name) override
 	{

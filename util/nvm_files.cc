@@ -49,6 +49,18 @@ nvm_file::nvm_file(const char *_name, const int fd)
 nvm_file::~nvm_file()
 {
     delete[] name;
+
+    //delete all nvm pages in the list
+    list_node *temp = first_page;
+
+    while(temp != nullptr)
+    {
+	list_node *temp1 = temp->GetNext();
+
+	delete temp;
+
+	temp = temp1;
+    }
 }
 
 char *nvm_file::GetName()
@@ -108,6 +120,26 @@ void nvm_file::make_dummy(struct nvm *nvm_api)
 
 	enumerator = enumerator->GetNext();
     }
+}
+
+void nvm_file::Delete(struct nvm *nvm_api)
+{
+    list_node *temp = first_page;
+
+    while(temp != nullptr)
+    {
+	list_node *temp1 = temp->GetNext();
+
+	struct nvm_page *to_reclaim = (struct nvm_page *)temp->GetData();
+
+	nvm_api->ReclaimPage(to_reclaim);
+
+	delete temp;
+
+	temp = temp1;
+    }
+
+    first_page = nullptr;
 }
 
 struct list_node *nvm_file::GetNVMPagesList()

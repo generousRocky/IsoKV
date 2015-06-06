@@ -41,6 +41,8 @@ class nvm_file
 	size_t nvm_fread(void *data, const unsigned long offset, const size_t len);
 
 	void make_dummy(struct nvm *nvm_api);
+
+	void Delete(struct nvm *nvm_api);
 };
 
 //TODO: improve running time to log n lookup.
@@ -57,6 +59,7 @@ class NVMFileManager
 	list_node *look_up(const char *filename);
 
 	pthread_mutex_t list_update_mtx;
+	pthread_mutexattr_t list_update_mtx_attr;
 
 	nvm_file *create_file(const char *filename);
 	nvm_file *open_file_if_exists(const char *filename);
@@ -69,6 +72,7 @@ class NVMFileManager
 	void nvm_fclose(nvm_file *file);
 
 	int GetFileSize(const char *filename, unsigned long *size);
+	int DeleteFile(const char *filename);
 };
 
 class NVMSequentialFile: public SequentialFile

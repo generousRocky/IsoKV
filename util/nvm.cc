@@ -111,6 +111,11 @@ int nvm::open_nvm_device(const char *file)
     return open(cmd.c_str(), O_RDWR);
 }
 
+void nvm::ReclaimPage(struct nvm_page *page)
+{
+    page->allocated = false;
+}
+
 int nvm::ioctl_initialize()
 {
     int ret;

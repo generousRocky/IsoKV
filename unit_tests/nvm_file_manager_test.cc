@@ -4,16 +4,8 @@
 
 using namespace rocksdb;
 
-int main(int argc, char **argv)
+void TestOpenAndClose(NVMFileManager *file_manager, nvm *nvm_api)
 {
-    NVMFileManager *file_manager;
-    nvm *nvm_api;
-
-    ALLOC_CLASS(nvm_api, nvm());
-    ALLOC_CLASS(file_manager, NVMFileManager(nvm_api));
-
-    NVM_DEBUG("init complete");
-
     nvm_file *open1 = file_manager->nvm_fopen("test.c", "r");
 
     if(open1 != NULL)
@@ -84,7 +76,10 @@ int main(int argc, char **argv)
 	NVM_FATAL("");
     }
     file_manager->nvm_fclose(open1);
+}
 
+void TestFileSize(NVMFileManager *file_manager, nvm *nvm_api)
+{
     unsigned long size;
 
     if(file_manager->GetFileSize("bla.c", &size) == 0)
@@ -100,6 +95,98 @@ int main(int argc, char **argv)
     }
 
     NVM_DEBUG("size is %lu", size);
+
+    nvm_file *open1 = file_manager->nvm_fopen("test.c", "w");
+
+    if(open1 != NULL)
+    {
+	NVM_FATAL("");
+    }
+    open1->make_dummy(nvm_api);
+    file_manager->nvm_fclose(open1);
+
+    if(file_manager->GetFileSize("test.c", &size) != 0)
+    {
+	NVM_FATAL("");
+    }
+
+    NVM_DEBUG("size is %lu", size);
+}
+
+void TestFileDelete(NVMFileManager *file_manager, nvm *nvm_api)
+{
+    file_manager->DeleteFile("bla.c");
+
+    NVM_DEBUG("delete bla.c ok");
+
+    nvm_file *open1 = file_manager->nvm_fopen("test.c", "w");
+
+    if(open1 == NULL)
+    {
+	NVM_FATAL("");
+    }
+    open1->make_dummy(nvm_api);
+    file_manager->nvm_fclose(open1);
+
+    open1 = file_manager->nvm_fopen("test1.c", "w");
+
+    if(open1 == NULL)
+    {
+	NVM_FATAL("");
+    }
+    file_manager->nvm_fclose(open1);
+
+    file_manager->DeleteFile("test.c");
+
+    NVM_DEBUG("delete test.c ok");
+
+    file_manager->DeleteFile("test1.c");
+
+    NVM_DEBUG("delete test1.c ok");
+
+    file_manager->DeleteFile("test2.c");
+
+    NVM_DEBUG("delete test2.c ok");
+
+    open1 = file_manager->nvm_fopen("test.c", "r");
+
+    if(open1 != NULL)
+    {
+	NVM_FATAL("");
+    }
+
+    open1 = file_manager->nvm_fopen("test1.c", "r");
+
+    if(open1 != NULL)
+    {
+	NVM_FATAL("");
+    }
+
+    open1 = file_manager->nvm_fopen("test2.c", "r");
+
+    if(open1 != NULL)
+    {
+	NVM_FATAL("");
+    }
+
+    NVM_DEBUG("delete tests done");
+}
+
+int main(int argc, char **argv)
+{
+    NVMFileManager *file_manager;
+    nvm *nvm_api;
+
+    ALLOC_CLASS(nvm_api, nvm());
+    ALLOC_CLASS(file_manager, NVMFileManager(nvm_api));
+
+    NVM_DEBUG("init complete");
+
+    //TestOpenAndClose(file_manager, nvm_api);
+
+    //TestFileSize(file_manager, nvm_api);
+
+    TestFileDelete(file_manager, nvm_api);
 
     delete file_manager;
     delete nvm_api;

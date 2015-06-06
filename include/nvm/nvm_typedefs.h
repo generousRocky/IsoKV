@@ -98,6 +98,8 @@ class nvm
 	nvm();
 	~nvm();
 
+	void ReclaimPage(struct nvm_page *page);
+
     private:
 	int open_nvm_device(const char *file);
 	int ioctl_initialize();
