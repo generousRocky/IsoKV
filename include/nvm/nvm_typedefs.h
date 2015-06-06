@@ -95,10 +95,14 @@ class nvm
 
 	int fd;
 
+	std::string location;
+
 	nvm();
 	~nvm();
 
 	void ReclaimPage(struct nvm_page *page);
+
+	const char *GetLocation();
 
     private:
 	int open_nvm_device(const char *file);

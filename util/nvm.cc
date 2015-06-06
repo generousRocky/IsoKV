@@ -106,9 +106,14 @@ int nvm::open_nvm_device(const char *file)
 	return -1;
     }
 
-    cmd = std::string("/dev") + std::string(file);
+    location = std::string("/dev") + std::string(file);
 
-    return open(cmd.c_str(), O_RDWR);
+    return open(location.c_str(), O_RDWR);
+}
+
+const char *nvm::GetLocation()
+{
+    return location.c_str();
 }
 
 void nvm::ReclaimPage(struct nvm_page *page)

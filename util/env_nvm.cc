@@ -591,21 +591,15 @@ class NVMEnv : public Env
 
 	virtual Status GetAbsolutePath(const std::string& db_path, std::string* output_path) override
 	{
-	    if (db_path.find('/') == 0)
+	    const char *nvm_api_location = nvm_api->GetLocation();
+
+	    if (db_path.find(nvm_api_location) == 0)
 	    {
 		*output_path = db_path;
 		return Status::OK();
 	    }
 
-	    char the_path[256];
-	    char* ret = getcwd(the_path, 256);
-
-	    if (ret == nullptr)
-	    {
-		return Status::IOError(strerror(errno));
-	    }
-
-	    *output_path = ret;
+	    *output_path = std::string(nvm_api_location) + std::string("/") + db_path;
 	    return Status::OK();
 	}
 
