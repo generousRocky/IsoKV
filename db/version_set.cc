@@ -733,6 +733,7 @@ VersionStorageInfo::VersionStorageInfo(
       files_(new std::vector<FileMetaData*>[num_levels_]),
       base_level_(num_levels_ == 1 ? -1 : 1),
       files_by_size_(num_levels_),
+      level0_non_overlapping_(false),
       next_file_to_compact_by_size_(num_levels_),
       compaction_score_(num_levels_),
       compaction_level_(num_levels_),
@@ -871,6 +872,7 @@ void Version::PrepareApply(const MutableCFOptions& mutable_cf_options) {
   storage_info_.UpdateFilesBySize();
   storage_info_.GenerateFileIndexer();
   storage_info_.GenerateLevelFilesBrief();
+  storage_info_.GenerateLevel0NonOverlapping();
 }
 
 bool Version::MaybeInitializeFileMetaData(FileMetaData* file_meta) {
@@ -962,9 +964,20 @@ void VersionStorageInfo::ComputeCompensatedSizes() {
       // for files that have been created right now and no other thread has
       // access to them. That's why we can safely mutate compensated_file_size.
       if (file_meta->compensated_file_size == 0) {
-        file_meta->compensated_file_size = file_meta->fd.GetFileSize() +
-            file_meta->num_deletions * average_value_size *
-            kDeletionWeightOnCompaction;
+        file_meta->compensated_file_size = file_meta->fd.GetFileSize();
+        // Here we only boost the size of deletion entries of a file only
+        // when the number of deletion entries is greater than the number of
+        // non-deletion entries in the file.  The motivation here is that in
+        // a stable workload, the number of deletion entries should be roughly
+        // equal to the number of non-deletion entries.  If we compensate the
+        // size of deletion entries in a stable workload, the deletion
+        // compensation logic might introduce unwanted effet which changes the
+        // shape of LSM tree.
+        if (file_meta->num_deletions * 2 >= file_meta->num_entries) {
+          file_meta->compensated_file_size +=
+              (file_meta->num_deletions * 2 - file_meta->num_entries) *
+              average_value_size * kDeletionWeightOnCompaction;
+        }
       }
     }
   }
@@ -1019,13 +1032,6 @@ void VersionStorageInfo::ComputeCompactionScore(
       if (compaction_style_ == kCompactionStyleFIFO) {
         score = static_cast<double>(total_size) /
                 compaction_options_fifo.max_table_files_size;
-      } else if (num_sorted_runs >=
-                 mutable_cf_options.level0_stop_writes_trigger) {
-        // If we are slowing down writes, then we better compact that first
-        score = 1000000;
-      } else if (num_sorted_runs >=
-                 mutable_cf_options.level0_slowdown_writes_trigger) {
-        score = 10000;
       } else {
         score = static_cast<double>(num_sorted_runs) /
                 mutable_cf_options.level0_file_num_compaction_trigger;
@@ -1072,7 +1078,19 @@ void VersionStorageInfo::ComputeCompactionScore(
 
 void VersionStorageInfo::ComputeFilesMarkedForCompaction() {
   files_marked_for_compaction_.clear();
-  for (int level = 0; level <= MaxInputLevel(); level++) {
+  int last_qualify_level = 0;
+
+  // Do not include files from the last level with data
+  // If table properties collector suggests a file on the last level,
+  // we should not move it to a new level.
+  for (int level = num_levels() - 1; level >= 1; level--) {
+    if (!files_[level].empty()) {
+      last_qualify_level = level - 1;
+      break;
+    }
+  }
+
+  for (int level = 0; level <= last_qualify_level; level++) {
     for (auto* f : files_[level]) {
       if (!f->being_compacted && f->marked_for_compaction) {
         files_marked_for_compaction_.emplace_back(level, f);
@@ -1117,6 +1135,7 @@ void VersionStorageInfo::AddFile(int level, FileMetaData* f) {
 // 3. UpdateFilesBySize();
 // 4. GenerateFileIndexer();
 // 5. GenerateLevelFilesBrief();
+// 6. GenerateLevel0NonOverlapping();
 void VersionStorageInfo::SetFinalized() {
   finalized_ = true;
 #ifndef NDEBUG
@@ -1199,6 +1218,33 @@ void VersionStorageInfo::UpdateFilesBySize() {
     }
     next_file_to_compact_by_size_[level] = 0;
     assert(files_[level].size() == files_by_size_[level].size());
+  }
+}
+
+void VersionStorageInfo::GenerateLevel0NonOverlapping() {
+  assert(!finalized_);
+  level0_non_overlapping_ = true;
+  if (level_files_brief_.size() == 0) {
+    return;
+  }
+
+  // A copy of L0 files sorted by smallest key
+  std::vector<FdWithKeyRange> level0_sorted_file(
+      level_files_brief_[0].files,
+      level_files_brief_[0].files + level_files_brief_[0].num_files);
+  sort(level0_sorted_file.begin(), level0_sorted_file.end(),
+       [this](const FdWithKeyRange & f1, const FdWithKeyRange & f2)->bool {
+    return (internal_comparator_->Compare(f1.smallest_key, f2.smallest_key) <
+            0);
+  });
+
+  for (size_t i = 1; i < level0_sorted_file.size(); ++i) {
+    FdWithKeyRange& f = level0_sorted_file[i];
+    FdWithKeyRange& prev = level0_sorted_file[i - 1];
+    if (internal_comparator_->Compare(prev.largest_key, f.smallest_key) >= 0) {
+      level0_non_overlapping_ = false;
+      break;
+    }
   }
 }
 
@@ -2751,7 +2797,8 @@ Status VersionSet::WriteSnapshot(log::Writer* log) {
              cfd->current()->storage_info()->LevelFiles(level)) {
           edit.AddFile(level, f->fd.GetNumber(), f->fd.GetPathId(),
                        f->fd.GetFileSize(), f->smallest, f->largest,
-                       f->smallest_seqno, f->largest_seqno);
+                       f->smallest_seqno, f->largest_seqno,
+                       f->marked_for_compaction);
         }
       }
       edit.SetLogNumber(cfd->GetLogNumber());
@@ -3111,7 +3158,8 @@ ColumnFamilyData* VersionSet::CreateColumnFamily(
   AppendVersion(new_cfd, v);
   // GetLatestMutableCFOptions() is safe here without mutex since the
   // cfd is not available to client
-  new_cfd->CreateNewMemtable(*new_cfd->GetLatestMutableCFOptions());
+  new_cfd->CreateNewMemtable(*new_cfd->GetLatestMutableCFOptions(),
+                             LastSequence());
   new_cfd->SetLogNumber(edit->log_number_);
   return new_cfd;
 }

@@ -22,6 +22,8 @@
 #include "db/log_writer.h"
 #include "db/snapshot.h"
 #include "db/column_family.h"
+#include "db/compaction_job.h"
+#include "db/flush_job.h"
 #include "db/version_edit.h"
 #include "db/wal_manager.h"
 #include "db/writebuffer.h"
@@ -53,6 +55,7 @@ class VersionEdit;
 class VersionSet;
 class CompactionFilterV2;
 class Arena;
+class WriteCallback;
 struct JobContext;
 
 class DBImpl : public DB {
@@ -76,6 +79,7 @@ class DBImpl : public DB {
   using DB::Write;
   virtual Status Write(const WriteOptions& options,
                        WriteBatch* updates) override;
+
   using DB::Get;
   virtual Status Get(const ReadOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,
@@ -123,7 +127,7 @@ class DBImpl : public DB {
   using DB::CompactRange;
   virtual Status CompactRange(ColumnFamilyHandle* column_family,
                               const Slice* begin, const Slice* end,
-                              bool reduce_level = false, int target_level = -1,
+                              bool change_level = false, int target_level = -1,
                               uint32_t target_path_id = 0) override;
 
   using DB::CompactFiles;
@@ -191,17 +195,46 @@ class DBImpl : public DB {
 
   Status PromoteL0(ColumnFamilyHandle* column_family, int target_level);
 
+  // Similar to Write() but will call the callback once on the single write
+  // thread to determine whether it is safe to perform the write.
+  virtual Status WriteWithCallback(const WriteOptions& write_options,
+                                   WriteBatch* my_batch,
+                                   WriteCallback* callback);
+
+  // Returns the sequence number that is guaranteed to be smaller than or equal
+  // to the sequence number of any key that could be inserted into the current
+  // memtables. It can then be assumed that any write with a larger(or equal)
+  // sequence number will be present in this memtable or a later memtable.
+  //
+  // If the earliest sequence number could not be determined,
+  // kMaxSequenceNumber will be returned.
+  //
+  // If include_history=true, will also search Memtables in MemTableList
+  // History.
+  SequenceNumber GetEarliestMemTableSequenceNumber(SuperVersion* sv,
+                                                   bool include_history);
+
+  // For a given key, check to see if there are any records for this key
+  // in the memtables, including memtable history.
+
+  // On success, *seq will contain the sequence number for the
+  // latest such change or kMaxSequenceNumber if no records were present.
+  // Returns OK on success, other status on error reading memtables.
+  Status GetLatestSequenceForKeyFromMemtable(SuperVersion* sv, const Slice& key,
+                                             SequenceNumber* seq);
+
 #endif  // ROCKSDB_LITE
 
   // checks if all live files exist on file system and that their file sizes
   // match to our in-memory records
   virtual Status CheckConsistency();
 
-  virtual Status GetDbIdentity(std::string& identity) override;
+  virtual Status GetDbIdentity(std::string& identity) const override;
 
   Status RunManualCompaction(ColumnFamilyData* cfd, int input_level,
                              int output_level, uint32_t output_path_id,
-                             const Slice* begin, const Slice* end);
+                             const Slice* begin, const Slice* end,
+                             bool disallow_trivial_move = false);
 
 #ifndef ROCKSDB_LITE
   // Extra methods (for testing) that are not in the public DB interface
@@ -209,7 +242,8 @@ class DBImpl : public DB {
 
   // Compact any files in the named level that overlap [*begin, *end]
   Status TEST_CompactRange(int level, const Slice* begin, const Slice* end,
-                           ColumnFamilyHandle* column_family = nullptr);
+                           ColumnFamilyHandle* column_family = nullptr,
+                           bool disallow_trivial_move = false);
 
   // Force current memtable contents to be flushed.
   Status TEST_FlushMemTable(bool wait = true);
@@ -279,6 +313,32 @@ class DBImpl : public DB {
 
   void CancelAllBackgroundWork(bool wait);
 
+  // Find Super version and reference it. Based on options, it might return
+  // the thread local cached one.
+  // Call ReturnAndCleanupSuperVersion() when it is no longer needed.
+  SuperVersion* GetAndRefSuperVersion(ColumnFamilyData* cfd);
+
+  // Similar to the previous function but looks up based on a column family id.
+  // nullptr will be returned if this column family no longer exists.
+  // REQUIRED: this function should only be called on the write thread or if the
+  // mutex is held.
+  SuperVersion* GetAndRefSuperVersion(uint32_t column_family_id);
+
+  // Un-reference the super version and return it to thread local cache if
+  // needed. If it is the last reference of the super version. Clean it up
+  // after un-referencing it.
+  void ReturnAndCleanupSuperVersion(ColumnFamilyData* cfd, SuperVersion* sv);
+
+  // Similar to the previous function but looks up based on a column family id.
+  // nullptr will be returned if this column family no longer exists.
+  // REQUIRED: this function should only be called on the write thread.
+  void ReturnAndCleanupSuperVersion(uint32_t colun_family_id, SuperVersion* sv);
+
+  // REQUIRED: this function should only be called on the write thread or if the
+  // mutex is held.  Return value only valid until next call to this function or
+  // mutex is released.
+  ColumnFamilyHandle* GetColumnFamilyHandle(uint32_t column_family_id);
+
  protected:
   Env* const env_;
   const std::string dbname_;
@@ -290,16 +350,22 @@ class DBImpl : public DB {
                                 SuperVersion* super_version, Arena* arena);
 
   void NotifyOnFlushCompleted(ColumnFamilyData* cfd, uint64_t file_number,
-                              const MutableCFOptions& mutable_cf_options);
+                              const MutableCFOptions& mutable_cf_options,
+                              int job_id);
 
   void NotifyOnCompactionCompleted(ColumnFamilyData* cfd,
-                                   Compaction *c, const Status &st);
+                                   Compaction *c, const Status &st,
+                                   const CompactionJobStats& job_stats,
+                                   int job_id);
 
   void NewThreadStatusCfInfo(ColumnFamilyData* cfd) const;
 
   void EraseThreadStatusCfInfo(ColumnFamilyData* cfd) const;
 
   void EraseThreadStatusDbInfo() const;
+
+  Status WriteImpl(const WriteOptions& options, WriteBatch* updates,
+                   WriteCallback* callback);
 
  private:
   friend class DB;
@@ -309,6 +375,9 @@ class DBImpl : public DB {
 #endif
   friend struct SuperVersion;
   friend class CompactedDBImpl;
+#ifndef NDEBUG
+  friend class XFTransactionWriteHandler;
+#endif
   struct CompactionState;
 
   struct WriteContext;
@@ -574,10 +643,11 @@ class DBImpl : public DB {
     uint32_t output_path_id;
     bool done;
     Status status;
-    bool in_progress;           // compaction request being processed?
-    const InternalKey* begin;   // nullptr means beginning of key range
-    const InternalKey* end;     // nullptr means end of key range
-    InternalKey tmp_storage;    // Used to keep track of compaction progress
+    bool in_progress;             // compaction request being processed?
+    const InternalKey* begin;     // nullptr means beginning of key range
+    const InternalKey* end;       // nullptr means end of key range
+    InternalKey tmp_storage;      // Used to keep track of compaction progress
+    bool disallow_trivial_move;   // Force actual compaction to run
   };
   ManualCompaction* manual_compaction_;
 
@@ -626,12 +696,6 @@ class DBImpl : public DB {
   // Indicate DB was opened successfully
   bool opened_successfully_;
 
-  // The list of registered event listeners.
-  std::list<EventListener*> listeners_;
-
-  // count how many events are currently being notified.
-  int notifying_events_;
-
   // No copying allowed
   DBImpl(const DBImpl&);
   void operator=(const DBImpl&);
@@ -662,16 +726,6 @@ class DBImpl : public DB {
   SuperVersion* InstallSuperVersion(ColumnFamilyData* cfd, SuperVersion* new_sv,
                                     const MutableCFOptions& mutable_cf_options,
                                     bool dont_schedule_bg_work = false);
-
-  // Find Super version and reference it. Based on options, it might return
-  // the thread local cached one.
-  inline SuperVersion* GetAndRefSuperVersion(ColumnFamilyData* cfd);
-
-  // Un-reference the super version and return it to thread local cache if
-  // needed. If it is the last reference of the super version. Clean it up
-  // after un-referencing it.
-  inline void ReturnAndCleanupSuperVersion(ColumnFamilyData* cfd,
-                                           SuperVersion* sv);
 
 #ifndef ROCKSDB_LITE
   using DB::GetPropertiesOfAllTables;

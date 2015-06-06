@@ -208,27 +208,46 @@ TEST_F(EventListenerTest, OnSingleDBCompactionTest) {
   }
 }
 
+// This simple Listener can only handle one flush at a time.
 class TestFlushListener : public EventListener {
  public:
+  void OnTableFileCreated(
+      const TableFileCreationInfo& info) override {
+    // remember the info for later checking the FlushJobInfo.
+    prev_fc_info_ = info;
+    ASSERT_GT(info.db_name.size(), 0U);
+    ASSERT_GT(info.cf_name.size(), 0U);
+    ASSERT_GT(info.file_path.size(), 0U);
+    ASSERT_GT(info.job_id, 0);
+    ASSERT_GT(info.table_properties.data_size, 0U);
+    ASSERT_GT(info.table_properties.raw_key_size, 0U);
+    ASSERT_GT(info.table_properties.raw_value_size, 0U);
+    ASSERT_GT(info.table_properties.num_data_blocks, 0U);
+    ASSERT_GT(info.table_properties.num_entries, 0U);
+  }
+
   void OnFlushCompleted(
-      DB* db, const std::string& name,
-      const std::string& file_path,
-      bool triggered_writes_slowdown,
-      bool triggered_writes_stop) override {
+      DB* db, const FlushJobInfo& info) override {
     flushed_dbs_.push_back(db);
-    flushed_column_family_names_.push_back(name);
-    if (triggered_writes_slowdown) {
+    flushed_column_family_names_.push_back(info.cf_name);
+    if (info.triggered_writes_slowdown) {
       slowdown_count++;
     }
-    if (triggered_writes_stop) {
+    if (info.triggered_writes_stop) {
       stop_count++;
     }
+    // verify whether the previously created file matches the flushed file.
+    ASSERT_EQ(prev_fc_info_.db_name, db->GetName());
+    ASSERT_EQ(prev_fc_info_.cf_name, info.cf_name);
+    ASSERT_EQ(prev_fc_info_.job_id, info.job_id);
+    ASSERT_EQ(prev_fc_info_.file_path, info.file_path);
   }
 
   std::vector<std::string> flushed_column_family_names_;
   std::vector<DB*> flushed_dbs_;
   int slowdown_count;
   int stop_count;
+  TableFileCreationInfo prev_fc_info_;
 };
 
 TEST_F(EventListenerTest, OnSingleDBFlushTest) {

@@ -30,7 +30,7 @@ quoted_perl_command = $(subst ','\'',$(perl_command))
 # We use this debug level when developing RocksDB.
 # * DEBUG_LEVEL=0; this is the debug level we use for release. If you're
 # running rocksdb in production you most definitely want to compile RocksDB
-# with debug level 0. To compile with level 0, run `make shared_lib`, 
+# with debug level 0. To compile with level 0, run `make shared_lib`,
 # `make install-shared`, `make static_lib`, `make install-static` or
 # `make install`
 DEBUG_LEVEL=1
@@ -290,7 +290,10 @@ TESTS = \
 	thread_list_test \
 	sst_dump_test \
 	compact_files_test \
-	perf_context_test
+	perf_context_test \
+	optimistic_transaction_test \
+	write_callback_test \
+	compaction_job_stats_test
 
 SUBSET :=  $(shell echo $(TESTS) |sed s/^.*$(ROCKSDBTESTS_START)/$(ROCKSDBTESTS_START)/)
 
@@ -365,11 +368,11 @@ dbg: $(LIBRARY) $(BENCHMARKS) $(TOOLS) $(TESTS)
 # creates static library and programs
 release:
 	$(MAKE) clean
-	OPT="-DNDEBUG -O2" $(MAKE) static_lib $(TOOLS) db_bench -j32
+	OPT="-DNDEBUG -O2" $(MAKE) static_lib $(TOOLS) db_bench
 
 coverage:
 	$(MAKE) clean
-	COVERAGEFLAGS="-fprofile-arcs -ftest-coverage" LDFLAGS+="-lgcov" $(MAKE) all check -j32
+	COVERAGEFLAGS="-fprofile-arcs -ftest-coverage" LDFLAGS+="-lgcov" $(MAKE) all check
 	cd coverage && ./coverage_test.sh
         # Delete intermediate files
 	find . -type f -regex ".*\.\(\(gcda\)\|\(gcno\)\)" -exec rm {} \;
@@ -500,17 +503,19 @@ CLEAN_FILES += t LOG $(TMPD)
 watch-log:
 	watch --interval=0 'sort -k7,7nr -k4,4gr LOG|$(quoted_perl_command)'
 
-# If GNU parallel is installed, run the tests in parallel,
+# If J != 1 and GNU parallel is installed, run the tests in parallel,
 # via the check_0 rule above.  Otherwise, run them sequentially.
 check: all
-	$(AM_V_GEN)case $$(parallel --gnu --help 2>/dev/null) in	\
-	  *'GNU Parallel'*)						\
-	    t=$$($(test_names));					\
-	    $(MAKE) T="$$t" TMPD=$(TMPD) check_0;;			\
-	  *)								\
-	    for t in $(TESTS); do					\
-	      echo "===== Running $$t"; ./$$t || exit 1; done;;		\
-	esac
+	$(AM_V_GEN)if test "$(J)" != 1                                  \
+	    && (parallel --gnu --help 2>/dev/null) |                    \
+	        grep -q 'GNU Parallel';                                 \
+	then                                                            \
+	    t=$$($(test_names));                                        \
+	    $(MAKE) T="$$t" TMPD=$(TMPD) check_0;                       \
+	else                                                            \
+	    for t in $(TESTS); do                                       \
+	      echo "===== Running $$t"; ./$$t || exit 1; done;          \
+	fi
 	rm -rf $(TMPD)
 
 check_some: $(SUBSET) ldb_tests
@@ -713,6 +718,9 @@ flush_job_test: db/flush_job_test.o $(LIBOBJECTS) $(TESTHARNESS)
 compaction_job_test: db/compaction_job_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
+compaction_job_stats_test: db/compaction_job_stats_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
 wal_manager_test: db/wal_manager_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
@@ -827,6 +835,9 @@ sst_dump_test: util/sst_dump_test.o $(LIBOBJECTS) $(TESTHARNESS)
 memenv_test : util/memenv_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
+optimistic_transaction_test: utilities/transactions/optimistic_transaction_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
 mock_env_test : util/mock_env_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
@@ -840,6 +851,9 @@ auto_roll_logger_test: util/auto_roll_logger_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 memtable_list_test: db/memtable_list_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+write_callback_test: db/write_callback_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 sst_dump: tools/sst_dump.o $(LIBOBJECTS)
@@ -951,7 +965,7 @@ rocksdbjavastatic: $(java_libobjects) libz.a libbz2.a libsnappy.a liblz4.a
 	$(CXX) $(CXXFLAGS) -I./java/. $(JAVA_INCLUDE) -shared -fPIC \
 	  -o ./java/target/$(ROCKSDBJNILIB) $(JNI_NATIVE_SOURCES) \
 	  $(java_libobjects) $(COVERAGEFLAGS) \
-	  libz.a libbz2.a libsnappy.a liblz4.a
+	  libz.a libbz2.a libsnappy.a liblz4.a $(LDFLAGS)
 	cd java/target;strip -S -x $(ROCKSDBJNILIB)
 	cd java;jar -cf target/$(ROCKSDB_JAR) HISTORY*.md
 	cd java/target;jar -uf $(ROCKSDB_JAR) $(ROCKSDBJNILIB)

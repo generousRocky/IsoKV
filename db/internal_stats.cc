@@ -92,6 +92,8 @@ static const std::string cfstats = "cfstats";
 static const std::string dbstats = "dbstats";
 static const std::string levelstats = "levelstats";
 static const std::string num_immutable_mem_table = "num-immutable-mem-table";
+static const std::string num_immutable_mem_table_flushed =
+    "num-immutable-mem-table-flushed";
 static const std::string mem_table_flush_pending = "mem-table-flush-pending";
 static const std::string compaction_pending = "compaction-pending";
 static const std::string background_errors = "background-errors";
@@ -185,6 +187,8 @@ DBPropertyType GetPropertyType(const Slice& property, bool* is_int_property,
   *is_int_property = true;
   if (in == num_immutable_mem_table) {
     return kNumImmutableMemTable;
+  } else if (in == num_immutable_mem_table_flushed) {
+    return kNumImmutableMemTableFlushed;
   } else if (in == mem_table_flush_pending) {
     return kMemtableFlushPending;
   } else if (in == compaction_pending) {
@@ -307,7 +311,10 @@ bool InternalStats::GetIntProperty(DBPropertyType property_type,
 
   switch (property_type) {
     case kNumImmutableMemTable:
-      *value = cfd_->imm()->size();
+      *value = cfd_->imm()->NumNotFlushed();
+      return true;
+    case kNumImmutableMemTableFlushed:
+      *value = cfd_->imm()->NumFlushed();
       return true;
     case kMemtableFlushPending:
       // Return number of mem tables that are ready to flush (made immutable)
@@ -541,8 +548,7 @@ void InternalStats::DumpCFStats(std::string* value) {
   const VersionStorageInfo* vstorage = cfd_->current()->storage_info();
 
   int num_levels_to_check =
-      (cfd_->ioptions()->compaction_style != kCompactionStyleUniversal &&
-       cfd_->ioptions()->compaction_style != kCompactionStyleFIFO)
+      (cfd_->ioptions()->compaction_style != kCompactionStyleFIFO)
           ? vstorage->num_levels() - 1
           : 1;
 
@@ -555,7 +561,7 @@ void InternalStats::DumpCFStats(std::string* value) {
   }
   // Count # of files being compacted for each level
   std::vector<int> files_being_compacted(number_levels_, 0);
-  for (int level = 0; level < num_levels_to_check; ++level) {
+  for (int level = 0; level < number_levels_; ++level) {
     for (auto* f : vstorage->LevelFiles(level)) {
       if (f->being_compacted) {
         ++files_being_compacted[level];

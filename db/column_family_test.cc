@@ -663,15 +663,19 @@ TEST_F(ColumnFamilyTest, DifferentWriteBufferSizes) {
   default_cf.write_buffer_size = 100000;
   default_cf.max_write_buffer_number = 10;
   default_cf.min_write_buffer_number_to_merge = 1;
+  default_cf.max_write_buffer_number_to_maintain = 0;
   one.write_buffer_size = 200000;
   one.max_write_buffer_number = 10;
   one.min_write_buffer_number_to_merge = 2;
+  one.max_write_buffer_number_to_maintain = 1;
   two.write_buffer_size = 1000000;
   two.max_write_buffer_number = 10;
   two.min_write_buffer_number_to_merge = 3;
+  two.max_write_buffer_number_to_maintain = 2;
   three.write_buffer_size = 90000;
   three.max_write_buffer_number = 10;
   three.min_write_buffer_number_to_merge = 4;
+  three.max_write_buffer_number_to_maintain = -1;
 
   Reopen({default_cf, one, two, three});
 
@@ -1029,21 +1033,35 @@ TEST_F(ColumnFamilyTest, CreateMissingColumnFamilies) {
 
 TEST_F(ColumnFamilyTest, SanitizeOptions) {
   DBOptions db_options;
-  for (int i = 1; i <= 3; i++) {
-    for (int j = 1; j <= 3; j++) {
-      for (int k = 1; k <= 3; k++) {
-        ColumnFamilyOptions original;
-        original.level0_stop_writes_trigger = i;
-        original.level0_slowdown_writes_trigger = j;
-        original.level0_file_num_compaction_trigger = k;
-        ColumnFamilyOptions result =
-            SanitizeOptions(db_options, nullptr, original);
-        ASSERT_TRUE(result.level0_stop_writes_trigger >=
-                    result.level0_slowdown_writes_trigger);
-        ASSERT_TRUE(result.level0_slowdown_writes_trigger >=
-                    result.level0_file_num_compaction_trigger);
-        ASSERT_TRUE(result.level0_file_num_compaction_trigger ==
-                    original.level0_file_num_compaction_trigger);
+  for (int s = kCompactionStyleLevel; s <= kCompactionStyleUniversal; ++s) {
+    for (int l = 0; l <= 2; l++) {
+      for (int i = 1; i <= 3; i++) {
+        for (int j = 1; j <= 3; j++) {
+          for (int k = 1; k <= 3; k++) {
+            ColumnFamilyOptions original;
+            original.compaction_style = static_cast<CompactionStyle>(s);
+            original.num_levels = l;
+            original.level0_stop_writes_trigger = i;
+            original.level0_slowdown_writes_trigger = j;
+            original.level0_file_num_compaction_trigger = k;
+            ColumnFamilyOptions result =
+                SanitizeOptions(db_options, nullptr, original);
+            ASSERT_TRUE(result.level0_stop_writes_trigger >=
+                        result.level0_slowdown_writes_trigger);
+            ASSERT_TRUE(result.level0_slowdown_writes_trigger >=
+                        result.level0_file_num_compaction_trigger);
+            ASSERT_TRUE(result.level0_file_num_compaction_trigger ==
+                        original.level0_file_num_compaction_trigger);
+            if (s == kCompactionStyleLevel) {
+              ASSERT_GE(result.num_levels, 2);
+            } else {
+              ASSERT_GE(result.num_levels, 1);
+              if (original.num_levels >= 1) {
+                ASSERT_EQ(result.num_levels, original.num_levels);
+              }
+            }
+          }
+        }
       }
     }
   }

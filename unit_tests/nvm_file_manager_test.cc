@@ -276,7 +276,7 @@ int main(int argc, char **argv)
 
     //TestFileModification(file_manager, nvm_api);
 
-    TestFileRename(file_manager, nvm_api);
+    //TestFileRename(file_manager, nvm_api);
 
     delete file_manager;
     delete nvm_api;
