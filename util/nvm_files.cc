@@ -46,6 +46,7 @@ nvm_file::nvm_file(const char *_name, const int fd)
     first_page = nullptr;
 
     pthread_mutex_init(&page_update_mtx, nullptr);
+    pthread_mutex_init(&meta_mtx, nullptr);
 }
 
 nvm_file::~nvm_file()
@@ -63,16 +64,48 @@ nvm_file::~nvm_file()
 
 	temp = temp1;
     }
+
+    pthread_mutex_destroy(&page_update_mtx);
+    pthread_mutex_destroy(&meta_mtx);
 }
 
 time_t nvm_file::GetLastModified()
 {
-    return last_modified;
+    time_t ret;
+
+    pthread_mutex_lock(&meta_mtx);
+
+    ret = last_modified;
+
+    pthread_mutex_unlock(&meta_mtx);
+
+    return ret;
 }
 
 char *nvm_file::GetName()
 {
-    return name;
+    char *ret;
+
+    pthread_mutex_lock(&meta_mtx);
+
+    SAFE_ALLOC(ret, char[strlen(name) + 1])
+    strcpy(ret, name);
+
+    pthread_mutex_unlock(&meta_mtx);
+
+    return ret;
+}
+
+void nvm_file::SetName(const char *_name)
+{
+    pthread_mutex_lock(&meta_mtx);
+
+    delete[] name;
+
+    SAFE_ALLOC(name, char[strlen(_name) + 1]);
+    strcpy(name, _name);
+
+    pthread_mutex_unlock(&meta_mtx);
 }
 
 int nvm_file::GetFD()
@@ -95,7 +128,11 @@ unsigned long nvm_file::GetSize()
 
 void nvm_file::UpdateFileModificationTime()
 {
+    pthread_mutex_lock(&meta_mtx);
+
     last_modified = time(nullptr);
+
+    pthread_mutex_unlock(&meta_mtx);
 }
 
 void nvm_file::make_dummy(struct nvm *nvm_api)
@@ -138,6 +175,8 @@ void nvm_file::make_dummy(struct nvm *nvm_api)
 
 void nvm_file::Delete(struct nvm *nvm_api)
 {
+    pthread_mutex_lock(&page_update_mtx);
+
     list_node *temp = first_page;
 
     while(temp != nullptr)
@@ -154,6 +193,10 @@ void nvm_file::Delete(struct nvm *nvm_api)
     }
 
     first_page = nullptr;
+
+    size = 0;
+
+    pthread_mutex_unlock(&page_update_mtx);
 }
 
 struct list_node *nvm_file::GetNVMPagesList()

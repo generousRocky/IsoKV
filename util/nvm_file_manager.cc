@@ -49,11 +49,16 @@ list_node *NVMFileManager::look_up(const char *filename)
     while(temp != nullptr)
     {
 	nvm_file *process = (nvm_file *)temp->GetData();
-	if(strcmp(process->GetName(), filename) == 0)
+
+	char *name = process->GetName();
+
+	if(strcmp(name, filename) == 0)
 	{
+	    delete[] name;
 	    return temp;
 	}
 
+	delete[] name;
 	temp = temp->GetNext();
     }
 
@@ -128,7 +133,7 @@ nvm_file *NVMFileManager::nvm_fopen(const char *filename, const char *mode)
 
 void NVMFileManager::nvm_fclose(nvm_file *file)
 {
-    NVM_DEBUG("closing file %s at %p", file->GetName(), file);
+    NVM_DEBUG("closing file at %p", file);
 }
 
 int NVMFileManager::GetFileSize(const char *filename, unsigned long *size)
@@ -164,6 +169,38 @@ int NVMFileManager::GetFileModificationTime(const char *filename, time_t *mtime)
     }
 
     *mtime = 0;
+    return 1;
+}
+
+int NVMFileManager::RenameFile(const char *crt_filename, const char *new_filename)
+{
+    pthread_mutex_lock(&list_update_mtx);
+
+    list_node *file_node = look_up(new_filename);
+
+    if(file_node)
+    {
+	NVM_DEBUG("found file %s at %p", new_filename, file_node);
+
+	pthread_mutex_unlock(&list_update_mtx);
+	return 1;
+    }
+
+    file_node = look_up(crt_filename);
+
+    if(file_node)
+    {
+	nvm_file *process = (nvm_file *)file_node->GetData();
+
+	NVM_DEBUG("found file %s at %p", crt_filename, process);
+
+	process->SetName(new_filename);
+
+	pthread_mutex_unlock(&list_update_mtx);
+	return 0;
+    }
+
+    pthread_mutex_unlock(&list_update_mtx);
     return 1;
 }
 

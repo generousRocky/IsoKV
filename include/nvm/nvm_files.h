@@ -26,11 +26,14 @@ class nvm_file
 
 	time_t last_modified;
 
+	pthread_mutex_t meta_mtx;
+
     public:
 	nvm_file(const char *_name, const int fd);
 	~nvm_file();
 
 	char *GetName();
+	void SetName(const char *_name);
 
 	unsigned long GetSize();
 
@@ -79,6 +82,7 @@ class NVMFileManager
 	int GetFileSize(const char *filename, unsigned long *size);
 	int DeleteFile(const char *filename);
 	int GetFileModificationTime(const char *filename, time_t *mtime);
+	int RenameFile(const char *crt_filename, const char *new_filename);
 };
 
 class NVMSequentialFile: public SequentialFile

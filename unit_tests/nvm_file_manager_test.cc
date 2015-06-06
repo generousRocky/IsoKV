@@ -209,6 +209,55 @@ void TestFileModification(NVMFileManager *file_manager, nvm *nvm_api)
     file_manager->nvm_fclose(open1);
 }
 
+void TestFileRename(NVMFileManager *file_manager, nvm *nvm_api)
+{
+    nvm_file *open1 = file_manager->nvm_fopen("test1.c", "w");
+
+    if(open1 == NULL)
+    {
+	NVM_FATAL("");
+    }
+
+    file_manager->nvm_fclose(open1);
+
+    open1 = file_manager->nvm_fopen("test2.c", "w");
+
+    if(open1 == NULL)
+    {
+	NVM_FATAL("");
+    }
+
+    file_manager->nvm_fclose(open1);
+
+    if(file_manager->RenameFile("test1.c", "test2.c") == 0)
+    {
+	NVM_FATAL("");
+    }
+
+    if(file_manager->RenameFile("test1.c", "test3.c") != 0)
+    {
+	NVM_FATAL("");
+    }
+
+    open1 = file_manager->nvm_fopen("test1.c", "r");
+
+    if(open1 != NULL)
+    {
+	NVM_FATAL("");
+    }
+
+    open1 = file_manager->nvm_fopen("test3.c", "r");
+
+    if(open1 == NULL)
+    {
+	NVM_FATAL("");
+    }
+
+    file_manager->nvm_fclose(open1);
+
+    NVM_DEBUG("rename file test passed");
+}
+
 int main(int argc, char **argv)
 {
     NVMFileManager *file_manager;
@@ -225,7 +274,9 @@ int main(int argc, char **argv)
 
     //TestFileDelete(file_manager, nvm_api);
 
-    TestFileModification(file_manager, nvm_api);
+    //TestFileModification(file_manager, nvm_api);
+
+    TestFileRename(file_manager, nvm_api);
 
     delete file_manager;
     delete nvm_api;

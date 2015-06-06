@@ -371,12 +371,12 @@ class NVMEnv : public Env
 
 	virtual Status RenameFile(const std::string& src, const std::string& target) override
 	{
-	    Status result;
-	    if (rename(src.c_str(), target.c_str()) != 0)
+	    if(file_manager->RenameFile(src.c_str(), target.c_str()))
 	    {
-		result = IOError(src, errno);
+		return Status::IOError("nvm rename file failed");
 	    }
-	    return result;
+
+	    return Status::OK();
 	}
 
 	virtual Status LinkFile(const std::string& src, const std::string& target) override
