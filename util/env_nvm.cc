@@ -361,12 +361,11 @@ class NVMEnv : public Env
 
 	virtual Status GetFileModificationTime(const std::string& fname, uint64_t* file_mtime) override
 	{
-	    struct stat s;
-	    if (stat(fname.c_str(), &s) !=0)
+	    if(file_manager->GetFileModificationTime(fname.c_str(), (time_t *)file_mtime))
 	    {
-		return IOError(fname, errno);
+		return Status::IOError("get file modification time failed");
 	    }
-	    *file_mtime = static_cast<uint64_t>(s.st_mtime);
+
 	    return Status::OK();
 	}
 

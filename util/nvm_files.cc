@@ -41,6 +41,8 @@ nvm_file::nvm_file(const char *_name, const int fd)
 
     fd_ = fd;
 
+    last_modified = 0;
+
     first_page = nullptr;
 
     pthread_mutex_init(&page_update_mtx, nullptr);
@@ -61,6 +63,11 @@ nvm_file::~nvm_file()
 
 	temp = temp1;
     }
+}
+
+time_t nvm_file::GetLastModified()
+{
+    return last_modified;
 }
 
 char *nvm_file::GetName()
@@ -86,6 +93,11 @@ unsigned long nvm_file::GetSize()
     return ret;
 }
 
+void nvm_file::UpdateFileModificationTime()
+{
+    last_modified = time(nullptr);
+}
+
 void nvm_file::make_dummy(struct nvm *nvm_api)
 {
     for(int i = 0; i < 5; ++i)
@@ -109,6 +121,8 @@ void nvm_file::make_dummy(struct nvm *nvm_api)
 	    first_page = temp;
 	}
     }
+
+    last_modified = time(nullptr);
 
     list_node *enumerator = first_page;
 

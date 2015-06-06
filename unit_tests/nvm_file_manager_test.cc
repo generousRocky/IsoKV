@@ -172,6 +172,43 @@ void TestFileDelete(NVMFileManager *file_manager, nvm *nvm_api)
     NVM_DEBUG("delete tests done");
 }
 
+void TestFileModification(NVMFileManager *file_manager, nvm *nvm_api)
+{
+    nvm_file *open1 = file_manager->nvm_fopen("test1.c", "w");
+
+    if(open1 == NULL)
+    {
+	NVM_FATAL("");
+    }
+
+    unsigned long last_modified;
+
+    if(file_manager->GetFileModificationTime("test2.c", (time_t *)&last_modified) == 0)
+    {
+	NVM_FATAL("");
+    }
+
+    NVM_DEBUG("test2 ok");
+
+    if(file_manager->GetFileModificationTime("test1.c", (time_t *)&last_modified))
+    {
+	NVM_FATAL("");
+    }
+
+    NVM_DEBUG("test1 ok: %lu", last_modified);
+
+    open1->UpdateFileModificationTime();
+
+    if(file_manager->GetFileModificationTime("test1.c", (time_t *)&last_modified))
+    {
+	NVM_FATAL("");
+    }
+
+    NVM_DEBUG("test1 ok: %lu", last_modified);
+
+    file_manager->nvm_fclose(open1);
+}
+
 int main(int argc, char **argv)
 {
     NVMFileManager *file_manager;
@@ -186,7 +223,9 @@ int main(int argc, char **argv)
 
     //TestFileSize(file_manager, nvm_api);
 
-    TestFileDelete(file_manager, nvm_api);
+    //TestFileDelete(file_manager, nvm_api);
+
+    TestFileModification(file_manager, nvm_api);
 
     delete file_manager;
     delete nvm_api;

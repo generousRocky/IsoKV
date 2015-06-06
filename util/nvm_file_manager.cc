@@ -149,6 +149,24 @@ int NVMFileManager::GetFileSize(const char *filename, unsigned long *size)
     return 1;
 }
 
+int NVMFileManager::GetFileModificationTime(const char *filename, time_t *mtime)
+{
+    list_node *file_node = look_up(filename);
+
+    if(file_node)
+    {
+	nvm_file *process = (nvm_file *)file_node->GetData();
+
+	NVM_DEBUG("found file %s at %p", filename, process);
+
+	*mtime = process->GetLastModified();
+	return 0;
+    }
+
+    *mtime = 0;
+    return 1;
+}
+
 int NVMFileManager::DeleteFile(const char *filename)
 {
     pthread_mutex_lock(&list_update_mtx);

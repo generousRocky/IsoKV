@@ -24,6 +24,8 @@ class nvm_file
 
 	struct list_node *first_page;
 
+	time_t last_modified;
+
     public:
 	nvm_file(const char *_name, const int fd);
 	~nvm_file();
@@ -31,6 +33,9 @@ class nvm_file
 	char *GetName();
 
 	unsigned long GetSize();
+
+	time_t GetLastModified();
+	void UpdateFileModificationTime();
 
 	int GetFD();
 
@@ -73,6 +78,7 @@ class NVMFileManager
 
 	int GetFileSize(const char *filename, unsigned long *size);
 	int DeleteFile(const char *filename);
+	int GetFileModificationTime(const char *filename, time_t *mtime);
 };
 
 class NVMSequentialFile: public SequentialFile
