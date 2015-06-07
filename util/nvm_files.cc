@@ -34,8 +34,12 @@ static size_t GetUniqueIdFromFile(nvm_file *fd, char* id, size_t max_size)
 
 nvm_file::nvm_file(const char *_name, const int fd)
 {
+    char *name;
+
     SAFE_ALLOC(name, char[strlen(_name) + 1]);
     strcpy(name, _name);
+
+    ALLOC_CLASS(names, list_node(name))
 
     size = 0;
 
@@ -52,8 +56,6 @@ nvm_file::nvm_file(const char *_name, const int fd)
 
 nvm_file::~nvm_file()
 {
-    delete[] name;
-
     //delete all nvm pages in the list
     list_node *temp = first_page;
 
@@ -61,6 +63,18 @@ nvm_file::~nvm_file()
     {
 	list_node *temp1 = temp->GetNext();
 
+	delete temp;
+
+	temp = temp1;
+    }
+
+    temp = names;
+
+    while(temp != nullptr)
+    {
+	list_node *temp1 = temp->GetNext();
+
+	delete[] (char *)temp->GetData();
 	delete temp;
 
 	temp = temp1;
@@ -94,28 +108,80 @@ time_t nvm_file::GetLastModified()
     return ret;
 }
 
-char *nvm_file::GetName()
+bool nvm_file::HasName(const char *name)
 {
-    char *ret;
-
     pthread_mutex_lock(&meta_mtx);
 
-    SAFE_ALLOC(ret, char[strlen(name) + 1])
-    strcpy(ret, name);
+    list_node *name_node = names;
+
+    while(name_node)
+    {
+	if(strcmp(name, (char *)name_node->GetData()) == 0)
+	{
+	    pthread_mutex_unlock(&meta_mtx);
+
+	    return true;
+	}
+
+	name_node = name_node->GetNext();
+    }
 
     pthread_mutex_unlock(&meta_mtx);
 
-    return ret;
+    return false;
 }
 
-void nvm_file::SetName(const char *_name)
+void nvm_file::AddName(const char *name)
+{
+    list_node *name_node;
+
+    char *_name;
+
+    SAFE_ALLOC(_name, char[strlen(name) + 1]);
+    strcpy(_name, name);
+
+    ALLOC_CLASS(name_node, list_node(_name));
+
+    pthread_mutex_lock(&meta_mtx);
+
+    name_node->SetNext(names);
+
+    if(names)
+    {
+	names->SetPrev(name_node);
+    }
+
+    names = name_node;
+
+    pthread_mutex_unlock(&meta_mtx);
+}
+
+void nvm_file::ChangeName(const char *crt_name, const char *new_name)
 {
     pthread_mutex_lock(&meta_mtx);
 
-    delete[] name;
+    list_node *name_node = names;
 
-    SAFE_ALLOC(name, char[strlen(_name) + 1]);
-    strcpy(name, _name);
+    while(name_node)
+    {
+	char *crt_name_node = (char *)name_node->GetData();
+
+	if(strcmp(crt_name_node, crt_name) == 0)
+	{
+	    delete[] crt_name_node;
+
+	    SAFE_ALLOC(crt_name_node, char[strlen(new_name) + 1]);
+	    strcpy(crt_name_node, new_name);
+
+	    name_node->SetData(crt_name_node);
+
+	    pthread_mutex_unlock(&meta_mtx);
+
+	    return;
+	}
+
+	name_node = name_node->GetNext();
+    }
 
     pthread_mutex_unlock(&meta_mtx);
 }
@@ -185,15 +251,75 @@ void nvm_file::make_dummy(struct nvm *nvm_api)
     }
 }
 
-void nvm_file::Delete(struct nvm *nvm_api)
+bool nvm_file::Delete(const char * filename, struct nvm *nvm_api)
 {
+    bool link_files_left = true;
+
+    list_node *temp;
+    list_node *temp1;
+    list_node *next;
+    list_node *prev;
+
+    pthread_mutex_lock(&meta_mtx);
+
+    temp = names;
+
+    while(temp)
+    {
+	if(strcmp(filename, (char *)temp->GetData()) == 0)
+	{
+	    temp1 = temp;
+
+	    prev = temp->GetPrev();
+	    next = temp->GetNext();
+
+	    if(prev)
+	    {
+		prev->SetNext(next);
+	    }
+
+	    if(next)
+	    {
+		next->SetPrev(prev);
+	    }
+
+	    if(prev == nullptr && next != nullptr)
+	    {
+		names = names->GetNext();
+	    }
+
+	    if(next == nullptr && prev == nullptr)
+	    {
+		link_files_left = false;
+
+		names = nullptr;
+	    }
+
+	    delete[] (char *)temp1->GetData();
+	    delete temp1;
+
+	    break;
+	}
+
+	temp = temp->GetNext();
+    }
+
+    pthread_mutex_unlock(&meta_mtx);
+
+    if(link_files_left)
+    {
+	//we have link file pointing here.. don't delete
+
+	return false;
+    }
+
     pthread_mutex_lock(&page_update_mtx);
 
-    list_node *temp = first_page;
+    temp = first_page;
 
     while(temp != nullptr)
     {
-	list_node *temp1 = temp->GetNext();
+	temp1 = temp->GetNext();
 
 	struct nvm_page *to_reclaim = (struct nvm_page *)temp->GetData();
 
@@ -209,6 +335,8 @@ void nvm_file::Delete(struct nvm *nvm_api)
     size = 0;
 
     pthread_mutex_unlock(&page_update_mtx);
+
+    return true;
 }
 
 struct list_node *nvm_file::GetNVMPagesList()

@@ -375,16 +375,11 @@ class NVMEnv : public Env
 
 	virtual Status LinkFile(const std::string& src, const std::string& target) override
 	{
-	    Status result;
-	    if (link(src.c_str(), target.c_str()) != 0)
+	    if (file_manager->LinkFile(src.c_str(), target.c_str()) != 0)
 	    {
-		if (errno == EXDEV)
-		{
-		    return Status::NotSupported("No cross FS links allowed");
-		}
-		result = IOError(src, errno);
+		return Status::IOError("nvm link file failed");
 	    }
-	    return result;
+	    return Status::OK();
 	}
 
 	virtual Status LockFile(const std::string& fname, FileLock** lock) override

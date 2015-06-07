@@ -7,7 +7,7 @@ namespace rocksdb
 class nvm_file
 {
     private:
-	char *name;
+	list_node *names;
 
 	pthread_mutex_t page_update_mtx;
 
@@ -26,8 +26,8 @@ class nvm_file
 	nvm_file(const char *_name, const int fd);
 	~nvm_file();
 
-	char *GetName();
-	void SetName(const char *_name);
+	bool HasName(const char *name);
+	void ChangeName(const char *crt_name, const char *new_name);
 
 	unsigned long GetSize();
 
@@ -44,10 +44,12 @@ class nvm_file
 
 	void make_dummy(struct nvm *nvm_api);
 
-	void Delete(struct nvm *nvm_api);
+	bool Delete(const char *filename, struct nvm *nvm_api);
 
 	int LockFile();
 	void UnlockFile();
+
+	void AddName(const char *name);
 };
 
 class NVMFileLock : public FileLock
@@ -87,6 +89,7 @@ class NVMFileManager
 	int DeleteFile(const char *filename);
 	int GetFileModificationTime(const char *filename, time_t *mtime);
 	int RenameFile(const char *crt_filename, const char *new_filename);
+	int LinkFile(const char *src, const char *target);
 };
 
 class NVMSequentialFile: public SequentialFile

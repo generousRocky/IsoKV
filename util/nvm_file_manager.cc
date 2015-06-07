@@ -50,15 +50,11 @@ list_node *NVMFileManager::look_up(const char *filename)
     {
 	nvm_file *process = (nvm_file *)temp->GetData();
 
-	char *name = process->GetName();
-
-	if(strcmp(name, filename) == 0)
+	if(process->HasName(filename))
 	{
-	    delete[] name;
 	    return temp;
 	}
 
-	delete[] name;
 	temp = temp->GetNext();
     }
 
@@ -172,6 +168,38 @@ int NVMFileManager::GetFileModificationTime(const char *filename, time_t *mtime)
     return 1;
 }
 
+int NVMFileManager::LinkFile(const char *src, const char *target)
+{
+    pthread_mutex_lock(&list_update_mtx);
+
+    list_node *file_node = look_up(target);
+
+    if(file_node)
+    {
+	NVM_DEBUG("found file %s at %p", target, file_node);
+
+	pthread_mutex_unlock(&list_update_mtx);
+	return -1;
+    }
+
+    file_node = look_up(src);
+
+    if(file_node)
+    {
+	nvm_file *process = (nvm_file *)file_node->GetData();
+
+	NVM_DEBUG("found file %s at %p", src, process);
+
+	process->AddName(target);
+
+	pthread_mutex_unlock(&list_update_mtx);
+	return 0;
+    }
+
+    pthread_mutex_unlock(&list_update_mtx);
+    return -1;
+}
+
 int NVMFileManager::RenameFile(const char *crt_filename, const char *new_filename)
 {
     pthread_mutex_lock(&list_update_mtx);
@@ -194,7 +222,7 @@ int NVMFileManager::RenameFile(const char *crt_filename, const char *new_filenam
 
 	NVM_DEBUG("found file %s at %p", crt_filename, process);
 
-	process->SetName(new_filename);
+	process->ChangeName(crt_filename, new_filename);
 
 	pthread_mutex_unlock(&list_update_mtx);
 	return 0;
@@ -215,27 +243,34 @@ int NVMFileManager::DeleteFile(const char *filename)
 	list_node *prev = file_node->GetPrev();
 	list_node *next = file_node->GetNext();
 
-	if(prev)
-	{
-	    prev->SetNext(next);
-	}
-
-	if(next)
-	{
-	    next->SetPrev(prev);
-	}
-
-	if(next == nullptr && prev == nullptr)
-	{
-	    head = nullptr;
-	}
-
 	nvm_file *file = (nvm_file *)file_node->GetData();
 
-	file->Delete(nvm_api);
+	if(file->Delete(filename, nvm_api))
+	{
+	    //we have no more link files
+	    if(prev)
+	    {
+		prev->SetNext(next);
+	    }
 
-	delete file;
-	delete file_node;
+	    if(next)
+	    {
+		next->SetPrev(prev);
+	    }
+
+	    if(prev == nullptr && next != nullptr)
+	    {
+		head = head->GetNext();
+	    }
+
+	    if(next == nullptr && prev == nullptr)
+	    {
+		head = nullptr;
+	    }
+
+	    delete file;
+	    delete file_node;
+	}
     }
 
     pthread_mutex_unlock(&list_update_mtx);

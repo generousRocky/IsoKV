@@ -89,6 +89,8 @@ void TestFileSize(NVMFileManager *file_manager, nvm *nvm_api)
 
     NVM_DEBUG("size is %lu", size);
 
+    file_manager->nvm_fopen("test.c", "w");
+
     if(file_manager->GetFileSize("test.c", &size) != 0)
     {
 	NVM_FATAL("");
@@ -98,7 +100,7 @@ void TestFileSize(NVMFileManager *file_manager, nvm *nvm_api)
 
     nvm_file *open1 = file_manager->nvm_fopen("test.c", "w");
 
-    if(open1 != NULL)
+    if(open1 == NULL)
     {
 	NVM_FATAL("");
     }
@@ -258,6 +260,139 @@ void TestFileRename(NVMFileManager *file_manager, nvm *nvm_api)
     NVM_DEBUG("rename file test passed");
 }
 
+void TestFileLinkUnlink(NVMFileManager *file_manager, nvm *nvm_api)
+{
+    nvm_file *open1 = file_manager->nvm_fopen("test1.c", "w");
+
+    if(open1 == NULL)
+    {
+	NVM_FATAL("");
+    }
+
+    nvm_file *open2 = file_manager->nvm_fopen("test2.c", "w");
+
+    if(open2 == NULL)
+    {
+	NVM_FATAL("");
+    }
+
+    int ret = file_manager->LinkFile("test1.c", "test2.c");
+
+    if(ret == 0)
+    {
+	NVM_FATAL("");
+    }
+
+    ret = file_manager->LinkFile("test2.c", "test1.c");
+
+    if(ret == 0)
+    {
+	NVM_FATAL("");
+    }
+
+    ret = file_manager->LinkFile("test1.c", "test3.c");
+
+    if(ret != 0)
+    {
+	NVM_FATAL("");
+    }
+
+    nvm_file *open3 = file_manager->nvm_fopen("test3.c", "r");
+
+    if(open3 == NULL)
+    {
+	NVM_FATAL("");
+    }
+
+    if(open3 != open1)
+    {
+	NVM_FATAL("");
+    }
+
+    file_manager->nvm_fclose(open1);
+    file_manager->nvm_fclose(open2);
+    file_manager->nvm_fclose(open3);
+
+    ret = file_manager->RenameFile("test3.c", "test31.c");
+
+    open1 = file_manager->nvm_fopen("test1.c", "r");
+
+    if(open1 == NULL)
+    {
+	NVM_FATAL("");
+    }
+
+    open2 = file_manager->nvm_fopen("test2.c", "r");
+
+    if(open2 == NULL)
+    {
+	NVM_FATAL("");
+    }
+
+    ret = file_manager->LinkFile("test2.c", "test31.c");
+
+    if(ret == 0)
+    {
+	NVM_FATAL("");
+    }
+
+    ret = file_manager->LinkFile("test2.c", "test3.c");
+
+    if(ret != 0)
+    {
+	NVM_FATAL("");
+    }
+
+    open3 = file_manager->nvm_fopen("test3.c", "r");
+
+    if(open3 == NULL)
+    {
+	NVM_FATAL("");
+    }
+
+    if(open2 != open3)
+    {
+	NVM_FATAL("");
+    }
+
+    file_manager->nvm_fclose(open1);
+    file_manager->nvm_fclose(open2);
+    file_manager->nvm_fclose(open3);
+
+    file_manager->DeleteFile("test1.c");
+    file_manager->DeleteFile("test2.c");
+    file_manager->DeleteFile("test3.c");
+    file_manager->DeleteFile("test31.c");
+
+    open1 = file_manager->nvm_fopen("test1.c", "r");
+
+    if(open1 != NULL)
+    {
+	NVM_FATAL("");
+    }
+
+    open1 = file_manager->nvm_fopen("test2.c", "r");
+
+    if(open1 != NULL)
+    {
+	NVM_FATAL("");
+    }
+
+    open1 = file_manager->nvm_fopen("test3.c", "r");
+
+    if(open1 != NULL)
+    {
+	NVM_FATAL("");
+    }
+
+    open1 = file_manager->nvm_fopen("test31.c", "r");
+
+    if(open1 != NULL)
+    {
+	NVM_FATAL("");
+    }
+}
+
 int main(int argc, char **argv)
 {
     NVMFileManager *file_manager;
@@ -278,8 +413,12 @@ int main(int argc, char **argv)
 
     //TestFileRename(file_manager, nvm_api);
 
+    //TestFileLinkUnlink(file_manager, nvm_api);
+
     delete file_manager;
     delete nvm_api;
+
+    NVM_DEBUG("TEST FINISHED");
 
     return 0;
 }
