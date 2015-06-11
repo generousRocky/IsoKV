@@ -4,6 +4,52 @@
 
 using namespace rocksdb;
 
+void TestFileExists(NVMFileManager *file_manager, nvm *nvm_api)
+{
+    if(file_manager->FileExists("test.c"))
+    {
+	NVM_FATAL("");
+    }
+
+    file_manager->nvm_fopen("test.c", "w");
+
+    if(!file_manager->FileExists("test.c"))
+    {
+	NVM_FATAL("");
+    }
+
+    file_manager->nvm_fopen("test1.c", "w");
+
+    if(!file_manager->FileExists("test.c"))
+    {
+	NVM_FATAL("");
+    }
+
+    if(!file_manager->FileExists("test1.c"))
+    {
+	NVM_FATAL("");
+    }
+
+    file_manager->DeleteFile("test.c");
+
+    if(file_manager->FileExists("test.c"))
+    {
+	NVM_FATAL("");
+    }
+
+    file_manager->DeleteFile("test1.c");
+
+    if(file_manager->FileExists("test1.c"))
+    {
+	NVM_FATAL("");
+    }
+
+    if(file_manager->FileExists("test.c"))
+    {
+	NVM_FATAL("");
+    }
+}
+
 void TestOpenAndClose(NVMFileManager *file_manager, nvm *nvm_api)
 {
     nvm_file *open1 = file_manager->nvm_fopen("test.c", "r");
@@ -414,6 +460,8 @@ int main(int argc, char **argv)
     //TestFileRename(file_manager, nvm_api);
 
     //TestFileLinkUnlink(file_manager, nvm_api);
+
+    TestFileExists(file_manager, nvm_api);
 
     delete file_manager;
     delete nvm_api;

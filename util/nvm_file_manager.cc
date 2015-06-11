@@ -36,6 +36,59 @@ NVMFileManager::~NVMFileManager()
 }
 
 //checks if the node exists
+list_node *NVMFileManager::node_look_up(const char *filename)
+{
+    list_node *temp;
+
+    pthread_mutex_lock(&list_update_mtx);
+
+    temp = head;
+
+    pthread_mutex_unlock(&list_update_mtx);
+
+    while(temp != nullptr)
+    {
+	nvm_entry *entry = (nvm_entry *)temp->GetData();
+
+	switch(entry->GetType())
+	{
+	    case FileEntry:
+	    {
+		nvm_file *process_file = (nvm_file *)entry->GetData();
+
+		if(process_file->HasName(filename))
+		{
+		    return temp;
+		}
+	    }
+	    break;
+
+	    case DirectoryEntry:
+	    {
+		nvm_directory *process_directory = (nvm_directory *)entry->GetData();
+
+		if(process_directory->HasName(filename))
+		{
+		    return temp;
+		}
+	    }
+	    break;
+
+	    default:
+	    {
+		NVM_FATAL("Unknown entry type!!");
+	    }
+	    break;
+	}
+
+	temp = temp->GetNext();
+    }
+
+    return nullptr;
+}
+
+
+//checks if the node with a specific type exists
 list_node *NVMFileManager::node_look_up(const char *filename, const nvm_entry_type type)
 {
     list_node *temp;
@@ -381,6 +434,13 @@ nvm_directory *NVMFileManager::OpenDirectory(const char *name)
 int NVMFileManager::CreateDirectory(const char *name)
 {
     return 0;
+}
+
+bool NVMFileManager::FileExists(const char *name)
+{
+    list_node *ret = node_look_up(name);
+
+    return (ret != nullptr);
 }
 
 }

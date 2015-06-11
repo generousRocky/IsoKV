@@ -271,7 +271,7 @@ class NVMEnv : public Env
 
 	virtual bool FileExists(const std::string& fname) override
 	{
-	    return access(fname.c_str(), F_OK) == 0;
+	    return file_manager->FileExists(fname.c_str());
 	}
 
 	virtual Status GetChildren(const std::string& dir, std::vector<std::string>* result) override

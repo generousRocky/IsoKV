@@ -73,6 +73,7 @@ class NVMFileManager
 	nvm_file *file_look_up(const char *filename);
 	nvm_directory *directory_look_up(const char *directory_name);
 	list_node *node_look_up(const char *filename, const nvm_entry_type type);
+	list_node *node_look_up(const char *filename);
 
 	pthread_mutex_t list_update_mtx;
 	pthread_mutexattr_t list_update_mtx_attr;
@@ -94,6 +95,8 @@ class NVMFileManager
 	int RenameFile(const char *crt_filename, const char *new_filename);
 	int LinkFile(const char *src, const char *target);
 	int CreateDirectory(const char *name);
+
+	bool FileExists(const char *name);
 };
 
 class NVMSequentialFile: public SequentialFile
