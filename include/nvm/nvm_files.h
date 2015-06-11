@@ -26,8 +26,9 @@ class nvm_file
 	nvm_file(const char *_name, const int fd);
 	~nvm_file();
 
-	bool HasName(const char *name);
+	bool HasName(const char *name, const int n);
 	void ChangeName(const char *crt_name, const char *new_name);
+	void EnumerateNames(std::vector<std::string>* result);
 
 	unsigned long GetSize();
 
@@ -59,48 +60,6 @@ class NVMFileLock : public FileLock
 	std::string filename;
 };
 
-//TODO: improve running time to log n lookup.
-//This is fine for a small number of files
-class NVMFileManager
-{
-    private:
-	nvm *nvm_api;
-
-	//list of nvm_files
-	list_node *head;
-
-	//looks up if the file is in the list
-	nvm_file *file_look_up(const char *filename);
-	nvm_directory *directory_look_up(const char *directory_name);
-	list_node *node_look_up(const char *filename, const nvm_entry_type type);
-	list_node *node_look_up(const char *filename);
-
-	pthread_mutex_t list_update_mtx;
-	pthread_mutexattr_t list_update_mtx_attr;
-
-	nvm_file *create_file(const char *filename);
-	nvm_file *open_file_if_exists(const char *filename);
-
-    public:
-	NVMFileManager(nvm *_nvm_api);
-	~NVMFileManager();
-
-	nvm_file *nvm_fopen(const char *filename, const char *mode);
-	nvm_directory *OpenDirectory(const char *name);
-	void nvm_fclose(nvm_file *file);
-
-	int GetFileSize(const char *filename, unsigned long *size);
-	int DeleteFile(const char *filename);
-	int GetFileModificationTime(const char *filename, time_t *mtime);
-	int RenameFile(const char *crt_filename, const char *new_filename);
-	int LinkFile(const char *src, const char *target);
-
-	int CreateDirectory(const char *name);
-	int DeleteDirectory(const char *name);
-
-	bool FileExists(const char *name);
-};
-
 class NVMSequentialFile: public SequentialFile
 {
     private:
@@ -115,12 +74,12 @@ class NVMSequentialFile: public SequentialFile
 	struct list_node *crt_page;
 	struct nvm *nvm_api;
 
-	NVMFileManager *file_manager_;
+	nvm_directory *dir;
 
 	void SeekPage(const unsigned long offset);
 
     public:
-	NVMSequentialFile(const std::string& fname, nvm_file *f, NVMFileManager *file_manager, struct nvm *_nvm_api);
+	NVMSequentialFile(const std::string& fname, nvm_file *f, nvm_directory *_dir, struct nvm *_nvm_api);
 	virtual ~NVMSequentialFile();
 
 	virtual Status Read(size_t n, Slice* result, char* scratch) override;
@@ -140,12 +99,12 @@ class NVMRandomAccessFile: public RandomAccessFile
 	struct list_node *first_page;
 	struct nvm *nvm_api;
 
-	NVMFileManager *file_manager_;
+	nvm_directory *dir;
 
 	struct list_node *SeekPage(const unsigned long offset, unsigned long *page_pointer) const;
 
     public:
-	NVMRandomAccessFile(const std::string& fname, nvm_file *f, NVMFileManager *file_manager, struct nvm *_nvm_api);
+	NVMRandomAccessFile(const std::string& fname, nvm_file *f, nvm_directory *_dir, struct nvm *_nvm_api);
 	virtual ~NVMRandomAccessFile();
 
 	virtual Status Read(uint64_t offset, size_t n, Slice* result, char* scratch) const override;

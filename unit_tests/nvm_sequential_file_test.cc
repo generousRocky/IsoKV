@@ -6,21 +6,21 @@ using namespace rocksdb;
 
 int main(int argc, char **argv)
 {
-    NVMFileManager *file_manager;
+    nvm_directory *dir;
     nvm *nvm_api;
 
     ALLOC_CLASS(nvm_api, nvm());
-    ALLOC_CLASS(file_manager, NVMFileManager(nvm_api));
+    ALLOC_CLASS(dir, nvm_directory("root", 4, nvm_api));
 
     NVM_DEBUG("init complete");
 
-    nvm_file *fd = file_manager->nvm_fopen("test.c", "w");
+    nvm_file *fd = dir->nvm_fopen("test.c", "w");
 
     NVM_DEBUG("file open at %p", fd);
 
     fd->make_dummy(nvm_api);
 
-    NVMSequentialFile *test_file = new NVMSequentialFile("test.c", fd, file_manager, nvm_api);
+    NVMSequentialFile *test_file = new NVMSequentialFile("test.c", fd, dir, nvm_api);
 
     unsigned long size = fd->GetSize();
 

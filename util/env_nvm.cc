@@ -120,7 +120,7 @@ class NVMEnv : public Env
 	    thread_status_updater_ = CreateThreadStatusUpdater();
 
 	    ALLOC_CLASS(nvm_api, nvm());
-	    ALLOC_CLASS(file_manager, NVMFileManager(nvm_api))
+	    ALLOC_CLASS(root_dir, nvm_directory("root", 4, nvm_api))
 
 	    pthread_mutex_init(&rw_mtx, nullptr);
 	}
@@ -140,7 +140,7 @@ class NVMEnv : public Env
 	    // All threads must be joined before the deletion of
 	    // thread_status_updater_.
 	    delete thread_status_updater_;
-	    delete file_manager;
+	    delete root_dir;
 	    delete nvm_api;
 	}
 
@@ -150,7 +150,7 @@ class NVMEnv : public Env
 
 	    nvm_file *f;
 
-	    f = file_manager->nvm_fopen(fname.c_str(), "r");
+	    f = root_dir->nvm_fopen(fname.c_str(), "r");
 
 	    if (f == nullptr)
 	    {
@@ -159,7 +159,7 @@ class NVMEnv : public Env
 	    }
 	    else
 	    {
-		result->reset(new NVMSequentialFile(fname, f, file_manager, nvm_api));
+		result->reset(new NVMSequentialFile(fname, f, root_dir, nvm_api));
 		return Status::OK();
 	    }
 	}
@@ -170,7 +170,7 @@ class NVMEnv : public Env
 
 	    nvm_file *f;
 
-	    f = file_manager->nvm_fopen(fname.c_str(), "r");
+	    f = root_dir->nvm_fopen(fname.c_str(), "r");
 
 	    if (f == nullptr)
 	    {
@@ -179,7 +179,7 @@ class NVMEnv : public Env
 	    }
 	    else
 	    {
-		result->reset(new NVMRandomAccessFile(fname, f, file_manager, nvm_api));
+		result->reset(new NVMRandomAccessFile(fname, f, root_dir, nvm_api));
 		return Status::OK();
 	    }
 	}
@@ -258,7 +258,7 @@ class NVMEnv : public Env
 	{
 	    result->reset();
 
-	    nvm_directory *fd = file_manager->OpenDirectory(name.c_str());
+	    nvm_directory *fd = root_dir->OpenDirectory(name.c_str());
 	    if (fd == nullptr)
 	    {
 		return Status::IOError("directory doesn't exist");
@@ -271,31 +271,22 @@ class NVMEnv : public Env
 
 	virtual bool FileExists(const std::string& fname) override
 	{
-	    return file_manager->FileExists(fname.c_str());
+	    return root_dir->FileExists(fname.c_str());
 	}
 
 	virtual Status GetChildren(const std::string& dir, std::vector<std::string>* result) override
 	{
-	    result->clear();
-
-	    DIR* d = opendir(dir.c_str());
-	    if (d == nullptr)
+	    if(root_dir->GetChildren(dir.c_str(), result) == 0)
 	    {
-		return IOError(dir, errno);
+		return Status::OK();
 	    }
 
-	    struct dirent* entry;
-	    while ((entry = readdir(d)) != nullptr)
-	    {
-		result->push_back(entry->d_name);
-	    }
-	    closedir(d);
-	    return Status::OK();
+	    return Status::IOError("GetChildren failed");
 	}
 
 	virtual Status DeleteFile(const std::string& fname) override
 	{
-	    if(file_manager->DeleteFile(fname.c_str()))
+	    if(root_dir->DeleteFile(fname.c_str()))
 	    {
 		return Status::IOError("delete file failed");
 	    }
@@ -305,7 +296,7 @@ class NVMEnv : public Env
 
 	virtual Status CreateDir(const std::string& name) override
 	{
-	    if(file_manager->CreateDirectory(name.c_str()) == 0)
+	    if(root_dir->CreateDirectory(name.c_str()) == 0)
 	    {
 		return Status::OK();
 	    }
@@ -320,7 +311,7 @@ class NVMEnv : public Env
 
 	virtual Status DeleteDir(const std::string& name) override
 	{
-	    if(file_manager->DeleteDirectory(name.c_str()) == 0)
+	    if(root_dir->DeleteDirectory(name.c_str()) == 0)
 	    {
 		return Status::OK();
 	    }
@@ -330,7 +321,7 @@ class NVMEnv : public Env
 
 	virtual Status GetFileSize(const std::string& fname, uint64_t* size) override
 	{
-	    if(file_manager->GetFileSize(fname.c_str(), size))
+	    if(root_dir->GetFileSize(fname.c_str(), size))
 	    {
 		return Status::IOError("get file size failed");
 	    }
@@ -340,7 +331,7 @@ class NVMEnv : public Env
 
 	virtual Status GetFileModificationTime(const std::string& fname, uint64_t* file_mtime) override
 	{
-	    if(file_manager->GetFileModificationTime(fname.c_str(), (time_t *)file_mtime))
+	    if(root_dir->GetFileModificationTime(fname.c_str(), (time_t *)file_mtime))
 	    {
 		return Status::IOError("get file modification time failed");
 	    }
@@ -350,7 +341,7 @@ class NVMEnv : public Env
 
 	virtual Status RenameFile(const std::string& src, const std::string& target) override
 	{
-	    if(file_manager->RenameFile(src.c_str(), target.c_str()))
+	    if(root_dir->RenameFile(src.c_str(), target.c_str()))
 	    {
 		return Status::IOError("nvm rename file failed");
 	    }
@@ -360,7 +351,7 @@ class NVMEnv : public Env
 
 	virtual Status LinkFile(const std::string& src, const std::string& target) override
 	{
-	    if (file_manager->LinkFile(src.c_str(), target.c_str()) != 0)
+	    if (root_dir->LinkFile(src.c_str(), target.c_str()) != 0)
 	    {
 		return Status::IOError("nvm link file failed");
 	    }
@@ -375,12 +366,12 @@ class NVMEnv : public Env
 
 	    Status result;
 
-	    f = file_manager->nvm_fopen(fname.c_str(), "w");
+	    f = root_dir->nvm_fopen(fname.c_str(), "w");
 
 	    if (LockOrUnlock(fname, f, true) == -1)
 	    {
 		result = IOError("lock " + fname, errno);
-		file_manager->nvm_fclose(f);
+		root_dir->nvm_fclose(f);
 	    }
 	    else
 	    {
@@ -404,7 +395,7 @@ class NVMEnv : public Env
 		result = IOError("unlock", errno);
 	    }
 
-	    file_manager->nvm_fclose(my_lock->fd_);
+	    root_dir->nvm_fclose(my_lock->fd_);
 
 	    delete my_lock;
 	    return result;
@@ -558,15 +549,7 @@ class NVMEnv : public Env
 
 	virtual Status GetAbsolutePath(const std::string& db_path, std::string* output_path) override
 	{
-	    const char *nvm_api_location = nvm_api->GetLocation();
-
-	    if (db_path.find(nvm_api_location) == 0)
-	    {
-		*output_path = db_path;
-		return Status::OK();
-	    }
-
-	    *output_path = std::string(nvm_api_location) + std::string("/") + db_path;
+	    *output_path = db_path;
 	    return Status::OK();
 	}
 
@@ -647,7 +630,7 @@ class NVMEnv : public Env
     private:
 	nvm *nvm_api;
 
-	NVMFileManager *file_manager;
+	nvm_directory *root_dir;
 
 	bool checkedDiskForMmap_;
 	bool forceMmapOff; // do we override Env options?
@@ -655,7 +638,7 @@ class NVMEnv : public Env
 	// Returns true iff the named directory exists and is a directory.
 	virtual bool DirExists(const std::string& dname)
 	{
-	    return (file_manager->OpenDirectory(dname.c_str()) != nullptr);
+	    return (root_dir->OpenDirectory(dname.c_str()) != nullptr);
 	}
 
 	bool SupportsFastAllocate(const std::string& path)

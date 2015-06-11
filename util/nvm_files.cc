@@ -108,7 +108,7 @@ time_t nvm_file::GetLastModified()
     return ret;
 }
 
-bool nvm_file::HasName(const char *name)
+void nvm_file::EnumerateNames(std::vector<std::string>* result)
 {
     pthread_mutex_lock(&meta_mtx);
 
@@ -116,12 +116,43 @@ bool nvm_file::HasName(const char *name)
 
     while(name_node)
     {
-	if(strcmp(name, (char *)name_node->GetData()) == 0)
+	char *_name = (char *)name_node->GetData();
+
+	result->push_back(_name);
+
+	name_node = name_node->GetNext();
+    }
+
+    pthread_mutex_unlock(&meta_mtx);
+}
+
+bool nvm_file::HasName(const char *name, const int n)
+{
+    int i;
+
+    pthread_mutex_lock(&meta_mtx);
+
+    list_node *name_node = names;
+
+    while(name_node)
+    {
+	char *_name = (char *)name_node->GetData();
+
+	for(i = 0; i < n; ++i)
+	{
+	    if(name[i] != _name[i])
+	    {
+		goto next;
+	    }
+	}
+	if(_name[i] == '\0')
 	{
 	    pthread_mutex_unlock(&meta_mtx);
 
 	    return true;
 	}
+
+next:
 
 	name_node = name_node->GetNext();
     }
@@ -383,12 +414,12 @@ size_t nvm_file::ReadPage(const nvm_page *page, const unsigned long channel, str
     return page_size;
 }
 
-NVMSequentialFile::NVMSequentialFile(const std::string& fname, nvm_file *f, NVMFileManager *file_manager, struct nvm *_nvm_api) :
+NVMSequentialFile::NVMSequentialFile(const std::string& fname, nvm_file *f, nvm_directory *_dir, struct nvm *_nvm_api) :
 		filename_(fname)
 {
     file_ = f;
 
-    file_manager_ = file_manager;
+    dir = _dir;
 
     file_pointer = 0;
 
@@ -402,7 +433,7 @@ NVMSequentialFile::NVMSequentialFile(const std::string& fname, nvm_file *f, NVMF
 
 NVMSequentialFile::~NVMSequentialFile()
 {
-    file_manager_->nvm_fclose(file_);
+    dir->nvm_fclose(file_);
 }
 
 void NVMSequentialFile::SeekPage(const unsigned long offset)
@@ -519,12 +550,12 @@ Status NVMSequentialFile::InvalidateCache(size_t offset, size_t length)
     return Status::OK();
 }
 
-NVMRandomAccessFile::NVMRandomAccessFile(const std::string& fname, nvm_file *f, NVMFileManager *file_manager, struct nvm *_nvm_api) :
+NVMRandomAccessFile::NVMRandomAccessFile(const std::string& fname, nvm_file *f, nvm_directory *_dir, struct nvm *_nvm_api) :
 		    filename_(fname)
 {
     file_ = f;
 
-    file_manager_ = file_manager;
+    dir = _dir;
 
     first_page = file_->GetNVMPagesList();
 
@@ -535,7 +566,7 @@ NVMRandomAccessFile::NVMRandomAccessFile(const std::string& fname, nvm_file *f, 
 
 NVMRandomAccessFile::~NVMRandomAccessFile()
 {
-    file_manager_->nvm_fclose(file_);
+    dir->nvm_fclose(file_);
 }
 
 struct list_node *NVMRandomAccessFile::SeekPage(const unsigned long offset, unsigned long *page_pointer) const

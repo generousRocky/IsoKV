@@ -87,7 +87,6 @@ LIB_SOURCES =                                                   \
   util/env_hdfs.cc                                              \
   util/env_posix.cc                                             \
   util/env_nvm.cc						\
-  util/nvm_file_manager.cc					\
   util/nvm.cc							\
   util/nvm_files.cc						\
   util/nvm_directory.cc						\
