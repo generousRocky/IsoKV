@@ -1353,22 +1353,18 @@ Status NVMRandomRWFile::Allocate(off_t offset, off_t len)
 }
 #endif
 
-NVMDirectory::NVMDirectory(int fd) :
-		    fd_(fd)
+NVMDirectory::NVMDirectory(nvm_directory *fd)
 {
+    fd_ = fd;
 }
 
 NVMDirectory::~NVMDirectory()
 {
-    close(fd_);
+
 }
 
 Status NVMDirectory::Fsync()
 {
-    if (fsync(fd_) == -1)
-    {
-	return IOError("directory", errno);
-    }
     return Status::OK();
 }
 

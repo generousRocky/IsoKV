@@ -258,15 +258,14 @@ class NVMEnv : public Env
 	{
 	    result->reset();
 
-	    const int fd = open(name.c_str(), 0);
-	    if (fd < 0)
+	    nvm_directory *fd = file_manager->OpenDirectory(name.c_str());
+	    if (fd == nullptr)
 	    {
-		return IOError(name, errno);
+		return Status::IOError("directory doesn't exist");
 	    }
-	    else
-	    {
-		result->reset(new NVMDirectory(fd));
-	    }
+
+	    result->reset(new NVMDirectory(fd));
+
 	    return Status::OK();
 	}
 

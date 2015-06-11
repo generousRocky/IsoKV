@@ -1,6 +1,12 @@
 #ifndef _NVM_H_
 #define _NVM_H_
 
+typedef enum
+{
+    FileEntry,
+    DirectoryEntry
+} nvm_entry_type;
+
 #include <iostream>
 #include <atomic>
 #include <deque>
@@ -41,6 +47,7 @@
 #include "nvm_mem.h"
 #include "nvm_ioctl.h"
 #include "nvm_typedefs.h"
+#include "nvm_directory.h"
 #include "nvm_files.h"
 #include "nvm_threading.h"
 #include "rocksdb/slice.h"
@@ -106,6 +113,26 @@
 #define NVM_FADV_DONTNEED   POSIX_FADV_DONTNEED	    /* [MC1] dont need these pages */
 
 #endif
+
+namespace rocksdb
+{
+
+class nvm_entry
+{
+    private:
+	nvm_entry_type type;
+
+	void *data;
+
+    public:
+	nvm_entry(const nvm_entry_type _type, void *_data);
+	~nvm_entry();
+
+	void *GetData();
+	nvm_entry_type GetType();
+};
+
+}
 
 inline rocksdb::Status IOError(const std::string& context, int err_number)
 {

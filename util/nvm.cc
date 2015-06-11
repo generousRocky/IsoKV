@@ -56,6 +56,51 @@ void *list_node::SetPrev(list_node *_prev)
     return ret;
 }
 
+namespace rocksdb
+{
+
+nvm_entry::nvm_entry(const nvm_entry_type _type, void *_data)
+{
+    type = _type;
+    data = _data;
+}
+
+nvm_entry::~nvm_entry()
+{
+    switch(type)
+    {
+	case FileEntry:
+	{
+	    delete (nvm_file *)data;
+	}
+	break;
+
+	case DirectoryEntry:
+	{
+	    delete (nvm_directory *)data;
+	}
+	break;
+
+	default:
+	{
+	    NVM_FATAL("unknown entry type!!");
+	}
+	break;
+    }
+}
+
+void *nvm_entry::GetData()
+{
+    return data;
+}
+
+nvm_entry_type nvm_entry::GetType()
+{
+    return type;
+}
+
+}
+
 nvm::nvm()
 {
     fd = open_nvm_device("/rocksdb");

@@ -28,15 +28,15 @@ NVMFileManager::~NVMFileManager()
     {
 	list_node *temp1 = temp->GetNext();
 
-	delete (nvm_file *)temp->GetData();
+	delete (nvm_entry *)temp->GetData();
 	delete temp;
 
 	temp = temp1;
     }
 }
 
-//checks if the file exists
-list_node *NVMFileManager::look_up(const char *filename)
+//checks if the node exists
+list_node *NVMFileManager::node_look_up(const char *filename, const nvm_entry_type type)
 {
     list_node *temp;
 
@@ -48,11 +48,114 @@ list_node *NVMFileManager::look_up(const char *filename)
 
     while(temp != nullptr)
     {
-	nvm_file *process = (nvm_file *)temp->GetData();
+	nvm_entry *entry = (nvm_entry *)temp->GetData();
 
-	if(process->HasName(filename))
+	if(entry->GetType() != type)
 	{
-	    return temp;
+	    temp = temp->GetNext();
+
+	    continue;
+	}
+
+	switch(type)
+	{
+	    case FileEntry:
+	    {
+		nvm_file *process_file = (nvm_file *)entry->GetData();
+
+		if(process_file->HasName(filename))
+		{
+		    return temp;
+		}
+	    }
+	    break;
+
+	    case DirectoryEntry:
+	    {
+		nvm_directory *process_directory = (nvm_directory *)entry->GetData();
+
+		if(process_directory->HasName(filename))
+		{
+		    return temp;
+		}
+	    }
+	    break;
+
+	    default:
+	    {
+		NVM_FATAL("Unknown entry type!!");
+	    }
+	    break;
+	}
+
+	temp = temp->GetNext();
+    }
+
+    return nullptr;
+}
+
+//checks if the directory exists
+nvm_directory *NVMFileManager::directory_look_up(const char *directory_name)
+{
+    list_node *temp;
+
+    pthread_mutex_lock(&list_update_mtx);
+
+    temp = head;
+
+    pthread_mutex_unlock(&list_update_mtx);
+
+    while(temp != nullptr)
+    {
+	nvm_entry *entry = (nvm_entry *)temp->GetData();
+
+	if(entry->GetType() != DirectoryEntry)
+	{
+	    temp = temp->GetNext();
+
+	    continue;
+	}
+
+	nvm_directory *process_directory = (nvm_directory *)entry->GetData();
+
+	if(process_directory->HasName(directory_name))
+	{
+	    return process_directory;
+	}
+
+	temp = temp->GetNext();
+    }
+
+    return nullptr;
+}
+
+//checks if the file exists
+nvm_file *NVMFileManager::file_look_up(const char *filename)
+{
+    list_node *temp;
+
+    pthread_mutex_lock(&list_update_mtx);
+
+    temp = head;
+
+    pthread_mutex_unlock(&list_update_mtx);
+
+    while(temp != nullptr)
+    {
+	nvm_entry *entry = (nvm_entry *)temp->GetData();
+
+	if(entry->GetType() != FileEntry)
+	{
+	    temp = temp->GetNext();
+
+	    continue;
+	}
+
+	nvm_file *process_file = (nvm_file *)entry->GetData();
+
+	if(process_file->HasName(filename))
+	{
+	    return process_file;
 	}
 
 	temp = temp->GetNext();
@@ -64,16 +167,15 @@ list_node *NVMFileManager::look_up(const char *filename)
 nvm_file *NVMFileManager::create_file(const char *filename)
 {
     nvm_file *fd;
+    nvm_entry *entry;
     list_node *file_node;
 
     pthread_mutex_lock(&list_update_mtx);
 
-    file_node = look_up(filename);
+    fd = file_look_up(filename);
 
-    if(file_node)
+    if(fd)
     {
-	fd = (nvm_file *)file_node->GetData();
-
 	pthread_mutex_unlock(&list_update_mtx);
 
 	NVM_DEBUG("found file %s at %p", filename, fd);
@@ -82,7 +184,8 @@ nvm_file *NVMFileManager::create_file(const char *filename)
     }
 
     ALLOC_CLASS(fd, nvm_file(filename, nvm_api->fd));
-    ALLOC_CLASS(file_node, list_node(fd));
+    ALLOC_CLASS(entry, nvm_entry(FileEntry, fd));
+    ALLOC_CLASS(file_node, list_node(entry));
 
     file_node->SetNext(head);
 
@@ -102,18 +205,9 @@ nvm_file *NVMFileManager::create_file(const char *filename)
 
 nvm_file *NVMFileManager::open_file_if_exists(const char *filename)
 {
-    list_node *file_node = look_up(filename);
+    nvm_file *fd = file_look_up(filename);
 
-    if(file_node)
-    {
-	nvm_file *process = (nvm_file *)file_node->GetData();
-
-	NVM_DEBUG("found file %s at %p", filename, process);
-
-	return process;
-    }
-
-    return nullptr;
+    return fd;
 }
 
 //opens existing file or creates a new one
@@ -134,15 +228,13 @@ void NVMFileManager::nvm_fclose(nvm_file *file)
 
 int NVMFileManager::GetFileSize(const char *filename, unsigned long *size)
 {
-    list_node *file_node = look_up(filename);
+    nvm_file *fd = file_look_up(filename);
 
-    if(file_node)
+    if(fd)
     {
-	nvm_file *process = (nvm_file *)file_node->GetData();
+	NVM_DEBUG("found file %s at %p", filename, fd);
 
-	NVM_DEBUG("found file %s at %p", filename, process);
-
-	*size = process->GetSize();
+	*size = fd->GetSize();
 	return 0;
     }
 
@@ -152,15 +244,13 @@ int NVMFileManager::GetFileSize(const char *filename, unsigned long *size)
 
 int NVMFileManager::GetFileModificationTime(const char *filename, time_t *mtime)
 {
-    list_node *file_node = look_up(filename);
+    nvm_file *fd = file_look_up(filename);
 
-    if(file_node)
+    if(fd)
     {
-	nvm_file *process = (nvm_file *)file_node->GetData();
+	NVM_DEBUG("found file %s at %p", filename, fd);
 
-	NVM_DEBUG("found file %s at %p", filename, process);
-
-	*mtime = process->GetLastModified();
+	*mtime = fd->GetLastModified();
 	return 0;
     }
 
@@ -172,25 +262,23 @@ int NVMFileManager::LinkFile(const char *src, const char *target)
 {
     pthread_mutex_lock(&list_update_mtx);
 
-    list_node *file_node = look_up(target);
+    nvm_file *fd = file_look_up(target);
 
-    if(file_node)
+    if(fd)
     {
-	NVM_DEBUG("found file %s at %p", target, file_node);
+	NVM_DEBUG("found file %s at %p", target, fd);
 
 	pthread_mutex_unlock(&list_update_mtx);
 	return -1;
     }
 
-    file_node = look_up(src);
+    fd = file_look_up(src);
 
-    if(file_node)
+    if(fd)
     {
-	nvm_file *process = (nvm_file *)file_node->GetData();
+	NVM_DEBUG("found file %s at %p", src, fd);
 
-	NVM_DEBUG("found file %s at %p", src, process);
-
-	process->AddName(target);
+	fd->AddName(target);
 
 	pthread_mutex_unlock(&list_update_mtx);
 	return 0;
@@ -204,25 +292,23 @@ int NVMFileManager::RenameFile(const char *crt_filename, const char *new_filenam
 {
     pthread_mutex_lock(&list_update_mtx);
 
-    list_node *file_node = look_up(new_filename);
+    nvm_file *fd = file_look_up(new_filename);
 
-    if(file_node)
+    if(fd)
     {
-	NVM_DEBUG("found file %s at %p", new_filename, file_node);
+	NVM_DEBUG("found file %s at %p", new_filename, fd);
 
 	pthread_mutex_unlock(&list_update_mtx);
 	return 1;
     }
 
-    file_node = look_up(crt_filename);
+    fd = file_look_up(crt_filename);
 
-    if(file_node)
+    if(fd)
     {
-	nvm_file *process = (nvm_file *)file_node->GetData();
+	NVM_DEBUG("found file %s at %p", crt_filename, fd);
 
-	NVM_DEBUG("found file %s at %p", crt_filename, process);
-
-	process->ChangeName(crt_filename, new_filename);
+	fd->ChangeName(crt_filename, new_filename);
 
 	pthread_mutex_unlock(&list_update_mtx);
 	return 0;
@@ -236,14 +322,21 @@ int NVMFileManager::DeleteFile(const char *filename)
 {
     pthread_mutex_lock(&list_update_mtx);
 
-    list_node *file_node = look_up(filename);
+    list_node *file_node = node_look_up(filename, FileEntry);
 
     if(file_node)
     {
 	list_node *prev = file_node->GetPrev();
 	list_node *next = file_node->GetNext();
 
-	nvm_file *file = (nvm_file *)file_node->GetData();
+	nvm_entry *entry = (nvm_entry *)file_node->GetData();
+
+	if(entry->GetType() != FileEntry)
+	{
+	    NVM_FATAL("Attempt to delete folder using file req");
+	}
+
+	nvm_file *file = (nvm_file *)entry->GetData();
 
 	if(file->Delete(filename, nvm_api))
 	{
@@ -268,13 +361,25 @@ int NVMFileManager::DeleteFile(const char *filename)
 		head = nullptr;
 	    }
 
-	    delete file;
+	    delete entry;
 	    delete file_node;
 	}
     }
 
     pthread_mutex_unlock(&list_update_mtx);
 
+    return 0;
+}
+
+nvm_directory *NVMFileManager::OpenDirectory(const char *name)
+{
+    nvm_directory *directory = directory_look_up(name);
+
+    return directory;
+}
+
+int NVMFileManager::CreateDirectory(const char *name)
+{
     return 0;
 }
 

@@ -90,6 +90,7 @@ LIB_SOURCES =                                                   \
   util/nvm_file_manager.cc					\
   util/nvm.cc							\
   util/nvm_files.cc						\
+  util/nvm_directory.cc						\
   util/nvm_threading.cc						\
   util/file_util.cc                                             \
   util/filter_policy.cc                                         \

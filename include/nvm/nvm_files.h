@@ -70,7 +70,9 @@ class NVMFileManager
 	list_node *head;
 
 	//looks up if the file is in the list
-	list_node *look_up(const char *filename);
+	nvm_file *file_look_up(const char *filename);
+	nvm_directory *directory_look_up(const char *directory_name);
+	list_node *node_look_up(const char *filename, const nvm_entry_type type);
 
 	pthread_mutex_t list_update_mtx;
 	pthread_mutexattr_t list_update_mtx_attr;
@@ -83,6 +85,7 @@ class NVMFileManager
 	~NVMFileManager();
 
 	nvm_file *nvm_fopen(const char *filename, const char *mode);
+	nvm_directory *OpenDirectory(const char *name);
 	void nvm_fclose(nvm_file *file);
 
 	int GetFileSize(const char *filename, unsigned long *size);
@@ -90,6 +93,7 @@ class NVMFileManager
 	int GetFileModificationTime(const char *filename, time_t *mtime);
 	int RenameFile(const char *crt_filename, const char *new_filename);
 	int LinkFile(const char *src, const char *target);
+	int CreateDirectory(const char *name);
 };
 
 class NVMSequentialFile: public SequentialFile
@@ -301,18 +305,6 @@ class NVMRandomRWFile : public RandomRWFile
 
 	virtual Status Allocate(off_t offset, off_t len) override;
 #endif
-};
-
-class NVMDirectory : public Directory
-{
-    private:
-	int fd_;
-
-    public:
-	explicit NVMDirectory(int fd);
-	~NVMDirectory();
-
-	virtual Status Fsync() override;
 };
 
 }
