@@ -46,6 +46,7 @@ class nvm_file
 	void make_dummy(struct nvm *nvm_api);
 
 	bool Delete(const char *filename, struct nvm *nvm_api);
+	void DeleteAllLinks(struct nvm *_nvm_api);
 
 	int LockFile();
 	void UnlockFile();

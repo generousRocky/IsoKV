@@ -623,6 +623,15 @@ void TestSubdirectories(nvm_directory *dir, nvm *nvm_api)
     {
 	NVM_DEBUG("%s", children[i].c_str());
     }
+
+    if(dir->DeleteDirectory("test") != 0)
+    {
+	NVM_FATAL("");
+    }
+
+    dir->CreateDirectory("test14");
+
+    dir->Delete(nvm_api);
 }
 
 int main(int argc, char **argv)
@@ -651,7 +660,7 @@ int main(int argc, char **argv)
 
     //TestDirectoryCreate(dir, nvm_api);
 
-    TestSubdirectories(dir, nvm_api);
+    //TestSubdirectories(dir, nvm_api);
 
     delete dir;
     delete nvm_api;

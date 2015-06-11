@@ -530,13 +530,42 @@ nvm_directory *nvm_directory::OpenDirectory(const char *_name)
     return directory_look_up(_name);
 }
 
-void nvm_directory::Delete()
+void nvm_directory::Delete(nvm *_nvm_api)
 {
-    pthread_mutex_lock(&list_update_mtx);
+    NVM_DEBUG("delete %s", name);
 
+    //delete all files in the directory
+    list_node *temp = head;
 
+    while(temp != nullptr)
+    {
+	nvm_entry *entry = (nvm_entry *)temp->GetData();
 
-    pthread_mutex_unlock(&list_update_mtx);
+	switch(entry->GetType())
+	{
+	    case DirectoryEntry:
+	    {
+		nvm_directory *dir = (nvm_directory *)entry->GetData();
+		dir->Delete(_nvm_api);
+	    }
+	    break;
+
+	    case FileEntry:
+	    {
+		nvm_file *fd = (nvm_file *)entry->GetData();
+		fd->DeleteAllLinks(_nvm_api);
+	    }
+	    break;
+
+	    default:
+	    {
+		NVM_FATAL("unknown entry type");
+	    }
+	    break;
+	}
+
+	temp = temp->GetNext();
+    }
 }
 
 void nvm_directory::GetChildren(std::vector<std::string>* result)
@@ -598,7 +627,50 @@ int nvm_directory::GetChildren(const char *_name, std::vector<std::string>* resu
 
 int nvm_directory::DeleteDirectory(const char *_name)
 {
+    pthread_mutex_lock(&list_update_mtx);
 
+    list_node *dir_node = node_look_up(_name, DirectoryEntry);
+
+    if(dir_node == nullptr)
+    {
+	return 0;
+    }
+
+    list_node *prev = dir_node->GetPrev();
+    list_node *next = dir_node->GetNext();
+
+    if(prev)
+    {
+	prev->SetNext(next);
+    }
+
+    if(next)
+    {
+	next->SetPrev(prev);
+    }
+
+    if(prev == nullptr && next != nullptr)
+    {
+	head = head->GetNext();
+    }
+
+    if(next == nullptr && prev == nullptr)
+    {
+	head = nullptr;
+    }
+
+    pthread_mutex_unlock(&list_update_mtx);
+
+    NVM_DEBUG("deleting %s at %p", _name, dir_node);
+
+    nvm_entry *entry = (nvm_entry *)dir_node->GetData();
+
+    nvm_directory *directory = (nvm_directory *)entry->GetData();
+
+    directory->Delete(nvm_api);
+
+    delete entry;
+    delete dir_node;
 
     return 0;
 }

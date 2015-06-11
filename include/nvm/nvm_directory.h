@@ -28,7 +28,7 @@ class nvm_directory
 	bool HasName(const char *_name, const int n);
 	void EnumerateNames(std::vector<std::string>* result);
 
-	void Delete();
+	void Delete(nvm *_nvm_api);
 
 	list_node *node_look_up(list_node *prev, const char *look_up_name);
 	list_node *node_look_up(const char *look_up_name, const nvm_entry_type type);

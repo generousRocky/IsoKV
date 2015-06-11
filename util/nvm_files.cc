@@ -282,6 +282,24 @@ void nvm_file::make_dummy(struct nvm *nvm_api)
     }
 }
 
+void nvm_file::DeleteAllLinks(struct nvm *_nvm_api)
+{
+    NVM_DEBUG("removing all links in %p", this);
+
+    list_node *temp;
+
+    temp = first_page;
+
+    while(temp != nullptr)
+    {
+	struct nvm_page *to_reclaim = (struct nvm_page *)temp->GetData();
+
+	_nvm_api->ReclaimPage(to_reclaim);
+
+	temp = temp->GetNext();
+    }
+}
+
 bool nvm_file::Delete(const char * filename, struct nvm *nvm_api)
 {
     bool link_files_left = true;
