@@ -305,13 +305,13 @@ class NVMEnv : public Env
 
 	virtual Status CreateDir(const std::string& name) override
 	{
-	    Status result;
-	    if (mkdir(name.c_str(), 0755) != 0)
+	    if(file_manager->CreateDirectory(name.c_str()) == 0)
 	    {
-		result = IOError(name, errno);
+		return Status::OK();
 	    }
-	    return result;
-	};
+
+	    return Status::IOError("createdir failed");
+	}
 
 	virtual Status CreateDirIfMissing(const std::string& name) override
 	{
@@ -330,7 +330,7 @@ class NVMEnv : public Env
 		}
 	    }
 	    return result;
-	};
+	}
 
 	virtual Status DeleteDir(const std::string& name) override
 	{
@@ -340,7 +340,7 @@ class NVMEnv : public Env
 		result = IOError(name, errno);
 	    }
 	    return result;
-	};
+	}
 
 	virtual Status GetFileSize(const std::string& fname, uint64_t* size) override
 	{

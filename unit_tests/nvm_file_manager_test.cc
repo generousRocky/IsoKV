@@ -439,6 +439,66 @@ void TestFileLinkUnlink(NVMFileManager *file_manager, nvm *nvm_api)
     }
 }
 
+void TestDirectoryCreate(NVMFileManager *file_manager, nvm *nvm_api)
+{
+    nvm_directory *dir = file_manager->OpenDirectory("test");
+
+    if(dir)
+    {
+	NVM_FATAL("");
+    }
+
+    if(file_manager->CreateDirectory("test") != 0)
+    {
+	NVM_FATAL("");
+    }
+
+    dir = file_manager->OpenDirectory("test");
+
+    if(!dir)
+    {
+	NVM_FATAL("");
+    }
+
+    if(file_manager->CreateDirectory("test") == 0)
+    {
+	NVM_FATAL("");
+    }
+
+    if(file_manager->CreateDirectory("test1") != 0)
+    {
+	NVM_FATAL("");
+    }
+
+    dir = file_manager->OpenDirectory("test");
+
+    if(!dir)
+    {
+	NVM_FATAL("");
+    }
+
+    dir = file_manager->OpenDirectory("test1");
+
+    if(!dir)
+    {
+	NVM_FATAL("");
+    }
+
+    nvm_file *open1 = file_manager->nvm_fopen("test.dir", "w");
+
+    if(!open1)
+    {
+	NVM_FATAL("");
+    }
+
+    dir = file_manager->OpenDirectory("test.dir");
+
+    if(dir)
+    {
+	NVM_FATAL("");
+    }
+}
+
 int main(int argc, char **argv)
 {
     NVMFileManager *file_manager;
@@ -461,7 +521,9 @@ int main(int argc, char **argv)
 
     //TestFileLinkUnlink(file_manager, nvm_api);
 
-    TestFileExists(file_manager, nvm_api);
+    //TestFileExists(file_manager, nvm_api);
+
+    TestDirectoryCreate(file_manager, nvm_api);
 
     delete file_manager;
     delete nvm_api;

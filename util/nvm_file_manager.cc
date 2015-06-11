@@ -433,6 +433,40 @@ nvm_directory *NVMFileManager::OpenDirectory(const char *name)
 
 int NVMFileManager::CreateDirectory(const char *name)
 {
+    nvm_directory *fd;
+    nvm_entry *entry;
+    list_node *directory_node;
+
+    pthread_mutex_lock(&list_update_mtx);
+
+    fd = directory_look_up(name);
+
+    if(fd)
+    {
+	pthread_mutex_unlock(&list_update_mtx);
+
+	NVM_DEBUG("found directory %s at %p", name, fd);
+
+	return -1;
+    }
+
+    ALLOC_CLASS(fd, nvm_directory(name));
+    ALLOC_CLASS(entry, nvm_entry(DirectoryEntry, fd));
+    ALLOC_CLASS(directory_node, list_node(entry));
+
+    directory_node->SetNext(head);
+
+    if(head)
+    {
+	head->SetPrev(directory_node);
+    }
+
+    head = directory_node;
+
+    pthread_mutex_unlock(&list_update_mtx);
+
+    NVM_DEBUG("created directory %s at %p", name, fd);
+
     return 0;
 }
 
