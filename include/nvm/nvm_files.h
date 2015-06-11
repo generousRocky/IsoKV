@@ -94,7 +94,9 @@ class NVMFileManager
 	int GetFileModificationTime(const char *filename, time_t *mtime);
 	int RenameFile(const char *crt_filename, const char *new_filename);
 	int LinkFile(const char *src, const char *target);
+
 	int CreateDirectory(const char *name);
+	int DeleteDirectory(const char *name);
 
 	bool FileExists(const char *name);
 };

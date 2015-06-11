@@ -320,12 +320,12 @@ class NVMEnv : public Env
 
 	virtual Status DeleteDir(const std::string& name) override
 	{
-	    Status result;
-	    if (rmdir(name.c_str()) != 0)
+	    if(file_manager->DeleteDirectory(name.c_str()) == 0)
 	    {
-		result = IOError(name, errno);
+		return Status::OK();
 	    }
-	    return result;
+
+	    return Status::IOError("delete dir failed");
 	}
 
 	virtual Status GetFileSize(const std::string& fname, uint64_t* size) override
@@ -454,20 +454,7 @@ class NVMEnv : public Env
 
 	virtual Status GetTestDirectory(std::string* result) override
 	{
-	    const char* env = getenv("TEST_TMPDIR");
-	    if (env && env[0] != '\0')
-	    {
-		*result = env;
-	    }
-	    else
-	    {
-		char buf[100];
-		snprintf(buf, sizeof(buf), "/tmp/rocksdbtest-%d", int(geteuid()));
-		*result = buf;
-	    }
-	    // Directory may already exist
-	    CreateDir(*result);
-	    return Status::OK();
+	    return Status::IOError("Not supported");
 	}
 
 	virtual Status GetThreadList(std::vector<ThreadStatus>* thread_list) override
@@ -668,12 +655,7 @@ class NVMEnv : public Env
 	// Returns true iff the named directory exists and is a directory.
 	virtual bool DirExists(const std::string& dname)
 	{
-	    struct stat statbuf;
-	    if (stat(dname.c_str(), &statbuf) == 0)
-	    {
-		return S_ISDIR(statbuf.st_mode);
-	    }
-	    return false; // stat() failed return false
+	    return (file_manager->OpenDirectory(dname.c_str()) != nullptr);
 	}
 
 	bool SupportsFastAllocate(const std::string& path)

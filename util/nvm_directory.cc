@@ -21,6 +21,11 @@ bool nvm_directory::HasName(const char *_name)
     return (strcmp(name, _name) == 0);
 }
 
+void nvm_directory::Delete()
+{
+
+}
+
 }
 
 #endif

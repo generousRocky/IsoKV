@@ -14,6 +14,8 @@ class nvm_directory
 	~nvm_directory();
 
 	bool HasName(const char *_name);
+
+	void Delete();
 };
 
 class NVMDirectory : public Directory

@@ -470,6 +470,11 @@ int NVMFileManager::CreateDirectory(const char *name)
     return 0;
 }
 
+int NVMFileManager::DeleteDirectory(const char *name)
+{
+    return 0;
+}
+
 bool NVMFileManager::FileExists(const char *name)
 {
     list_node *ret = node_look_up(name);
