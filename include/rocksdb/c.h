@@ -264,6 +264,34 @@ extern char* rocksdb_get_cf(
     size_t* vallen,
     char** errptr);
 
+// if values_list[i] == NULL and errs[i] == NULL,
+// then we got status.IsNotFound(), which we will not return.
+// all errors except status status.ok() and status.IsNotFound() are returned.
+//
+// errs, values_list and values_list_sizes must be num_keys in length,
+// allocated by the caller.
+// errs is a list of strings as opposed to the conventional one error,
+// where errs[i] is the status for retrieval of keys_list[i].
+// each non-NULL errs entry is a malloc()ed, null terminated string.
+// each non-NULL values_list entry is a malloc()ed array, with
+// the length for each stored in values_list_sizes[i].
+extern void rocksdb_multi_get(
+    rocksdb_t* db,
+    const rocksdb_readoptions_t* options,
+    size_t num_keys, const char* const* keys_list,
+    const size_t* keys_list_sizes,
+    char** values_list, size_t* values_list_sizes,
+    char** errs);
+
+extern void rocksdb_multi_get_cf(
+    rocksdb_t* db,
+    const rocksdb_readoptions_t* options,
+    const rocksdb_column_family_handle_t* const* column_families,
+    size_t num_keys, const char* const* keys_list,
+    const size_t* keys_list_sizes,
+    char** values_list, size_t* values_list_sizes,
+    char** errs);
+
 extern rocksdb_iterator_t* rocksdb_create_iterator(
     rocksdb_t* db,
     const rocksdb_readoptions_t* options);
@@ -380,6 +408,19 @@ extern void rocksdb_writebatch_put_cf(
     rocksdb_column_family_handle_t* column_family,
     const char* key, size_t klen,
     const char* val, size_t vlen);
+extern void rocksdb_writebatch_putv(
+    rocksdb_writebatch_t* b,
+    int num_keys, const char* const* keys_list,
+    const size_t* keys_list_sizes,
+    int num_values, const char* const* values_list,
+    const size_t* values_list_sizes);
+extern void rocksdb_writebatch_putv_cf(
+    rocksdb_writebatch_t* b,
+    rocksdb_column_family_handle_t* column_family,
+    int num_keys, const char* const* keys_list,
+    const size_t* keys_list_sizes,
+    int num_values, const char* const* values_list,
+    const size_t* values_list_sizes);
 extern void rocksdb_writebatch_merge(
     rocksdb_writebatch_t*,
     const char* key, size_t klen,
@@ -389,6 +430,19 @@ extern void rocksdb_writebatch_merge_cf(
     rocksdb_column_family_handle_t* column_family,
     const char* key, size_t klen,
     const char* val, size_t vlen);
+extern void rocksdb_writebatch_mergev(
+    rocksdb_writebatch_t* b,
+    int num_keys, const char* const* keys_list,
+    const size_t* keys_list_sizes,
+    int num_values, const char* const* values_list,
+    const size_t* values_list_sizes);
+extern void rocksdb_writebatch_mergev_cf(
+    rocksdb_writebatch_t* b,
+    rocksdb_column_family_handle_t* column_family,
+    int num_keys, const char* const* keys_list,
+    const size_t* keys_list_sizes,
+    int num_values, const char* const* values_list,
+    const size_t* values_list_sizes);
 extern void rocksdb_writebatch_delete(
     rocksdb_writebatch_t*,
     const char* key, size_t klen);
@@ -396,6 +450,18 @@ extern void rocksdb_writebatch_delete_cf(
     rocksdb_writebatch_t*,
     rocksdb_column_family_handle_t* column_family,
     const char* key, size_t klen);
+void rocksdb_writebatch_deletev(
+    rocksdb_writebatch_t* b,
+    int num_keys, const char* const* keys_list,
+    const size_t* keys_list_sizes);
+void rocksdb_writebatch_deletev_cf(
+    rocksdb_writebatch_t* b,
+    rocksdb_column_family_handle_t* column_family,
+    int num_keys, const char* const* keys_list,
+    const size_t* keys_list_sizes);
+extern void rocksdb_writebatch_put_log_data(
+    rocksdb_writebatch_t*,
+    const char* blob, size_t len);
 extern void rocksdb_writebatch_iterate(
     rocksdb_writebatch_t*,
     void* state,
