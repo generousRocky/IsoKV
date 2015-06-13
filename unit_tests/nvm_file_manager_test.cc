@@ -158,7 +158,6 @@ void TestFileSize(nvm_directory *dir, nvm *nvm_api)
     {
 	NVM_FATAL("");
     }
-    open1->make_dummy(nvm_api);
     dir->nvm_fclose(open1, "w");
 
     if(dir->GetFileSize("test.c", &size) != 0)
@@ -181,7 +180,6 @@ void TestFileDelete(nvm_directory *dir, nvm *nvm_api)
     {
 	NVM_FATAL("");
     }
-    open1->make_dummy(nvm_api);
     dir->nvm_fclose(open1, "w");
 
     open1 = dir->nvm_fopen("test1.c", "w");

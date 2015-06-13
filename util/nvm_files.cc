@@ -107,7 +107,7 @@ bool nvm_file::ClearLastPage(nvm *nvm_api)
 	return true;
     }
 
-    struct nvm_page *pg = last_page;
+    struct nvm_page *pg = (struct nvm_page *)last_page->GetData();
 
     last_page = last_page->GetPrev();
 
@@ -131,20 +131,20 @@ bool nvm_file::ClaimNewPage(nvm *nvm_api)
 
     ALLOC_CLASS(to_add, list_node(new_page));
 
-    new_page->SetPrev(last_page);
+    to_add->SetPrev(last_page);
 
     pthread_mutex_lock(&page_update_mtx);
 
     if(last_page)
     {
-	last_page->SetNext(new_page);
+	last_page->SetNext(to_add);
     }
 
-    last_page = new_page;
+    last_page = to_add;
 
     if(first_page == nullptr)
     {
-	first_page = new_page;
+	first_page = to_add;
     }
 
     pthread_mutex_unlock(&page_update_mtx);
@@ -842,7 +842,9 @@ void NVMWritableFile::UpdateLastPage()
 	    last_page = last_page->GetNext();
 	}
 
-	bytes_per_sync_ = pg->Sizes[channel];
+	pg = (nvm_page *)last_page->GetData();
+
+	bytes_per_sync_ = pg->sizes[channel];
     }
     else
     {
@@ -863,12 +865,14 @@ void NVMWritableFile::UpdateLastPage()
 	{
 	    pg = (nvm_page *)last_page->GetData();
 
-	    bytes_per_sync_ -= pg->Sizes[channel];
+	    bytes_per_sync_ -= pg->sizes[channel];
 
 	    last_page = last_page->GetNext();
 	}
 
-	bytes_per_sync_ = pg->Sizes[channel] - bytes_per_sync_;
+	pg = (nvm_page *)last_page->GetData();
+
+	bytes_per_sync_ = pg->sizes[channel] - bytes_per_sync_;
     }
 
     cursize_ = 0;
@@ -894,7 +898,7 @@ bool NVMWritableFile::Flush(const bool forced)
 
     if(bytes_per_sync_ == 0)
     {
-	if(fd_->ClaimNewPage(dir->GetNVMApi()) == false)
+	if(fd_->ClaimNewPage(dir_->GetNVMApi()) == false)
 	{
 	    return false;
 	}
@@ -908,13 +912,13 @@ bool NVMWritableFile::Flush(const bool forced)
 
 	if(pg->sizes[channel] == bytes_per_sync_)
 	{
-	    if(fd_->WritePage(pg, channel, dir_->GetNVMApi(), buf_, cursize_) != cursize)
+	    if(fd_->WritePage(pg, channel, dir_->GetNVMApi(), buf_, cursize_) != cursize_)
 	    {
 		NVM_DEBUG("unable to write data");
 		return false;
 	    }
 
-	    if(fd_->ClaimNewPage(dir->GetNVMApi()) == false)
+	    if(fd_->ClaimNewPage(dir_->GetNVMApi()) == false)
 	    {
 		return false;
 	    }
@@ -929,15 +933,15 @@ bool NVMWritableFile::Flush(const bool forced)
 
 	fd_->ReadPage(pg, channel, dir_->GetNVMApi(), crt_data);
 
-	unsigned long crt_data_len = pg->sizes[channel] - bytes_per_sync;
+	unsigned long crt_data_len = pg->sizes[channel] - bytes_per_sync_;
 
-	memcoy(crt_data + crt_data_len, buf_, bytes_per_sync);
+	memcpy(crt_data + crt_data_len, buf_, bytes_per_sync_);
 
 	crt_data_len = pg->sizes[channel];
 
-	if(fd_->ClearLastPage() == false)
+	if(fd_->ClearLastPage(dir_->GetNVMApi()) == false)
 	{
-	    return false
+	    return false;
 	}
 
 	last_page = nullptr;
@@ -951,7 +955,7 @@ bool NVMWritableFile::Flush(const bool forced)
 	    return false;
 	}
 
-	if(fd_->ClaimNewPage(dir->GetNVMApi()) == false)
+	if(fd_->ClaimNewPage(dir_->GetNVMApi()) == false)
 	{
 	    return false;
 	}
@@ -970,8 +974,6 @@ Status NVMWritableFile::Append(const Slice& data)
 
     size_t left = data.size();
     size_t offset = 0;
-
-    size_t i;
 
     while(left > 0)
     {

@@ -147,7 +147,7 @@ nvm::~nvm()
     NVM_DEBUG("api closed");
 }
 
-struct nvm_page *RequestPage()
+struct nvm_page *nvm::RequestPage()
 {
     struct nvm_page *ret;
 
@@ -159,7 +159,7 @@ retry:
 
     ++try_count;
 
-    if(try_count == max_try_count)
+    if(try_count == max_alloc_try_count)
     {
 	//out of ssd space
 	pthread_mutex_unlock(&allocate_page_mtx);
@@ -171,7 +171,7 @@ retry:
 
     ++next_page.page_id;
 
-    if(next_page.page_id < luns[next_page].nr_pages_per_blk)
+    if(next_page.page_id < luns[next_page.lun_id].nr_pages_per_blk)
     {
 	goto end;
     }
@@ -180,7 +180,7 @@ retry:
 
     ++next_page.block_id;
 
-    if(next_page.block_id < luns[next_page].nr_blocks)
+    if(next_page.block_id < luns[next_page.lun_id].nr_blocks)
     {
 	goto end;
     }
