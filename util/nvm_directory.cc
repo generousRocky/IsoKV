@@ -379,12 +379,25 @@ nvm_file *nvm_directory::open_file_if_exists(const char *filename)
 //opens existing file or creates a new one
 nvm_file *nvm_directory::nvm_fopen(const char *filename, const char *mode)
 {
-    if(mode[0] != 'a' && mode[0] != 'w')
+    nvm_file *fd;
+
+    if(mode[0] != 'a' && mode[0] != 'w' && mode[0] != 'l')
     {
-	return open_file_if_exists(filename);
+	fd = open_file_if_exists(filename);
+    }
+    else
+    {
+	fd = create_file(filename);
     }
 
-    return create_file(filename);
+    if(fd->CanOpen(mode))
+    {
+	return fd;
+    }
+    else
+    {
+	return nullptr;
+    }
 }
 
 int nvm_directory::GetFileSize(const char *filename, unsigned long *size)
@@ -420,9 +433,16 @@ bool nvm_directory::FileExists(const char *_name)
     return (node_look_up(nullptr, _name) != nullptr);
 }
 
-void nvm_directory::nvm_fclose(nvm_file *file)
+nvm *nvm_directory::GetNVMApi()
 {
-    NVM_DEBUG("closing file at %p", file);
+    return nvm_api;
+}
+
+void nvm_directory::nvm_fclose(nvm_file *file, const char *mode)
+{
+    NVM_DEBUG("closing file at %p with %s", file, mode);
+
+    file->Close(mode);
 }
 
 int nvm_directory::LinkFile(const char *src, const char *target)

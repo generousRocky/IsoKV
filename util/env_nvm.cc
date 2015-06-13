@@ -155,7 +155,7 @@ class NVMEnv : public Env
 	    if (f == nullptr)
 	    {
 		*result = nullptr;
-		return IOError(fname, errno);
+		return Status::IOError("unable to open file for read");
 	    }
 	    else
 	    {
@@ -175,7 +175,7 @@ class NVMEnv : public Env
 	    if (f == nullptr)
 	    {
 		*result = nullptr;
-		return IOError(fname, errno);
+		return Status::IOError("unable to open file for read");
 	    }
 	    else
 	    {
@@ -188,48 +188,17 @@ class NVMEnv : public Env
 	{
 	    result->reset();
 
-	    Status s;
+	    nvm_file *fd = root_dir->nvm_fopen(fname.c_str(), "w");
 
-	    int fd = -1;
-
-	    do
+	    if(fd == nullptr)
 	    {
-		fd = open(fname.c_str(), O_CREAT | O_RDWR | O_TRUNC, 0644);
-	    } while (fd < 0 && errno == EINTR);
-
-	    if (fd < 0)
-	    {
-		s = IOError(fname, errno);
+		*result = nullptr;
+		return Status::IOError("unable to open file for read");
 	    }
-	    else
-	    {
-		if (options.use_mmap_writes)
-		{
-		    if (!checkedDiskForMmap_)
-		    {
-			// this will be executed once in the program's lifetime.
-			// do not use mmapWrite on non ext-3/xfs/tmpfs systems.
-			if (!SupportsFastAllocate(fname))
-			{
-			    forceMmapOff = true;
-			}
-			checkedDiskForMmap_ = true;
-		    }
-		}
-		if (options.use_mmap_writes && !forceMmapOff)
-		{
-		    result->reset(new NVMMmapFile(fname, fd, page_size_, options));
-		}
-		else
-		{
-		    // disable mmap writes
-		    EnvOptions no_mmap_writes_options = options;
-		    no_mmap_writes_options.use_mmap_writes = false;
 
-		    result->reset(new NVMWritableFile(fname, fd, 65536, no_mmap_writes_options));
-		}
-	    }
-	    return s;
+	    result->reset(new NVMWritableFile(fname, fd, root_dir));
+
+	    return Status::OK();
 	}
 
 	virtual Status NewRandomRWFile(const std::string& fname, unique_ptr<RandomRWFile>* result, const EnvOptions& options) override
@@ -366,12 +335,12 @@ class NVMEnv : public Env
 
 	    Status result;
 
-	    f = root_dir->nvm_fopen(fname.c_str(), "w");
+	    f = root_dir->nvm_fopen(fname.c_str(), "l");
 
 	    if (LockOrUnlock(fname, f, true) == -1)
 	    {
 		result = IOError("lock " + fname, errno);
-		root_dir->nvm_fclose(f);
+		root_dir->nvm_fclose(f, "l");
 	    }
 	    else
 	    {
@@ -395,7 +364,7 @@ class NVMEnv : public Env
 		result = IOError("unlock", errno);
 	    }
 
-	    root_dir->nvm_fclose(my_lock->fd_);
+	    root_dir->nvm_fclose(my_lock->fd_, "l");
 
 	    delete my_lock;
 	    return result;

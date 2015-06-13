@@ -48,6 +48,9 @@ nvm_file::nvm_file(const char *_name, const int fd)
     last_modified = 0;
 
     first_page = nullptr;
+    last_page = nullptr;
+
+    opened_for_write = false;
 
     pthread_mutex_init(&page_update_mtx, nullptr);
     pthread_mutex_init(&meta_mtx, nullptr);
@@ -95,6 +98,60 @@ void nvm_file::UnlockFile()
     pthread_mutex_unlock(&file_lock);
 }
 
+bool nvm_file::ClearLastPage(nvm *nvm_api)
+{
+    pthread_mutex_lock(&page_update_mtx);
+
+    if(last_page == nullptr)
+    {
+	return true;
+    }
+
+    struct nvm_page *pg = last_page;
+
+    last_page = last_page->GetPrev();
+
+    nvm_api->ReclaimPage(pg);
+
+    pthread_mutex_unlock(&page_update_mtx);
+
+    return ClaimNewPage(nvm_api);
+}
+
+bool nvm_file::ClaimNewPage(nvm *nvm_api)
+{
+    struct nvm_page *new_page = nvm_api->RequestPage();
+
+    if(new_page == nullptr)
+    {
+	return false;
+    }
+
+    struct list_node *to_add;
+
+    ALLOC_CLASS(to_add, list_node(new_page));
+
+    new_page->SetPrev(last_page);
+
+    pthread_mutex_lock(&page_update_mtx);
+
+    if(last_page)
+    {
+	last_page->SetNext(new_page);
+    }
+
+    last_page = new_page;
+
+    if(first_page == nullptr)
+    {
+	first_page = new_page;
+    }
+
+    pthread_mutex_unlock(&page_update_mtx);
+
+    return true;
+}
+
 time_t nvm_file::GetLastModified()
 {
     time_t ret;
@@ -102,6 +159,42 @@ time_t nvm_file::GetLastModified()
     pthread_mutex_lock(&meta_mtx);
 
     ret = last_modified;
+
+    pthread_mutex_unlock(&meta_mtx);
+
+    return ret;
+}
+
+void nvm_file::Close(const char *mode)
+{
+    if(mode[0] == 'r' || mode[0] == 'l')
+    {
+	return;
+    }
+
+    opened_for_write = false;
+}
+
+bool nvm_file::CanOpen(const char *mode)
+{
+    bool ret = true;
+
+    //file can always be opened for read or lock
+    if(mode[0] == 'r' || mode[0] == 'l')
+    {
+	return ret;
+    }
+
+    pthread_mutex_lock(&meta_mtx);
+
+    if(opened_for_write)
+    {
+	ret = false;
+    }
+    else
+    {
+	opened_for_write = true;
+    }
 
     pthread_mutex_unlock(&meta_mtx);
 
@@ -242,44 +335,6 @@ void nvm_file::UpdateFileModificationTime()
     last_modified = time(nullptr);
 
     pthread_mutex_unlock(&meta_mtx);
-}
-
-void nvm_file::make_dummy(struct nvm *nvm_api)
-{
-    for(int i = 0; i < 5; ++i)
-    {
-	for(int j = 0; j < 128; ++j)
-	{
-	    list_node *temp;
-	    ALLOC_CLASS(temp, list_node(&nvm_api->luns[0].blocks[i].pages[j]));
-
-	    size += nvm_api->luns[0].blocks[i].pages[j].sizes[0];
-
-	    if(first_page == nullptr)
-	    {
-		first_page = temp;
-		continue;
-	    }
-
-	    first_page->SetPrev(temp);
-	    temp->SetNext(first_page);
-
-	    first_page = temp;
-	}
-    }
-
-    last_modified = time(nullptr);
-
-    list_node *enumerator = first_page;
-
-    while(enumerator != nullptr)
-    {
-	struct nvm_page *pg = (struct nvm_page *)enumerator->GetData();
-
-	NVM_DEBUG("dummy file has page %lu %lu %lu", pg->lun_id, pg->block_id, pg->id);
-
-	enumerator = enumerator->GetNext();
-    }
 }
 
 void nvm_file::DeleteAllLinks(struct nvm *_nvm_api)
@@ -432,6 +487,51 @@ size_t nvm_file::ReadPage(const nvm_page *page, const unsigned long channel, str
     return page_size;
 }
 
+size_t nvm_file::WritePage(const nvm_page *page, const unsigned long channel, struct nvm *nvm_api, void *data, const unsigned long data_len)
+{
+    unsigned long offset;
+
+    unsigned long page_size = page->sizes[channel];
+
+    if(data_len > page_size)
+    {
+	NVM_FATAL("out of page bounds");
+    }
+
+    unsigned long block_size = nvm_api->luns[page->lun_id].nr_pages_per_blk * page_size;
+    unsigned long lun_size = nvm_api->luns[page->lun_id].nr_blocks * block_size;
+
+    offset = page->lun_id * lun_size + page->block_id * block_size + page->id * page_size;
+
+    pthread_mutex_lock(&rw_mtx);
+
+    if(lseek(fd_, offset, SEEK_SET) < 0)
+    {
+	pthread_mutex_unlock(&rw_mtx);
+
+	return -1;
+    }
+
+    if((unsigned)write(fd_, data, data_len) != data_len)
+    {
+	pthread_mutex_unlock(&rw_mtx);
+
+	return -1;
+    }
+
+    pthread_mutex_unlock(&rw_mtx);
+
+    pthread_mutex_lock(&page_update_mtx);
+
+    size += data_len;
+
+    pthread_mutex_unlock(&page_update_mtx);
+
+    UpdateFileModificationTime();
+
+    return data_len;
+}
+
 NVMSequentialFile::NVMSequentialFile(const std::string& fname, nvm_file *f, nvm_directory *_dir, struct nvm *_nvm_api) :
 		filename_(fname)
 {
@@ -451,7 +551,7 @@ NVMSequentialFile::NVMSequentialFile(const std::string& fname, nvm_file *f, nvm_
 
 NVMSequentialFile::~NVMSequentialFile()
 {
-    dir->nvm_fclose(file_);
+    dir->nvm_fclose(file_, "r");
 }
 
 void NVMSequentialFile::SeekPage(const unsigned long offset)
@@ -584,7 +684,7 @@ NVMRandomAccessFile::NVMRandomAccessFile(const std::string& fname, nvm_file *f, 
 
 NVMRandomAccessFile::~NVMRandomAccessFile()
 {
-    dir->nvm_fclose(file_);
+    dir->nvm_fclose(file_, "r");
 }
 
 struct list_node *NVMRandomAccessFile::SeekPage(const unsigned long offset, unsigned long *page_pointer) const
@@ -707,327 +807,161 @@ Status NVMRandomAccessFile::InvalidateCache(size_t offset, size_t length)
     return Status::OK();
 }
 
-// Roundup x to a multiple of y
-size_t NVMMmapFile::Roundup(size_t x, size_t y)
+NVMWritableFile::NVMWritableFile(const std::string& fname, nvm_file *fd, nvm_directory *dir) :
+										filename_(fname)
 {
-    return ((x + y - 1) / y) * y;
-}
+    fd_ = fd;
+    dir_ = dir;
 
-size_t NVMMmapFile::TruncateToPageBoundary(size_t s)
-{
-    s -= (s & (page_size_ - 1));
+    channel = 0;
 
-    assert((s % page_size_) == 0);
+    buf_ = nullptr;
+    last_page = nullptr;
 
-    return s;
-}
-
-Status NVMMmapFile::UnmapCurrentRegion()
-{
-    if (base_ != nullptr)
-    {
-	if (last_sync_ < limit_)
-	{
-	    // Defer syncing this data until next Sync() call, if any
-	    pending_sync_ = true;
-	}
-
-	int munmap_status = munmap(base_, limit_ - base_);
-	if (munmap_status != 0)
-	{
-	    return IOError(filename_, munmap_status);
-	}
-	file_offset_ += limit_ - base_;
-
-	base_ = nullptr;
-	limit_ = nullptr;
-	last_sync_ = nullptr;
-	dst_ = nullptr;
-
-	// Increase the amount we map the next time, but capped at 1MB
-	if (map_size_ < (1<<20))
-	{
-	    map_size_ *= 2;
-	}
-    }
-    return Status::OK();
-}
-
-Status NVMMmapFile::MapNewRegion()
-{
-#ifdef ROCKSDB_FALLOCATE_PRESENT
-    assert(base_ == nullptr);
-
-    // we can't fallocate with FALLOC_FL_KEEP_SIZE here
-    int alloc_status = fallocate(fd_, 0, file_offset_, map_size_);
-    if (alloc_status != 0)
-    {
-	// fallback to posix_fallocate
-	alloc_status = posix_fallocate(fd_, file_offset_, map_size_);
-    }
-
-    if (alloc_status != 0)
-    {
-	return Status::IOError("Error allocating space to file : " + filename_ + "Error : " + strerror(alloc_status));
-    }
-
-    void* ptr = mmap(nullptr, map_size_, PROT_READ | PROT_WRITE, MAP_SHARED, fd_, file_offset_);
-    if (ptr == MAP_FAILED)
-    {
-	return Status::IOError("MMap failed on " + filename_);
-    }
-
-    base_ = reinterpret_cast<char*>(ptr);
-    limit_ = base_ + map_size_;
-    dst_ = base_;
-    last_sync_ = base_;
-    return Status::OK();
-
-#else
-
-    return Status::NotSupported("This platform doesn't support fallocate()");
-
-#endif
-}
-
-NVMMmapFile::NVMMmapFile(const std::string& fname, int fd, size_t page_size, const EnvOptions& options) :
-	    filename_(fname),
-	    fd_(fd),
-	    page_size_(page_size),
-	    map_size_(Roundup(65536, page_size)),
-	    base_(nullptr),
-	    limit_(nullptr),
-	    dst_(nullptr),
-	    last_sync_(nullptr),
-	    file_offset_(0),
-	    pending_sync_(false)
-{
-#ifdef ROCKSDB_FALLOCATE_PRESENT
-
-    fallocate_with_keep_size_ = options.fallocate_with_keep_size;
-
-#endif
-
-    assert((page_size & (page_size - 1)) == 0);
-    assert(options.use_mmap_writes);
-}
-
-
-NVMMmapFile::~NVMMmapFile()
-{
-    if (fd_ >= 0)
-    {
-	NVMMmapFile::Close();
-    }
-}
-
-Status NVMMmapFile::Append(const Slice& data)
-{
-    const char* src = data.data();
-
-    size_t left = data.size();
-
-    PrepareWrite(static_cast<size_t>(GetFileSize()), left);
-
-    while (left > 0)
-    {
-	assert(base_ <= dst_);
-	assert(dst_ <= limit_);
-
-	size_t avail = limit_ - dst_;
-
-	if (avail == 0)
-	{
-	    Status s = UnmapCurrentRegion();
-	    if (!s.ok())
-	    {
-		return s;
-	    }
-
-	    s = MapNewRegion();
-	    if (!s.ok())
-	    {
-		return s;
-	    }
-	}
-
-	size_t n = (left <= avail) ? left : avail;
-
-	memcpy(dst_, src, n);
-	IOSTATS_ADD(bytes_written, n);
-
-	dst_ += n;
-	src += n;
-	left -= n;
-    }
-
-    return Status::OK();
-}
-
-Status NVMMmapFile::Close()
-{
-    Status s;
-
-    size_t unused = limit_ - dst_;
-
-    s = UnmapCurrentRegion();
-    if (!s.ok())
-    {
-	s = IOError(filename_, errno);
-    }
-    else if (unused > 0)
-    {
-	// Trim the extra space at the end of the file
-	if (ftruncate(fd_, file_offset_ - unused) < 0)
-	{
-	    s = IOError(filename_, errno);
-	}
-    }
-
-    if (close(fd_) < 0)
-    {
-	if (s.ok())
-	{
-	    s = IOError(filename_, errno);
-	}
-    }
-
-    fd_ = -1;
-
-    base_ = nullptr;
-    limit_ = nullptr;
-
-    return s;
-}
-
-Status NVMMmapFile::Flush()
-{
-    return Status::OK();
-}
-
-Status NVMMmapFile::Sync()
-{
-    Status s;
-
-    if (pending_sync_)
-    {
-	// Some unmapped data was not synced
-	pending_sync_ = false;
-
-	if (fdatasync(fd_) < 0)
-	{
-	    s = IOError(filename_, errno);
-	}
-    }
-
-    if (dst_ > last_sync_)
-    {
-	// Find the beginnings of the pages that contain the first and last
-	// bytes to be synced.
-
-	size_t p1 = TruncateToPageBoundary(last_sync_ - base_);
-	size_t p2 = TruncateToPageBoundary(dst_ - base_ - 1);
-
-	last_sync_ = dst_;
-	if (msync(base_ + p1, p2 - p1 + page_size_, MS_SYNC) < 0)
-	{
-	    s = IOError(filename_, errno);
-	}
-    }
-
-    return s;
-}
-
-/**
- * Flush data as well as metadata to stable storage.
- */
-Status NVMMmapFile::Fsync()
-{
-    if (pending_sync_)
-    {
-	// Some unmapped data was not synced
-	pending_sync_ = false;
-
-	if (fsync(fd_) < 0)
-	{
-	    return IOError(filename_, errno);
-	}
-    }
-    // This invocation to Sync will not issue the call to
-    // fdatasync because pending_sync_ has already been cleared.
-    return Sync();
-}
-
-/**
- * Get the size of valid data in the file. This will not match the
- * size that is returned from the filesystem because we use mmap
- * to extend file by map_size every time.
- */
-uint64_t NVMMmapFile::GetFileSize()
-{
-    size_t used = dst_ - base_;
-    return file_offset_ + used;
-}
-
-Status NVMMmapFile::InvalidateCache(size_t offset, size_t length)
-{
-    return Status::OK();
-}
-
-#ifdef ROCKSDB_FALLOCATE_PRESENT
-
-Status NVMMmapFile::Allocate(off_t offset, off_t len)
-{
-    int alloc_status = fallocate(fd_, fallocate_with_keep_size_ ? FALLOC_FL_KEEP_SIZE : 0, offset, len);
-    if (alloc_status == 0)
-    {
-	return Status::OK();
-    }
-    else
-    {
-	return IOError(filename_, errno);
-    }
-}
-#endif
-
-NVMWritableFile::NVMWritableFile(const std::string& fname, int fd, size_t capacity, const EnvOptions& options) :
-	    filename_(fname),
-	    fd_(fd),
-	    cursize_(0),
-	    capacity_(capacity),
-	    buf_(new char[capacity]),
-	    filesize_(0),
-	    pending_sync_(false),
-	    pending_fsync_(false),
-	    last_sync_size_(0),
-	    bytes_per_sync_(options.bytes_per_sync),
-	    rate_limiter_(options.rate_limiter)
-{
-#ifdef ROCKSDB_FALLOCATE_PRESENT
-
-    fallocate_with_keep_size_ = options.fallocate_with_keep_size;
-
-#endif
-
-    assert(!options.use_mmap_writes);
+    UpdateLastPage();
 }
 
 NVMWritableFile::~NVMWritableFile()
 {
-    if (fd_ >= 0)
+    NVMWritableFile::Close();
+
+    if(buf_)
     {
-	NVMWritableFile::Close();
+	delete[] buf_;
     }
 }
 
-inline size_t NVMWritableFile::RequestToken(size_t bytes)
+void NVMWritableFile::UpdateLastPage()
 {
-    if (rate_limiter_ && io_priority_ < Env::IO_TOTAL)
+    nvm_page *pg;
+
+    if(last_page)
     {
-	bytes = std::min(bytes, static_cast<size_t>(rate_limiter_->GetSingleBurstBytes()));
-	rate_limiter_->Request(bytes, io_priority_);
+	while(last_page->GetNext())
+	{
+	    last_page = last_page->GetNext();
+	}
+
+	bytes_per_sync_ = pg->Sizes[channel];
     }
-    return bytes;
+    else
+    {
+	last_page = fd_->GetNVMPagesList();
+
+	if(last_page == nullptr)
+	{
+	    bytes_per_sync_ = 0;
+	    cursize_ = 0;
+	    buf_ = nullptr;
+
+	    return;
+	}
+
+	bytes_per_sync_ = fd_->GetSize();
+
+	while(last_page->GetNext())
+	{
+	    pg = (nvm_page *)last_page->GetData();
+
+	    bytes_per_sync_ -= pg->Sizes[channel];
+
+	    last_page = last_page->GetNext();
+	}
+
+	bytes_per_sync_ = pg->Sizes[channel] - bytes_per_sync_;
+    }
+
+    cursize_ = 0;
+
+    if(buf_)
+    {
+	delete[] buf_;
+    }
+
+    if(bytes_per_sync_ > 0)
+    {
+	SAFE_ALLOC(buf_, char[bytes_per_sync_]);
+    }
+    else
+    {
+	buf_ = nullptr;
+    }
+}
+
+bool NVMWritableFile::Flush(const bool forced)
+{
+    struct nvm_page *pg;
+
+    if(bytes_per_sync_ == 0)
+    {
+	if(fd_->ClaimNewPage(dir->GetNVMApi()) == false)
+	{
+	    return false;
+	}
+
+	UpdateLastPage();
+    }
+
+    if(cursize_ == bytes_per_sync_ || forced)
+    {
+	pg = (struct nvm_page *)last_page->GetData();
+
+	if(pg->sizes[channel] == bytes_per_sync_)
+	{
+	    if(fd_->WritePage(pg, channel, dir_->GetNVMApi(), buf_, cursize_) != cursize)
+	    {
+		NVM_DEBUG("unable to write data");
+		return false;
+	    }
+
+	    if(fd_->ClaimNewPage(dir->GetNVMApi()) == false)
+	    {
+		return false;
+	    }
+
+	    UpdateLastPage();
+
+	    return true;
+	}
+
+	char *crt_data;
+	SAFE_ALLOC(crt_data, char[pg->sizes[channel]]);
+
+	fd_->ReadPage(pg, channel, dir_->GetNVMApi(), crt_data);
+
+	unsigned long crt_data_len = pg->sizes[channel] - bytes_per_sync;
+
+	memcoy(crt_data + crt_data_len, buf_, bytes_per_sync);
+
+	crt_data_len = pg->sizes[channel];
+
+	if(fd_->ClearLastPage() == false)
+	{
+	    return false
+	}
+
+	last_page = nullptr;
+	UpdateLastPage();
+
+	pg = (struct nvm_page *)last_page->GetData();
+
+	if(fd_->WritePage(pg, channel, dir_->GetNVMApi(), crt_data, crt_data_len) != crt_data_len)
+	{
+	    NVM_DEBUG("unable to write data");
+	    return false;
+	}
+
+	if(fd_->ClaimNewPage(dir->GetNVMApi()) == false)
+	{
+	    return false;
+	}
+
+	UpdateLastPage();
+
+	return true;
+    }
+
+    return true;
 }
 
 Status NVMWritableFile::Append(const Slice& data)
@@ -1035,145 +969,61 @@ Status NVMWritableFile::Append(const Slice& data)
     const char* src = data.data();
 
     size_t left = data.size();
+    size_t offset = 0;
 
-    Status s;
+    size_t i;
 
-    pending_sync_ = true;
-    pending_fsync_ = true;
-
-    PrepareWrite(static_cast<size_t>(GetFileSize()), left);
-
-    // if there is no space in the cache, then flush
-    if (cursize_ + left > capacity_)
+    while(left > 0)
     {
-	s = Flush();
-	if (!s.ok())
+	if(cursize_ + left < bytes_per_sync_)
 	{
-	    return s;
+	    memcpy(buf_, src + offset, left);
+
+	    cursize_ += left;
+
+	    left = 0;
 	}
-
-	// Increase the buffer size, but capped at 1MB
-	if (capacity_ < (1 << 20))
+	else
 	{
-	    capacity_ *= 2;
-	    buf_.reset(new char[capacity_]);
-	}
-	assert(cursize_ == 0);
-    }
+	    memcpy(buf_, src + offset, bytes_per_sync_ - cursize_);
 
-    // if the write fits into the cache, then write to cache
-    // otherwise do a write() syscall to write to OS buffers.
-    if (cursize_ + left <= capacity_)
-    {
-	memcpy(buf_.get() + cursize_, src, left);
-	cursize_ += left;
-    }
-    else
-    {
-	while (left != 0)
-	{
-	    ssize_t done = write(fd_, src, RequestToken(left));
-	    if (done < 0)
+	    cursize_ = bytes_per_sync_;
+
+	    if(Flush(false) == false)
 	    {
-		if (errno == EINTR)
-		{
-		    continue;
-		}
-		return IOError(filename_, errno);
+		return Status::IOError("out of ssd space");
 	    }
-	    IOSTATS_ADD(bytes_written, done);
 
-	    left -= done;
-	    src += done;
+	    left -= bytes_per_sync_ - cursize_;
+	    offset += bytes_per_sync_ - cursize_;
 	}
     }
 
-    filesize_ += data.size();
+    if(Flush(false) == false)
+    {
+	return Status::IOError("out of ssd space");
+    }
+
     return Status::OK();
 }
 
 Status NVMWritableFile::Close()
 {
-    Status s;
-
-    s = Flush(); // flush cache to OS
-    if (!s.ok())
+    if(Flush(true) == false)
     {
-	return s;
+	return Status::IOError("out of ssd space");
     }
 
-    size_t block_size;
-    size_t last_allocated_block;
+    dir_->nvm_fclose(fd_, "w");
 
-    GetPreallocationStatus(&block_size, &last_allocated_block);
-    if (last_allocated_block > 0)
-    {
-	// trim the extra space preallocated at the end of the file
-	// NOTE(ljin): we probably don't want to surface failure as an IOError,
-	// but it will be nice to log these errors.
-	int dummy __attribute__((unused));
-	dummy = ftruncate(fd_, filesize_);
-
-#ifdef ROCKSDB_FALLOCATE_PRESENT
-
-	// in some file systems, ftruncate only trims trailing space if the
-	// new file size is smaller than the current size. Calling fallocate
-	// with FALLOC_FL_PUNCH_HOLE flag to explicitly release these unused
-	// blocks. FALLOC_FL_PUNCH_HOLE is supported on at least the following
-	// filesystems:
-	//   XFS (since Linux 2.6.38)
-	//   ext4 (since Linux 3.0)
-	//   Btrfs (since Linux 3.7)
-	//   tmpfs (since Linux 3.5)
-	// We ignore error since failure of this operation does not affect
-	// correctness.
-	fallocate(fd_, FALLOC_FL_KEEP_SIZE | FALLOC_FL_PUNCH_HOLE, filesize_, block_size * last_allocated_block - filesize_);
-
-#endif
-    }
-
-    if (close(fd_) < 0)
-    {
-	s = IOError(filename_, errno);
-    }
-
-    fd_ = -1;
-    return s;
+    return Status::OK();
 }
 
-// write out the cached data to the OS cache
 Status NVMWritableFile::Flush()
 {
-    size_t left = cursize_;
-
-    char* src = buf_.get();
-
-    while (left != 0)
+    if(Flush(false) == false)
     {
-	ssize_t done = write(fd_, src, RequestToken(left));
-	if (done < 0)
-	{
-	    if (errno == EINTR)
-	    {
-		continue;
-	    }
-	    return IOError(filename_, errno);
-	}
-	IOSTATS_ADD(bytes_written, done);
-
-	left -= done;
-	src += done;
-    }
-    cursize_ = 0;
-
-    // sync OS cache to disk for every bytes_per_sync_
-    // TODO: give log file and sst file different options (log
-    // files could be potentially cached in OS for their whole
-    // life time, thus we might not want to flush at all).
-    if (bytes_per_sync_ && filesize_ - last_sync_size_ >= bytes_per_sync_)
-    {
-	RangeSync(last_sync_size_, filesize_ - last_sync_size_);
-	last_sync_size_ = filesize_;
+	return Status::IOError("out of ssd space");
     }
 
     return Status::OK();
@@ -1181,42 +1031,27 @@ Status NVMWritableFile::Flush()
 
 Status NVMWritableFile::Sync()
 {
-    Status s = Flush();
-    if (!s.ok())
+    if(Flush(false) == false)
     {
-	return s;
+	return Status::IOError("out of ssd space");
     }
 
-    if (pending_sync_ && fdatasync(fd_) < 0)
-    {
-	return IOError(filename_, errno);
-    }
-
-    pending_sync_ = false;
     return Status::OK();
 }
 
 Status NVMWritableFile::Fsync()
 {
-    Status s = Flush();
-    if (!s.ok())
+    if(Flush(false) == false)
     {
-	return s;
+	return Status::IOError("out of ssd space");
     }
 
-    if (pending_fsync_ && fsync(fd_) < 0)
-    {
-	return IOError(filename_, errno);
-    }
-
-    pending_fsync_ = false;
-    pending_sync_ = false;
     return Status::OK();
 }
 
 uint64_t NVMWritableFile::GetFileSize()
 {
-    return filesize_;
+    return fd_->GetSize() + cursize_;
 }
 
 Status NVMWritableFile::InvalidateCache(size_t offset, size_t length)
@@ -1228,33 +1063,17 @@ Status NVMWritableFile::InvalidateCache(size_t offset, size_t length)
 
 Status NVMWritableFile::Allocate(off_t offset, off_t len)
 {
-    int alloc_status = fallocate(fd_, fallocate_with_keep_size_ ? FALLOC_FL_KEEP_SIZE : 0, offset, len);
-    if (alloc_status == 0)
-    {
-	return Status::OK();
-    }
-    else
-    {
-	return IOError(filename_, errno);
-    }
+    return Status::OK();
 }
 
 Status NVMWritableFile::RangeSync(off_t offset, off_t nbytes)
 {
-    if (sync_file_range(fd_, offset, nbytes, SYNC_FILE_RANGE_WRITE) == 0)
-    {
-	return Status::OK();
-    }
-    else
-    {
-	return IOError(filename_, errno);
-    }
+    return Status::OK();
 }
 
 size_t NVMWritableFile::GetUniqueId(char* id, size_t max_size) const
 {
-    //return GetUniqueIdFromFile(fd_, id, max_size);
-    return 0;
+    return GetUniqueIdFromFile(fd_, id, max_size);
 }
 
 #endif

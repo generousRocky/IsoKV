@@ -40,6 +40,8 @@ class nvm_directory
 	nvm_file *nvm_fopen(const char *filename, const char *mode);
 	nvm_file *create_file(const char *filename);
 
+	nvm *GetNVMApi();
+
 	int CreateDirectory(const char *name);
 	int DeleteDirectory(const char *name);
 	int GetFileSize(const char *filename, unsigned long *size);
@@ -53,7 +55,7 @@ class nvm_directory
 
 	bool FileExists(const char *name);
 
-	void nvm_fclose(nvm_file *file);
+	void nvm_fclose(nvm_file *file, const char *mode);
 };
 
 class NVMDirectory : public Directory

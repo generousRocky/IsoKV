@@ -16,16 +16,22 @@ class nvm_file
 	int fd_;
 
 	struct list_node *first_page;
+	struct list_node *last_page;
 
 	time_t last_modified;
 
 	pthread_mutex_t meta_mtx;
 	pthread_mutex_t file_lock;
 
+	bool opened_for_write;
+
     public:
 	nvm_file(const char *_name, const int fd);
 	~nvm_file();
 
+	bool CanOpen(const char *mode);
+	bool ClaimNewPage(nvm *nvm_api);
+	bool ClearLastPage(nvm *nvm_api);
 	bool HasName(const char *name, const int n);
 	void ChangeName(const char *crt_name, const char *new_name);
 	void EnumerateNames(std::vector<std::string>* result);
@@ -34,16 +40,16 @@ class nvm_file
 
 	time_t GetLastModified();
 	void UpdateFileModificationTime();
+	void Close(const char *mode);
 
 	int GetFD();
 
 	size_t ReadPage(const nvm_page *page, const unsigned long channel, struct nvm *nvm_api, void *data);
+	size_t WritePage(const nvm_page *page, const unsigned long channel, struct nvm *nvm_api, void *data, const unsigned long data_len);
 
 	struct list_node *GetNVMPagesList();
 
 	size_t nvm_fread(void *data, const unsigned long offset, const size_t len);
-
-	void make_dummy(struct nvm *nvm_api);
 
 	bool Delete(const char *filename, struct nvm *nvm_api);
 	void DeleteAllLinks(struct nvm *_nvm_api);
@@ -119,107 +125,36 @@ class NVMRandomAccessFile: public RandomAccessFile
 	virtual Status InvalidateCache(size_t offset, size_t length) override;
 };
 
-class NVMMmapFile : public WritableFile
-{
-    private:
-	std::string filename_;
-
-	int fd_;
-
-	size_t page_size_;
-	size_t map_size_;       // How much extra memory to map at a time
-
-	char* base_;            // The mapped region
-	char* limit_;           // Limit of the mapped region
-	char* dst_;             // Where to write next  (in range [base_,limit_])
-	char* last_sync_;       // Where have we synced up to
-
-	uint64_t file_offset_;  // Offset of base_ in file
-
-	// Have we done an munmap of unsynced data?
-	bool pending_sync_;
-
-#ifdef ROCKSDB_FALLOCATE_PRESENT
-
-	bool fallocate_with_keep_size_;
-
-#endif
-
-	// Roundup x to a multiple of y
-	static size_t Roundup(size_t x, size_t y);
-
-	size_t TruncateToPageBoundary(size_t s);
-
-	Status UnmapCurrentRegion();
-	Status MapNewRegion();
-
-    public:
-	NVMMmapFile(const std::string& fname, int fd, size_t page_size, const EnvOptions& options);
-	~NVMMmapFile();
-
-	virtual Status Append(const Slice& data) override;
-	virtual Status Close() override;
-	virtual Status Flush() override;
-	virtual Status Sync() override;
-
-	/**
-	 * Flush data as well as metadata to stable storage.
-	 */
-	virtual Status Fsync() override;
-
-	/**
-	 * Get the size of valid data in the file. This will not match the
-	 * size that is returned from the filesystem because we use mmap
-	 * to extend file by map_size every time.
-	 */
-	virtual uint64_t GetFileSize() override;
-
-	virtual Status InvalidateCache(size_t offset, size_t length) override;
-
-#ifdef ROCKSDB_FALLOCATE_PRESENT
-
-	virtual Status Allocate(off_t offset, off_t len) override;
-#endif
-};
-
 // Use nvm write to write data to a file.
 class NVMWritableFile : public WritableFile
 {
     private:
 	const std::string filename_;
 
-	int fd_;
+	nvm_file *fd_;
+	nvm_directory *dir_;
 
 	size_t cursize_;      // current size of cached data in buf_
-	size_t capacity_;     // max size of buf_
 
-	unique_ptr<char[]> buf_;           // a buffer to cache writes
+	char *buf_;           // a buffer to cache writes
 
-	uint64_t filesize_;
-
-	bool pending_sync_;
-	bool pending_fsync_;
-
-	uint64_t last_sync_size_;
 	uint64_t bytes_per_sync_;
 
-#ifdef ROCKSDB_FALLOCATE_PRESENT
+	unsigned long channel;
 
-	bool fallocate_with_keep_size_;
+	struct list_node *last_page;
 
-#endif
-	RateLimiter* rate_limiter_;
+	bool Flush(const bool forced);
 
-	inline size_t RequestToken(size_t bytes);
+	void UpdateLastPage();
 
     public:
-	NVMWritableFile(const std::string& fname, int fd, size_t capacity, const EnvOptions& options);
+	NVMWritableFile(const std::string& fname, nvm_file *fd, nvm_directory *dir);
 	~NVMWritableFile();
 
 	virtual Status Append(const Slice& data) override;
 	virtual Status Close() override;
 
-	// write out the cached data to the OS cache
 	virtual Status Flush() override;
 	virtual Status Sync() override;
 	virtual Status Fsync() override;

@@ -76,6 +76,13 @@ void TestOpenAndClose(nvm_directory *dir, nvm *nvm_api)
 
     nvm_file *open3 = dir->nvm_fopen("test.c", "w");
 
+    if(open3 != NULL)
+    {
+	NVM_FATAL("");
+    }
+
+    open3 = dir->nvm_fopen("test.c", "r");
+
     if(open3 == NULL)
     {
 	NVM_FATAL("");
@@ -86,43 +93,43 @@ void TestOpenAndClose(nvm_directory *dir, nvm *nvm_api)
 	NVM_FATAL("");
     }
 
-    dir->nvm_fclose(open2);
-    dir->nvm_fclose(open3);
+    dir->nvm_fclose(open2, "w");
+    dir->nvm_fclose(open3, "r");
 
     open1 = dir->nvm_fopen("test1.c", "w");
     if(open1 == NULL)
     {
 	NVM_FATAL("");
     }
-    dir->nvm_fclose(open1);
+    dir->nvm_fclose(open1, "w");
 
     open1 = dir->nvm_fopen("test2.c", "w");
     if(open1 == NULL)
     {
 	NVM_FATAL("");
     }
-    dir->nvm_fclose(open1);
+    dir->nvm_fclose(open1, "w");
 
     open1 = dir->nvm_fopen("test3.c", "w");
     if(open1 == NULL)
     {
 	NVM_FATAL("");
     }
-    dir->nvm_fclose(open1);
+    dir->nvm_fclose(open1, "w");
 
     open1 = dir->nvm_fopen("test4.c", "w");
     if(open1 == NULL)
     {
 	NVM_FATAL("");
     }
-    dir->nvm_fclose(open1);
+    dir->nvm_fclose(open1, "w");
 
     open1 = dir->nvm_fopen("test1.c", "r");
     if(open1 == NULL)
     {
 	NVM_FATAL("");
     }
-    dir->nvm_fclose(open1);
+    dir->nvm_fclose(open1, "r");
 }
 
 void TestFileSize(nvm_directory *dir, nvm *nvm_api)
@@ -152,7 +159,7 @@ void TestFileSize(nvm_directory *dir, nvm *nvm_api)
 	NVM_FATAL("");
     }
     open1->make_dummy(nvm_api);
-    dir->nvm_fclose(open1);
+    dir->nvm_fclose(open1, "w");
 
     if(dir->GetFileSize("test.c", &size) != 0)
     {
@@ -175,7 +182,7 @@ void TestFileDelete(nvm_directory *dir, nvm *nvm_api)
 	NVM_FATAL("");
     }
     open1->make_dummy(nvm_api);
-    dir->nvm_fclose(open1);
+    dir->nvm_fclose(open1, "w");
 
     open1 = dir->nvm_fopen("test1.c", "w");
 
@@ -183,7 +190,7 @@ void TestFileDelete(nvm_directory *dir, nvm *nvm_api)
     {
 	NVM_FATAL("");
     }
-    dir->nvm_fclose(open1);
+    dir->nvm_fclose(open1, "w");
 
     dir->DeleteFile("test.c");
 
@@ -255,7 +262,7 @@ void TestFileModification(nvm_directory *dir, nvm *nvm_api)
 
     NVM_DEBUG("test1 ok: %lu", last_modified);
 
-    dir->nvm_fclose(open1);
+    dir->nvm_fclose(open1, "w");
 }
 
 void TestFileRename(nvm_directory *dir, nvm *nvm_api)
@@ -267,7 +274,7 @@ void TestFileRename(nvm_directory *dir, nvm *nvm_api)
 	NVM_FATAL("");
     }
 
-    dir->nvm_fclose(open1);
+    dir->nvm_fclose(open1, "w");
 
     open1 = dir->nvm_fopen("test2.c", "w");
 
@@ -276,7 +283,7 @@ void TestFileRename(nvm_directory *dir, nvm *nvm_api)
 	NVM_FATAL("");
     }
 
-    dir->nvm_fclose(open1);
+    dir->nvm_fclose(open1, "w");
 
     if(dir->RenameFile("test1.c", "test2.c") == 0)
     {
@@ -302,7 +309,7 @@ void TestFileRename(nvm_directory *dir, nvm *nvm_api)
 	NVM_FATAL("");
     }
 
-    dir->nvm_fclose(open1);
+    dir->nvm_fclose(open1, "r");
 
     NVM_DEBUG("rename file test passed");
 }
@@ -356,9 +363,9 @@ void TestFileLinkUnlink(nvm_directory *dir, nvm *nvm_api)
 	NVM_FATAL("");
     }
 
-    dir->nvm_fclose(open1);
-    dir->nvm_fclose(open2);
-    dir->nvm_fclose(open3);
+    dir->nvm_fclose(open1, "w");
+    dir->nvm_fclose(open2, "w");
+    dir->nvm_fclose(open3, "r");
 
     ret = dir->RenameFile("test3.c", "test31.c");
 
@@ -402,9 +409,9 @@ void TestFileLinkUnlink(nvm_directory *dir, nvm *nvm_api)
 	NVM_FATAL("");
     }
 
-    dir->nvm_fclose(open1);
-    dir->nvm_fclose(open2);
-    dir->nvm_fclose(open3);
+    dir->nvm_fclose(open1, "r");
+    dir->nvm_fclose(open2, "r");
+    dir->nvm_fclose(open3, "r");
 
     dir->DeleteFile("test1.c");
     dir->DeleteFile("test2.c");

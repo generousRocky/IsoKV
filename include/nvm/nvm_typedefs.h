@@ -86,10 +86,18 @@ class list_node
 	void *SetPrev(list_node *_prev);
 };
 
+struct next_page_to_allocate
+{
+    unsigned long lun_id;
+    unsigned long block_id;
+    unsigned long page_id;
+};
+
 class nvm
 {
     public:
 	unsigned long nr_luns;
+	unsigned long max_alloc_try_count;
 
 	struct nvm_lun *luns;
 
@@ -101,10 +109,15 @@ class nvm
 	~nvm();
 
 	void ReclaimPage(struct nvm_page *page);
+	struct nvm_page *RequestPage();
 
 	const char *GetLocation();
 
     private:
+	next_page_to_allocate next_page;
+
+	pthread_mutex_t allocate_page_mtx;
+
 	int open_nvm_device(const char *file);
 	int ioctl_initialize();
 
