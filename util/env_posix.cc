@@ -1437,6 +1437,10 @@ class PosixEnv : public Env {
     return gettid(tid);
   }
 
+  virtual uint64_t GetThreadID() const override {
+    return gettid(pthread_self());
+  }
+
   virtual Status NewLogger(const std::string& fname,
                            shared_ptr<Logger>* result) override {
     FILE* f;

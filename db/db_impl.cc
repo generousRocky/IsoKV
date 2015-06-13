@@ -225,6 +225,8 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
       max_total_in_memory_state_(0),
       is_snapshot_supported_(true),
       write_buffer_(options.db_write_buffer_size),
+      write_controller_(options.delayed_write_rate),
+      last_batch_group_size_(0),
       unscheduled_flushes_(0),
       unscheduled_compactions_(0),
       bg_compaction_scheduled_(0),
@@ -285,7 +287,6 @@ void DBImpl::CancelAllBackgroundWork(bool wait) {
 }
 
 DBImpl::~DBImpl() {
-  EraseThreadStatusDbInfo();
   mutex_.Lock();
 
   if (!shutting_down_.load(std::memory_order_acquire) && flush_on_destroy_) {
@@ -316,6 +317,7 @@ DBImpl::~DBImpl() {
   while (bg_compaction_scheduled_ || bg_flush_scheduled_) {
     bg_cv_.Wait();
   }
+  EraseThreadStatusDbInfo();
   flush_scheduler_.Clear();
 
   while (!flush_queue_.empty()) {
@@ -1236,7 +1238,7 @@ Status DBImpl::FlushMemTableToOutputFile(
                      GetCompressionFlush(*cfd->ioptions()), stats_,
                      &event_logger_);
 
-  uint64_t file_number;
+  FileMetaData file_meta;
 
   // Within flush_job.Run, rocksdb may call event listener to notify
   // file creation and deletion.
@@ -1244,7 +1246,7 @@ Status DBImpl::FlushMemTableToOutputFile(
   // Note that flush_job.Run will unlock and lock the db_mutex,
   // and EventListener callback will be called when the db_mutex
   // is unlocked by the current thread.
-  Status s = flush_job.Run(&file_number);
+  Status s = flush_job.Run(&file_meta);
 
   if (s.ok()) {
     InstallSuperVersionBackground(cfd, job_context, mutable_cf_options);
@@ -1277,7 +1279,7 @@ Status DBImpl::FlushMemTableToOutputFile(
 #ifndef ROCKSDB_LITE
   if (s.ok()) {
     // may temporarily unlock and lock the mutex.
-    NotifyOnFlushCompleted(cfd, file_number, mutable_cf_options,
+    NotifyOnFlushCompleted(cfd, &file_meta, mutable_cf_options,
                            job_context->job_id);
   }
 #endif  // ROCKSDB_LITE
@@ -1285,7 +1287,7 @@ Status DBImpl::FlushMemTableToOutputFile(
 }
 
 void DBImpl::NotifyOnFlushCompleted(
-    ColumnFamilyData* cfd, uint64_t file_number,
+    ColumnFamilyData* cfd, FileMetaData* file_meta,
     const MutableCFOptions& mutable_cf_options, int job_id) {
 #ifndef ROCKSDB_LITE
   if (db_options_.listeners.size() == 0U) {
@@ -1309,11 +1311,13 @@ void DBImpl::NotifyOnFlushCompleted(
     // TODO(yhchiang): make db_paths dynamic in case flush does not
     //                 go to L0 in the future.
     info.file_path = MakeTableFileName(db_options_.db_paths[0].path,
-                                       file_number);
-    info.thread_id = ThreadStatusUtil::GetThreadID();
+                                       file_meta->fd.GetNumber());
+    info.thread_id = env_->GetThreadID();
     info.job_id = job_id;
     info.triggered_writes_slowdown = triggered_writes_slowdown;
     info.triggered_writes_stop = triggered_writes_stop;
+    info.smallest_seqno = file_meta->smallest_seqno;
+    info.largest_seqno = file_meta->largest_seqno;
     for (auto listener : db_options_.listeners) {
       listener->OnFlushCompleted(this, info);
     }
@@ -1353,14 +1357,17 @@ Status DBImpl::CompactRange(ColumnFamilyHandle* column_family,
     }
   }
 
+  int final_output_level = 0;
   if (cfd->ioptions()->compaction_style == kCompactionStyleUniversal &&
       cfd->NumberLevels() > 1) {
     // Always compact all files together.
     s = RunManualCompaction(cfd, ColumnFamilyData::kCompactAllLevels,
                             cfd->NumberLevels() - 1, target_path_id, begin,
                             end);
+    final_output_level = cfd->NumberLevels() - 1;
   } else {
     for (int level = 0; level <= max_level_with_files; level++) {
+      int output_level;
       // in case the compaction is unversal or if we're compacting the
       // bottom-most level, the output level will be the same as input one.
       // level 0 can never be the bottommost level (i.e. if all files are in
@@ -1368,19 +1375,24 @@ Status DBImpl::CompactRange(ColumnFamilyHandle* column_family,
       if (cfd->ioptions()->compaction_style == kCompactionStyleUniversal ||
           cfd->ioptions()->compaction_style == kCompactionStyleFIFO ||
           (level == max_level_with_files && level > 0)) {
-        s = RunManualCompaction(cfd, level, level, target_path_id, begin, end);
+        output_level = level;
       } else {
-        int output_level = level + 1;
+        output_level = level + 1;
         if (cfd->ioptions()->compaction_style == kCompactionStyleLevel &&
             cfd->ioptions()->level_compaction_dynamic_level_bytes &&
             level == 0) {
           output_level = ColumnFamilyData::kCompactToBaseLevel;
         }
-        s = RunManualCompaction(cfd, level, output_level, target_path_id, begin,
-                                end);
       }
+      s = RunManualCompaction(cfd, level, output_level, target_path_id, begin,
+                              end);
       if (!s.ok()) {
         break;
+      }
+      if (output_level == ColumnFamilyData::kCompactToBaseLevel) {
+        final_output_level = cfd->NumberLevels() - 1;
+      } else if (output_level > final_output_level) {
+        final_output_level = output_level;
       }
       TEST_SYNC_POINT("DBImpl::RunManualCompaction()::1");
       TEST_SYNC_POINT("DBImpl::RunManualCompaction()::2");
@@ -1392,7 +1404,7 @@ Status DBImpl::CompactRange(ColumnFamilyHandle* column_family,
   }
 
   if (change_level) {
-    s = ReFitLevel(cfd, max_level_with_files, target_level);
+    s = ReFitLevel(cfd, final_output_level, target_level);
   }
   LogFlush(db_options_.info_log);
 
@@ -1613,7 +1625,7 @@ void DBImpl::NotifyOnCompactionCompleted(
     CompactionJobInfo info;
     info.cf_name = cfd->GetName();
     info.status = st;
-    info.thread_id = ThreadStatusUtil::GetThreadID();
+    info.thread_id = env_->GetThreadID();
     info.job_id = job_id;
     info.base_input_level = c->start_level();
     info.output_level = c->output_level();
@@ -1681,6 +1693,7 @@ Status DBImpl::SetOptions(ColumnFamilyHandle* column_family,
     Log(InfoLogLevel::WARN_LEVEL, db_options_.info_log,
         "[%s] SetOptions failed", cfd->GetName().c_str());
   }
+  LogFlush(db_options_.info_log);
   return s;
 #endif  // ROCKSDB_LITE
 }
@@ -3399,8 +3412,8 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     status = ScheduleFlushes(&context);
   }
 
-  if (UNLIKELY(status.ok() && (write_controller_.IsStopped() ||
-                               write_controller_.GetDelay() > 0))) {
+  if (UNLIKELY(status.ok()) &&
+      (write_controller_.IsStopped() || write_controller_.NeedsDelay())) {
     // If writer is stopped, we need to get it going,
     // so schedule flushes/compactions
     if (context.schedule_bg_work_) {
@@ -3408,7 +3421,11 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     }
     PERF_TIMER_STOP(write_pre_and_post_process_time);
     PERF_TIMER_GUARD(write_delay_time);
-    status = DelayWrite(expiration_time);
+    // We don't know size of curent batch so that we always use the size
+    // for previous one. It might create a fairness issue that expiration
+    // might happen for smaller writes but larger writes can go through.
+    // Can optimize it if it is an issue.
+    status = DelayWrite(last_batch_group_size_, expiration_time);
     PERF_TIMER_START(write_pre_and_post_process_time);
   }
 
@@ -3422,7 +3439,8 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   autovector<WriteBatch*> write_batch_group;
 
   if (status.ok()) {
-    write_thread_.BuildBatchGroup(&last_writer, &write_batch_group);
+    last_batch_group_size_ =
+        write_thread_.BuildBatchGroup(&last_writer, &write_batch_group);
 
     // Add to log and apply to memtable.  We can release the lock
     // during this phase since &w is currently responsible for logging
@@ -3556,24 +3574,36 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
 
 // REQUIRES: mutex_ is held
 // REQUIRES: this thread is currently at the front of the writer queue
-Status DBImpl::DelayWrite(uint64_t expiration_time) {
+Status DBImpl::DelayWrite(uint64_t num_bytes, uint64_t expiration_time) {
   uint64_t time_delayed = 0;
   bool delayed = false;
   bool timed_out = false;
   {
     StopWatch sw(env_, stats_, WRITE_STALL, &time_delayed);
     bool has_timeout = (expiration_time > 0);
-    auto delay = write_controller_.GetDelay();
-    if (write_controller_.IsStopped() == false && delay > 0) {
+    auto delay = write_controller_.GetDelay(env_, num_bytes);
+    if (delay > 0) {
       mutex_.Unlock();
       delayed = true;
       // hopefully we don't have to sleep more than 2 billion microseconds
       TEST_SYNC_POINT("DBImpl::DelayWrite:Sleep");
-      env_->SleepForMicroseconds(static_cast<int>(delay));
+      if (has_timeout) {
+        auto time_now = env_->NowMicros();
+        if (time_now + delay >= expiration_time) {
+          if (expiration_time > time_now) {
+            env_->SleepForMicroseconds(
+                static_cast<int>(expiration_time - time_now));
+          }
+          timed_out = true;
+        }
+      }
+      if (!timed_out) {
+        env_->SleepForMicroseconds(static_cast<int>(delay));
+      }
       mutex_.Lock();
     }
 
-    while (bg_error_.ok() && write_controller_.IsStopped()) {
+    while (!timed_out && bg_error_.ok() && write_controller_.IsStopped()) {
       delayed = true;
       if (has_timeout) {
         TEST_SYNC_POINT("DBImpl::DelayWrite:TimedWait");
