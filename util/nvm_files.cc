@@ -52,9 +52,12 @@ nvm_file::nvm_file(const char *_name, const int fd)
 
     opened_for_write = false;
 
-    pthread_mutex_init(&page_update_mtx, nullptr);
-    pthread_mutex_init(&meta_mtx, nullptr);
-    pthread_mutex_init(&file_lock, nullptr);
+    pthread_mutexattr_init(&page_update_mtx_attr);
+    pthread_mutexattr_settype(&page_update_mtx_attr, PTHREAD_MUTEX_RECURSIVE);
+
+    pthread_mutex_init(&page_update_mtx, &page_update_mtx_attr);
+    pthread_mutex_init(&meta_mtx, &page_update_mtx_attr);
+    pthread_mutex_init(&file_lock, &page_update_mtx_attr);
 }
 
 nvm_file::~nvm_file()
@@ -83,6 +86,7 @@ nvm_file::~nvm_file()
 	temp = temp1;
     }
 
+    pthread_mutexattr_destroy(&page_update_mtx_attr);
     pthread_mutex_destroy(&page_update_mtx);
     pthread_mutex_destroy(&meta_mtx);
     pthread_mutex_destroy(&file_lock);
@@ -104,18 +108,29 @@ bool nvm_file::ClearLastPage(nvm *nvm_api)
 
     if(last_page == nullptr)
     {
+	pthread_mutex_unlock(&page_update_mtx);
+
 	return true;
     }
 
     struct nvm_page *pg = (struct nvm_page *)last_page->GetData();
 
-    last_page = last_page->GetPrev();
-
     nvm_api->ReclaimPage(pg);
+
+    pg = nvm_api->RequestPage();
+
+    if(pg == nullptr)
+    {
+	pthread_mutex_unlock(&page_update_mtx);
+
+	return false;
+    }
+
+    last_page->SetData(pg);
 
     pthread_mutex_unlock(&page_update_mtx);
 
-    return ClaimNewPage(nvm_api);
+    return true;
 }
 
 bool nvm_file::ClaimNewPage(nvm *nvm_api)
@@ -435,6 +450,7 @@ bool nvm_file::Delete(const char * filename, struct nvm *nvm_api)
     }
 
     first_page = nullptr;
+    last_page = nullptr;
 
     size = 0;
 

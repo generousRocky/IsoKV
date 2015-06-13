@@ -137,8 +137,6 @@ class NVMEnv : public Env
 		thread_pools_[pool_id].JoinAllThreads();
 	    }
 
-	    // All threads must be joined before the deletion of
-	    // thread_status_updater_.
 	    delete thread_status_updater_;
 	    delete root_dir;
 	    delete nvm_api;
@@ -157,11 +155,9 @@ class NVMEnv : public Env
 		*result = nullptr;
 		return Status::IOError("unable to open file for read");
 	    }
-	    else
-	    {
-		result->reset(new NVMSequentialFile(fname, f, root_dir, nvm_api));
-		return Status::OK();
-	    }
+
+	    result->reset(new NVMSequentialFile(fname, f, root_dir, nvm_api));
+	    return Status::OK();
 	}
 
 	virtual Status NewRandomAccessFile(const std::string& fname, unique_ptr<RandomAccessFile>* result, const EnvOptions& options) override
@@ -177,11 +173,9 @@ class NVMEnv : public Env
 		*result = nullptr;
 		return Status::IOError("unable to open file for read");
 	    }
-	    else
-	    {
-		result->reset(new NVMRandomAccessFile(fname, f, root_dir, nvm_api));
-		return Status::OK();
-	    }
+
+	    result->reset(new NVMRandomAccessFile(fname, f, root_dir, nvm_api));
+	    return Status::OK();
 	}
 
 	virtual Status NewWritableFile(const std::string& fname, unique_ptr<WritableFile>* result, const EnvOptions& options) override
@@ -193,7 +187,7 @@ class NVMEnv : public Env
 	    if(fd == nullptr)
 	    {
 		*result = nullptr;
-		return Status::IOError("unable to open file for read");
+		return Status::IOError("unable to open file for write");
 	    }
 
 	    result->reset(new NVMWritableFile(fname, fd, root_dir));
@@ -204,23 +198,15 @@ class NVMEnv : public Env
 	virtual Status NewRandomRWFile(const std::string& fname, unique_ptr<RandomRWFile>* result, const EnvOptions& options) override
 	{
 	    result->reset();
-	    // no support for mmap yet
-	    if (options.use_mmap_writes || options.use_mmap_reads)
-	    {
-		return Status::NotSupported("No support for mmap read/write yet");
-	    }
 
-	    Status s;
 	    const int fd = open(fname.c_str(), O_CREAT | O_RDWR, 0644);
 	    if (fd < 0)
 	    {
-		s = IOError(fname, errno);
+		return Status::IOError("unable to open file for write");
 	    }
-	    else
-	    {
-		result->reset(new NVMRandomRWFile(fname, fd, options));
-	    }
-	    return s;
+
+	    result->reset(new NVMRandomRWFile(fname, fd, options));
+	    return Status::OK();
 	}
 
 	virtual Status NewDirectory(const std::string& name, unique_ptr<Directory>* result) override
@@ -331,26 +317,21 @@ class NVMEnv : public Env
 	{
 	    *lock = nullptr;
 
-	    nvm_file *f;
-
-	    Status result;
-
-	    f = root_dir->nvm_fopen(fname.c_str(), "l");
+	    nvm_file *f = root_dir->nvm_fopen(fname.c_str(), "l");
 
 	    if (LockOrUnlock(fname, f, true) == -1)
 	    {
-		result = IOError("lock " + fname, errno);
 		root_dir->nvm_fclose(f, "l");
-	    }
-	    else
-	    {
-		NVMFileLock *my_lock = new NVMFileLock;
-		my_lock->fd_ = f;
-		my_lock->filename = fname;
-		*lock = my_lock;
+
+		return Status::IOError("unable to lock file");
 	    }
 
-	    return result;
+	    NVMFileLock *my_lock = new NVMFileLock;
+	    my_lock->fd_ = f;
+	    my_lock->filename = fname;
+	    *lock = my_lock;
+
+	    return Status::OK();
 	}
 
 	virtual Status UnlockFile(FileLock* lock) override
@@ -588,12 +569,7 @@ class NVMEnv : public Env
 
 	EnvOptions OptimizeForManifestWrite(const EnvOptions& env_options) const override
 	{
-	    EnvOptions optimized = env_options;
-
-	    optimized.use_mmap_writes = false;
-	    optimized.fallocate_with_keep_size = true;
-
-	    return optimized;
+	    return env_options;
 	}
 
     private:
@@ -612,40 +588,7 @@ class NVMEnv : public Env
 
 	bool SupportsFastAllocate(const std::string& path)
 	{
-#ifdef ROCKSDB_FALLOCATE_PRESENT
-
-	    struct statfs s;
-	    if (statfs(path.c_str(), &s))
-	    {
-		return false;
-	    }
-
-	    switch (s.f_type)
-	    {
-		case EXT4_SUPER_MAGIC:
-		{
-		}
-		return true;
-
-		case XFS_SUPER_MAGIC:
-		{
-		}
-		return true;
-
-		case TMPFS_MAGIC:
-		{
-		}
-		return true;
-
-		default:
-		{
-		}
-		return false;
-	    }
-#else
-
 	    return false;
-#endif
 	}
 
 	size_t page_size_;	

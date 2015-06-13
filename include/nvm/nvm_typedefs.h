@@ -117,6 +117,7 @@ class nvm
 	next_page_to_allocate next_page;
 
 	pthread_mutex_t allocate_page_mtx;
+	pthread_mutexattr_t allocate_page_mtx_attr;
 
 	int open_nvm_device(const char *file);
 	int ioctl_initialize();

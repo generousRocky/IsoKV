@@ -9,6 +9,7 @@ class nvm_file
     private:
 	list_node *names;
 
+	pthread_mutexattr_t page_update_mtx_attr;
 	pthread_mutex_t page_update_mtx;
 
 	unsigned long size;

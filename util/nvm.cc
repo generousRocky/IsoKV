@@ -119,7 +119,10 @@ nvm::nvm()
     next_page.block_id = 1;
     next_page.page_id = 0;
 
-    pthread_mutex_init(&allocate_page_mtx, nullptr);
+    pthread_mutexattr_init(&allocate_page_mtx_attr);
+    pthread_mutexattr_settype(&allocate_page_mtx_attr, PTHREAD_MUTEX_RECURSIVE);
+
+    pthread_mutex_init(&allocate_page_mtx, &allocate_page_mtx_attr);
 }
 
 nvm::~nvm()
@@ -143,6 +146,9 @@ nvm::~nvm()
 	}
 	free(luns);
     }
+
+    pthread_mutexattr_destroy(&allocate_page_mtx_attr);
+    pthread_mutex_destroy(&allocate_page_mtx);
 
     NVM_DEBUG("api closed");
 }
