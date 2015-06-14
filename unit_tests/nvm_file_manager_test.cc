@@ -154,11 +154,10 @@ void TestFileSize(nvm_directory *dir, nvm *nvm_api)
 
     nvm_file *open1 = dir->nvm_fopen("test.c", "w");
 
-    if(open1 == NULL)
+    if(open1 != NULL)
     {
 	NVM_FATAL("");
     }
-    dir->nvm_fclose(open1, "w");
 
     if(dir->GetFileSize("test.c", &size) != 0)
     {

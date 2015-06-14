@@ -868,11 +868,7 @@ void NVMWritableFile::UpdateLastPage()
 
 	if(last_page == nullptr)
 	{
-	    bytes_per_sync_ = 0;
-	    cursize_ = 0;
-	    buf_ = nullptr;
-
-	    return;
+	    goto end;
 	}
 
 	bytes_per_sync_ = fd_->GetSize();
@@ -890,6 +886,8 @@ void NVMWritableFile::UpdateLastPage()
 
 	bytes_per_sync_ = pg->sizes[channel] - bytes_per_sync_;
     }
+
+end:
 
     cursize_ = 0;
 
@@ -959,9 +957,6 @@ bool NVMWritableFile::Flush(const bool forced)
 	{
 	    return false;
 	}
-
-	last_page = nullptr;
-	UpdateLastPage();
 
 	pg = (struct nvm_page *)last_page->GetData();
 
