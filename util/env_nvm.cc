@@ -199,13 +199,16 @@ class NVMEnv : public Env
 	{
 	    result->reset();
 
-	    const int fd = open(fname.c_str(), O_CREAT | O_RDWR, 0644);
-	    if (fd < 0)
+	    nvm_file *fd = root_dir->nvm_fopen(fname.c_str(), "w");
+
+	    if(fd == nullptr)
 	    {
+		*result = nullptr;
 		return Status::IOError("unable to open file for write");
 	    }
 
-	    result->reset(new NVMRandomRWFile(fname, fd, options));
+	    result->reset(new NVMRandomRWFile(fname, fd, root_dir));
+
 	    return Status::OK();
 	}
 

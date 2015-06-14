@@ -179,19 +179,13 @@ class NVMRandomRWFile : public RandomRWFile
     private:
 	const std::string filename_;
 
-	int fd_;
+	nvm_file *fd_;
+	nvm_directory *dir;
 
-	bool pending_sync_;
-	bool pending_fsync_;
-
-#ifdef ROCKSDB_FALLOCATE_PRESENT
-
-	bool fallocate_with_keep_size_;
-
-#endif
+	bool Flush(const bool forced);
 
     public:
-	NVMRandomRWFile(const std::string& fname, int fd, const EnvOptions& options);
+	NVMRandomRWFile(const std::string& fname, nvm_file *_fd, nvm_directory *_dir);
 	~NVMRandomRWFile();
 
 	virtual Status Write(uint64_t offset, const Slice& data) override;

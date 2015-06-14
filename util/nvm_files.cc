@@ -1142,31 +1142,26 @@ size_t NVMWritableFile::GetUniqueId(char* id, size_t max_size) const
 #endif
 
 
-NVMRandomRWFile::NVMRandomRWFile(const std::string& fname, int fd, const EnvOptions& options) :
-	    filename_(fname),
-	    fd_(fd),
-	    pending_sync_(false),
-	    pending_fsync_(false)
+NVMRandomRWFile::NVMRandomRWFile(const std::string& fname, nvm_file *_fd, nvm_directory *_dir) :
+	    filename_(fname)
 {
-#ifdef ROCKSDB_FALLOCATE_PRESENT
-
-    fallocate_with_keep_size_ = options.fallocate_with_keep_size;
-
-#endif
-    assert(!options.use_mmap_writes && !options.use_mmap_reads);
+    fd_ = _fd;
+    dir = _dir;
 }
 
 NVMRandomRWFile::~NVMRandomRWFile()
 {
-    if (fd_ >= 0)
-    {
-	Close();
-    }
+    NVMRandomRWFile::Close();
+}
+
+bool NVMRandomRWFile::Flush(const bool forced)
+{
+    return true;
 }
 
 Status NVMRandomRWFile::Write(uint64_t offset, const Slice& data)
 {
-    const char* src = data.data();
+    /*const char* src = data.data();
 
     size_t left = data.size();
 
@@ -1191,7 +1186,7 @@ Status NVMRandomRWFile::Write(uint64_t offset, const Slice& data)
 	left -= done;
 	src += done;
 	offset += done;
-    }
+    }*/
 
     return Status::OK();
 }
@@ -1200,7 +1195,7 @@ Status NVMRandomRWFile::Read(uint64_t offset, size_t n, Slice* result, char* scr
 {
     Status s;
 
-    ssize_t r = -1;
+    /*ssize_t r = -1;
 
     size_t left = n;
 
@@ -1228,43 +1223,39 @@ Status NVMRandomRWFile::Read(uint64_t offset, size_t n, Slice* result, char* scr
     if (r < 0)
     {
 	s = IOError(filename_, errno);
-    }
+    }*/
     return s;
 }
 
 Status NVMRandomRWFile::Close()
 {
-    Status s = Status::OK();
-
-    if (fd_ >= 0 && close(fd_) < 0)
+    if(Flush(true) == false)
     {
-	s = IOError(filename_, errno);
+	return Status::IOError("out of ssd space");
     }
 
-    fd_ = -1;
-    return s;
+    dir->nvm_fclose(fd_, "w");
+
+    return Status::OK();
 }
 
 Status NVMRandomRWFile::Sync()
 {
-    if (pending_sync_ && fdatasync(fd_) < 0)
+    if(Flush(false) == false)
     {
-	return IOError(filename_, errno);
+	return Status::IOError("out of ssd space");
     }
 
-    pending_sync_ = false;
     return Status::OK();
 }
 
 Status NVMRandomRWFile::Fsync()
 {
-    if (pending_fsync_ && fsync(fd_) < 0)
+    if(Flush(false) == false)
     {
-	return IOError(filename_, errno);
+	return Status::IOError("out of ssd space");
     }
 
-    pending_fsync_ = false;
-    pending_sync_ = false;
     return Status::OK();
 }
 
@@ -1272,15 +1263,7 @@ Status NVMRandomRWFile::Fsync()
 
 Status NVMRandomRWFile::Allocate(off_t offset, off_t len)
 {
-    int alloc_status = fallocate(fd_, fallocate_with_keep_size_ ? FALLOC_FL_KEEP_SIZE : 0, offset, len);
-    if (alloc_status == 0)
-    {
-	return Status::OK();
-    }
-    else
-    {
-	return IOError(filename_, errno);
-    }
+    return Status::OK();
 }
 #endif
 
