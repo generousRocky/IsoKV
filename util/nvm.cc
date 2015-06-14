@@ -203,7 +203,7 @@ retry:
     next_page.lun_id = 0;
 
 end:
-    if(ret->erased == false || ret->allocated == false)
+    if(ret->erased == false || ret->allocated == true)
     {
 	NVM_DEBUG("Page already allocated %p", ret);
 	goto retry;

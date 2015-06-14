@@ -484,6 +484,8 @@ size_t nvm_file::ReadPage(const nvm_page *page, const unsigned long channel, str
 
     pthread_mutex_lock(&rw_mtx);
 
+    NVM_DEBUG("reading %lu bytes at %lu", page_size, offset);
+
     if(lseek(fd_, offset, SEEK_SET) < 0)
     {
 	pthread_mutex_unlock(&rw_mtx);
@@ -528,6 +530,8 @@ size_t nvm_file::WritePage(const nvm_page *page, const unsigned long channel, st
 	return -1;
     }
 
+    NVM_DEBUG("writing page %p", page);
+
     if((unsigned)write(fd_, data, data_len) != data_len)
     {
 	pthread_mutex_unlock(&rw_mtx);
@@ -548,7 +552,7 @@ size_t nvm_file::WritePage(const nvm_page *page, const unsigned long channel, st
     return data_len;
 }
 
-NVMSequentialFile::NVMSequentialFile(const std::string& fname, nvm_file *f, nvm_directory *_dir, struct nvm *_nvm_api) :
+NVMSequentialFile::NVMSequentialFile(const std::string& fname, nvm_file *f, nvm_directory *_dir) :
 		filename_(fname)
 {
     file_ = f;
@@ -562,7 +566,7 @@ NVMSequentialFile::NVMSequentialFile(const std::string& fname, nvm_file *f, nvm_
 
     channel = 0;
 
-    nvm_api = _nvm_api;
+    nvm_api = _dir->GetNVMApi();
 }
 
 NVMSequentialFile::~NVMSequentialFile()
@@ -596,6 +600,8 @@ void NVMSequentialFile::SeekPage(const unsigned long offset)
 
 Status NVMSequentialFile::Read(size_t n, Slice* result, char* scratch)
 {
+    NVM_DEBUG("File pointer is %lu, n is %lu, file size is %lu", file_pointer, n, file_->GetSize())
+
     if(file_pointer + n > file_->GetSize())
     {
 	n = file_->GetSize() - file_pointer;
@@ -609,8 +615,20 @@ Status NVMSequentialFile::Read(size_t n, Slice* result, char* scratch)
 
     if(crt_page == nullptr)
     {
-	*result = Slice(scratch, 0);
-	return Status::OK();
+	NVM_DEBUG("crt_page is null");
+
+	if(file_pointer == 0)
+	{
+	    crt_page = file_->GetNVMPagesList();
+	}
+
+	if(crt_page == nullptr)
+	{
+	    NVM_DEBUG("crt_page is still null");
+
+	    *result = Slice(scratch, 0);
+	    return Status::OK();
+	}
     }
 
     size_t len = n;
@@ -637,6 +655,8 @@ Status NVMSequentialFile::Read(size_t n, Slice* result, char* scratch)
 	    size_to_copy = len;
 	}
 
+	NVM_DEBUG("copy %lu to scratch from offset %lu", size_to_copy, scratch_offset);
+
 	memcpy(scratch + scratch_offset, data + page_pointer, size_to_copy);
 
 	len -= size_to_copy;
@@ -644,10 +664,14 @@ Status NVMSequentialFile::Read(size_t n, Slice* result, char* scratch)
 
 	SeekPage(size_to_copy);
 
+	NVM_DEBUG("page pointer becomes %lu and page is %p", page_pointer, crt_page);
+
 	delete[] data;
     }
 
     file_pointer += n;
+
+    NVM_DEBUG("creating slice with %lu bytes", n);
 
     *result = Slice(scratch, n);
 
@@ -672,9 +696,11 @@ Status NVMSequentialFile::Skip(uint64_t n)
 	return Status::IOError(filename_, "EINVAL file pointer goes out of bounds");
     }
 
-    SeekPage(n - file_pointer);
+    SeekPage(n);
 
     file_pointer += n;
+
+    NVM_DEBUG("SEEKED %lu forward; file pointer is %lu, page pointer is %lu", n, file_pointer, page_pointer);
 
     return Status::OK();
 }
@@ -986,19 +1012,38 @@ Status NVMWritableFile::Append(const Slice& data)
     size_t left = data.size();
     size_t offset = 0;
 
+    if(bytes_per_sync_ == 0)
+    {
+	if(fd_->ClaimNewPage(dir_->GetNVMApi()) == false)
+	{
+	    return Status::IOError("out of ssd space");
+	}
+
+	UpdateLastPage();
+    }
+
     while(left > 0)
     {
-	if(cursize_ + left < bytes_per_sync_)
+	NVM_DEBUG("Appending slice %lu bytes", left);
+
+	if(cursize_ + left <= bytes_per_sync_)
 	{
-	    memcpy(buf_, src + offset, left);
+	    NVM_DEBUG("All in buffer from %lu", cursize_);
+
+	    memcpy(buf_ + cursize_, src + offset, left);
 
 	    cursize_ += left;
 
-	    left = 0;
+	    left = 0;	    
 	}
 	else
 	{
-	    memcpy(buf_, src + offset, bytes_per_sync_ - cursize_);
+	    memcpy(buf_ + cursize_, src + offset, bytes_per_sync_ - cursize_);
+
+	    NVM_DEBUG("Buffer is at %lu out of %lu. Appending %lu", cursize_, bytes_per_sync_, bytes_per_sync_ - cursize_);
+
+	    left -= bytes_per_sync_ - cursize_;
+	    offset += bytes_per_sync_ - cursize_;
 
 	    cursize_ = bytes_per_sync_;
 
@@ -1006,9 +1051,6 @@ Status NVMWritableFile::Append(const Slice& data)
 	    {
 		return Status::IOError("out of ssd space");
 	    }
-
-	    left -= bytes_per_sync_ - cursize_;
-	    offset += bytes_per_sync_ - cursize_;
 	}
     }
 

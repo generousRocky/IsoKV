@@ -87,7 +87,7 @@ class NVMSequentialFile: public SequentialFile
 	void SeekPage(const unsigned long offset);
 
     public:
-	NVMSequentialFile(const std::string& fname, nvm_file *f, nvm_directory *_dir, struct nvm *_nvm_api);
+	NVMSequentialFile(const std::string& fname, nvm_file *f, nvm_directory *_dir);
 	virtual ~NVMSequentialFile();
 
 	virtual Status Read(size_t n, Slice* result, char* scratch) override;

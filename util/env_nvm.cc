@@ -156,7 +156,7 @@ class NVMEnv : public Env
 		return Status::IOError("unable to open file for read");
 	    }
 
-	    result->reset(new NVMSequentialFile(fname, f, root_dir, nvm_api));
+	    result->reset(new NVMSequentialFile(fname, f, root_dir));
 	    return Status::OK();
 	}
 

@@ -18,7 +18,7 @@ int main(int argc, char **argv)
 
     NVM_DEBUG("file open at %p", fd);
 
-    NVMSequentialFile *test_file = new NVMSequentialFile("test.c", fd, dir, nvm_api);
+    NVMSequentialFile *test_file = new NVMSequentialFile("test.c", fd, dir);
 
     unsigned long size = fd->GetSize();
 
