@@ -264,6 +264,7 @@ TESTS = \
 	spatial_db_test \
 	version_edit_test \
 	nvm_file_manager_test \
+	nvm_rw_tests \
 	nvm_sequential_file_test \
 	nvm_random_access_file_test \
 	version_set_test \
@@ -762,6 +763,9 @@ version_edit_test: db/version_edit_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 nvm_file_manager_test: unit_tests/nvm_file_manager_test.o  $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+nvm_rw_tests: unit_tests/nvm_rw_tests.o  $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 nvm_sequential_file_test: unit_tests/nvm_sequential_file_test.o  $(LIBOBJECTS) $(TESTHARNESS)
