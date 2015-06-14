@@ -104,15 +104,14 @@ class NVMRandomAccessFile: public RandomAccessFile
 
 	unsigned long channel;
 
-	struct list_node *first_page;
 	struct nvm *nvm_api;
 
 	nvm_directory *dir;
 
-	struct list_node *SeekPage(const unsigned long offset, unsigned long *page_pointer) const;
+	struct list_node *SeekPage(struct list_node *first_page, const unsigned long offset, unsigned long *page_pointer) const;
 
     public:
-	NVMRandomAccessFile(const std::string& fname, nvm_file *f, nvm_directory *_dir, struct nvm *_nvm_api);
+	NVMRandomAccessFile(const std::string& fname, nvm_file *f, nvm_directory *_dir);
 	virtual ~NVMRandomAccessFile();
 
 	virtual Status Read(uint64_t offset, size_t n, Slice* result, char* scratch) const override;

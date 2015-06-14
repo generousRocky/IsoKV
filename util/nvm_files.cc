@@ -710,18 +710,16 @@ Status NVMSequentialFile::InvalidateCache(size_t offset, size_t length)
     return Status::OK();
 }
 
-NVMRandomAccessFile::NVMRandomAccessFile(const std::string& fname, nvm_file *f, nvm_directory *_dir, struct nvm *_nvm_api) :
+NVMRandomAccessFile::NVMRandomAccessFile(const std::string& fname, nvm_file *f, nvm_directory *_dir) :
 		    filename_(fname)
 {
     file_ = f;
 
     dir = _dir;
 
-    first_page = file_->GetNVMPagesList();
-
     channel = 0;
 
-    nvm_api = _nvm_api;
+    nvm_api = dir->GetNVMApi();
 }
 
 NVMRandomAccessFile::~NVMRandomAccessFile()
@@ -729,7 +727,7 @@ NVMRandomAccessFile::~NVMRandomAccessFile()
     dir->nvm_fclose(file_, "r");
 }
 
-struct list_node *NVMRandomAccessFile::SeekPage(const unsigned long offset, unsigned long *page_pointer) const
+struct list_node *NVMRandomAccessFile::SeekPage(struct list_node *first_page, const unsigned long offset, unsigned long *page_pointer) const
 {
     NVM_ASSERT(first_page != nullptr, "first_page is null");
 
@@ -761,6 +759,14 @@ Status NVMRandomAccessFile::Read(uint64_t offset, size_t n, Slice* result, char*
 {
     unsigned long page_pointer;
 
+    if(offset >= file_->GetSize())
+    {
+	NVM_DEBUG("offset is out of bounds");
+
+	*result = Slice(scratch, 0);
+	return Status::OK();
+    }
+
     if(offset + n > file_->GetSize())
     {
 	n = file_->GetSize() - offset;
@@ -773,6 +779,8 @@ Status NVMRandomAccessFile::Read(uint64_t offset, size_t n, Slice* result, char*
 	*result = Slice(scratch, 0);
 	return Status::OK();
     }
+
+    struct list_node *first_page = file_->GetNVMPagesList();
 
     if(first_page == nullptr)
     {
@@ -789,7 +797,7 @@ Status NVMRandomAccessFile::Read(uint64_t offset, size_t n, Slice* result, char*
 
     char *data;
 
-    struct list_node *crt_page = SeekPage(offset, &page_pointer);
+    struct list_node *crt_page = SeekPage(first_page, offset, &page_pointer);
 
     while(len > 0)
     {

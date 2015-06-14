@@ -18,7 +18,7 @@ int main(int argc, char **argv)
 
     NVM_DEBUG("file open at %p", fd);
 
-    NVMRandomAccessFile *test_file = new NVMRandomAccessFile("test.c", fd, dir, nvm_api);
+    NVMRandomAccessFile *test_file = new NVMRandomAccessFile("test.c", fd, dir);
 
     unsigned long size = fd->GetSize();
 
