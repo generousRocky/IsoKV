@@ -94,11 +94,6 @@ static void PthreadCall(const char* label, int result)
     }
 }
 
-//we only have 1 target device
-//we need a mutex to control the file pointer
-//should be removed when moving to a real machine
-pthread_mutex_t rw_mtx;
-
 class NVMEnv : public Env
 {
     public:
@@ -121,8 +116,6 @@ class NVMEnv : public Env
 
 	    ALLOC_CLASS(nvm_api, nvm());
 	    ALLOC_CLASS(root_dir, nvm_directory("root", 4, nvm_api))
-
-	    pthread_mutex_init(&rw_mtx, nullptr);
 	}
 
 	virtual ~NVMEnv()

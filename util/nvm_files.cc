@@ -5,8 +5,6 @@
 namespace rocksdb
 {
 
-extern pthread_mutex_t rw_mtx;
-
 #if defined(OS_LINUX)
 
 static size_t GetUniqueIdFromFile(nvm_file *fd, char* id, size_t max_size)
@@ -482,25 +480,12 @@ size_t nvm_file::ReadPage(const nvm_page *page, const unsigned long channel, str
 
     offset = page->lun_id * lun_size + page->block_id * block_size + page->id * page_size;
 
-    pthread_mutex_lock(&rw_mtx);
-
     NVM_DEBUG("reading %lu bytes at %lu", page_size, offset);
 
-    if(lseek(fd_, offset, SEEK_SET) < 0)
+    if((unsigned)pread(fd_, data, page_size, offset) != page_size)
     {
-	pthread_mutex_unlock(&rw_mtx);
-
 	return -1;
     }
-
-    if((unsigned)read(fd_, data, page_size) != page_size)
-    {
-	pthread_mutex_unlock(&rw_mtx);
-
-	return -1;
-    }
-
-    pthread_mutex_unlock(&rw_mtx);
 
     return page_size;
 }
@@ -521,25 +506,13 @@ size_t nvm_file::WritePage(const nvm_page *page, const unsigned long channel, st
 
     offset = page->lun_id * lun_size + page->block_id * block_size + page->id * page_size;
 
-    pthread_mutex_lock(&rw_mtx);
-
-    if(lseek(fd_, offset, SEEK_SET) < 0)
-    {
-	pthread_mutex_unlock(&rw_mtx);
-
-	return -1;
-    }
 
     NVM_DEBUG("writing page %p", page);
 
-    if((unsigned)write(fd_, data, data_len) != data_len)
+    if((unsigned)pwrite(fd_, data, data_len, offset) != data_len)
     {
-	pthread_mutex_unlock(&rw_mtx);
-
 	return -1;
     }
-
-    pthread_mutex_unlock(&rw_mtx);
 
     pthread_mutex_lock(&page_update_mtx);
 
