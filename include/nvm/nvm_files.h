@@ -179,10 +179,16 @@ class NVMRandomRWFile : public RandomRWFile
     private:
 	const std::string filename_;
 
+	unsigned long channel;
+
 	nvm_file *fd_;
 	nvm_directory *dir;
 
+	nvm *nvm_api;
+
 	bool Flush(const bool forced);
+
+	struct list_node *SeekPage(struct list_node *first_page, const unsigned long offset, unsigned long *page_pointer) const;
 
     public:
 	NVMRandomRWFile(const std::string& fname, nvm_file *_fd, nvm_directory *_dir);

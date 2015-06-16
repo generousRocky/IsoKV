@@ -387,6 +387,129 @@ void TestRandomReads(NVMRandomAccessFile *rr_file)
     }
 }
 
+void TestRandomReadWrites(NVMRandomRWFile *rw_file)
+{
+    char datax[10000];
+
+    Slice s;
+
+    if(!rw_file->Read(0, 9096, &s, datax).ok())
+    {
+	NVM_FATAL("");
+    }
+
+    size_t len = s.size();
+    const char *data = s.data();
+
+    if(len != 9096)
+    {
+	NVM_FATAL("%lu", len);
+    }
+
+    for(int i = 0; i < 2048; ++i)
+    {
+	if(data[i] != 'x')
+	{
+	    NVM_FATAL("");
+	}
+    }
+
+    for(int i = 2048; i < 4096; ++i)
+    {
+	if(data[i] != 'y')
+	{
+	    NVM_FATAL("");
+	}
+    }
+
+    for(int i = 4096; i < 9096; ++i)
+    {
+	if(data[i] != 'z')
+	{
+	    NVM_FATAL("");
+	}
+    }
+
+    if(!rw_file->Read(0, 1, &s, datax).ok())
+    {
+	NVM_FATAL("");
+    }
+
+    len = s.size();
+    data = s.data();
+
+    if(len != 1)
+    {
+	NVM_FATAL("");
+    }
+
+    if(data[0] != 'x')
+    {
+	NVM_FATAL("");
+    }
+
+    if(!rw_file->Read(2048, 1, &s, datax).ok())
+    {
+	NVM_FATAL("");
+    }
+
+    len = s.size();
+    data = s.data();
+
+    if(len != 1)
+    {
+	NVM_FATAL("");
+    }
+
+    if(data[0] != 'y')
+    {
+	NVM_FATAL("");
+    }
+
+    if(!rw_file->Read(4096, 1, &s, datax).ok())
+    {
+	NVM_FATAL("");
+    }
+
+    len = s.size();
+    data = s.data();
+
+    if(len != 1)
+    {
+	NVM_FATAL("");
+    }
+
+    if(data[0] != 'z')
+    {
+	NVM_FATAL("");
+    }
+
+    if(!rw_file->Read(10000, 1, &s, datax).ok())
+    {
+	NVM_FATAL("");
+    }
+
+    len = s.size();
+
+    if(len != 0)
+    {
+	NVM_FATAL("");
+    }
+
+    if(!rw_file->Read(0, 10000, &s, datax).ok())
+    {
+	NVM_FATAL("");
+    }
+
+    len = s.size();
+
+    if(len != 9096)
+    {
+	NVM_FATAL("");
+    }
+}
+
+
 int main(int argc, char **argv)
 {
     nvm_directory *dir;
@@ -443,6 +566,13 @@ int main(int argc, char **argv)
     TestRandomReads(rr_file);
 
     delete rr_file;
+
+    NVMRandomRWFile *rw_file;
+
+    ALLOC_CLASS(rw_file, NVMRandomRWFile("test.c", wfd, dir));
+    TestRandomReadWrites(rw_file);
+
+    delete rw_file;
 
     delete dir;
     delete nvm_api;

@@ -482,8 +482,14 @@ size_t nvm_file::ReadPage(const nvm_page *page, const unsigned long channel, str
 
     NVM_DEBUG("reading %lu bytes at %lu", page_size, offset);
 
+retry:
+
     if((unsigned)pread(fd_, data, page_size, offset) != page_size)
     {
+	if (errno == EINTR)
+	{
+	    goto retry;
+	}
 	return -1;
     }
 
@@ -511,6 +517,8 @@ size_t nvm_file::WritePage(const nvm_page *page, const unsigned long channel, st
 
     if((unsigned)pwrite(fd_, data, data_len, offset) != data_len)
     {
+	//TODO damage report may have written only some bytes -> stale page
+
 	return -1;
     }
 
@@ -1120,11 +1128,43 @@ NVMRandomRWFile::NVMRandomRWFile(const std::string& fname, nvm_file *_fd, nvm_di
 {
     fd_ = _fd;
     dir = _dir;
+
+    channel = 0;
+
+    nvm_api = dir->GetNVMApi();
 }
 
 NVMRandomRWFile::~NVMRandomRWFile()
 {
     NVMRandomRWFile::Close();
+}
+
+struct list_node *NVMRandomRWFile::SeekPage(struct list_node *first_page, const unsigned long offset, unsigned long *page_pointer) const
+{
+    NVM_ASSERT(first_page != nullptr, "first_page is null");
+
+    *page_pointer = offset;
+
+    struct list_node *crt_page = first_page;
+
+    nvm_page *pg = (nvm_page *)crt_page->GetData();
+
+    while(*page_pointer >= pg->sizes[channel])
+    {
+	*page_pointer -= pg->sizes[channel];
+
+	crt_page = crt_page->GetNext();
+
+	if(crt_page == nullptr)
+	{
+	    //we have reached end of file
+	    return nullptr;
+	}
+
+	pg = (nvm_page *)crt_page->GetData();
+    }
+
+    return crt_page;
 }
 
 bool NVMRandomRWFile::Flush(const bool forced)
@@ -1166,38 +1206,87 @@ Status NVMRandomRWFile::Write(uint64_t offset, const Slice& data)
 
 Status NVMRandomRWFile::Read(uint64_t offset, size_t n, Slice* result, char* scratch) const
 {
-    Status s;
+    unsigned long page_pointer;
 
-    /*ssize_t r = -1;
-
-    size_t left = n;
-
-    char* ptr = scratch;
-
-    while (left > 0)
+    if(offset >= fd_->GetSize())
     {
-	r = pread(fd_, ptr, left, static_cast<off_t>(offset));
-	if (r <= 0)
+	NVM_DEBUG("offset is out of bounds");
+
+	*result = Slice(scratch, 0);
+	return Status::OK();
+    }
+
+    if(offset + n > fd_->GetSize())
+    {
+	n = fd_->GetSize() - offset;
+    }
+
+    if(n <= 0)
+    {
+	NVM_DEBUG("n is <= 0");
+
+	*result = Slice(scratch, 0);
+	return Status::OK();
+    }
+
+    struct list_node *first_page = fd_->GetNVMPagesList();
+
+    if(first_page == nullptr)
+    {
+	NVM_DEBUG("first page is null");
+
+	*result = Slice(scratch, 0);
+	return Status::OK();
+    }
+
+    size_t len = n;
+    size_t l;
+    size_t scratch_offset = 0;
+    size_t size_to_copy;
+
+    char *data;
+
+    struct list_node *crt_page = SeekPage(first_page, offset, &page_pointer);
+
+    while(len > 0)
+    {
+	if(crt_page == nullptr)
 	{
-	    if (errno == EINTR)
-	    {
-		continue;
-	    }
+	    n -= len;
 	    break;
 	}
 
-	ptr += r;
-	offset += r;
-	left -= r;
+	nvm_page *pg = (nvm_page *)crt_page->GetData();
+
+	SAFE_ALLOC(data, char[pg->sizes[channel]]);
+
+	l = fd_->ReadPage(pg, channel, nvm_api, data);
+
+	if(len > l - page_pointer)
+	{
+	    size_to_copy = l - page_pointer;
+	}
+	else
+	{
+	    size_to_copy = len;
+	}
+
+	memcpy(scratch + scratch_offset, data + page_pointer, size_to_copy);
+
+	len -= size_to_copy;
+	scratch_offset += size_to_copy;
+
+	crt_page = crt_page->GetNext();
+	page_pointer = 0;
+
+	delete[] data;
     }
 
-    IOSTATS_ADD_IF_POSITIVE(bytes_read, n - left);
-    *result = Slice(scratch, (r < 0) ? 0 : n - left);
-    if (r < 0)
-    {
-	s = IOError(filename_, errno);
-    }*/
-    return s;
+    NVM_DEBUG("read %lu bytes", n);
+
+    *result = Slice(scratch, n);
+
+    return Status::OK();
 }
 
 Status NVMRandomRWFile::Close()
