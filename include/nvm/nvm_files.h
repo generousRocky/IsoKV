@@ -46,7 +46,7 @@ class nvm_file
 	int GetFD();
 
 	size_t ReadPage(const nvm_page *page, const unsigned long channel, struct nvm *nvm_api, void *data);
-	size_t WritePage(const nvm_page *page, const unsigned long channel, struct nvm *nvm_api, void *data, const unsigned long data_len);
+	size_t WritePage(struct nvm_page *&page, const unsigned long channel, struct nvm *nvm_api, void *data, const unsigned long data_len);
 
 	struct list_node *GetNVMPagesList();
 

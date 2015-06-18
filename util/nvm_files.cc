@@ -502,7 +502,7 @@ retry:
     return page_size;
 }
 
-size_t nvm_file::WritePage(const nvm_page *page, const unsigned long channel, struct nvm *nvm_api, void *data, const unsigned long data_len)
+size_t nvm_file::WritePage(struct nvm_page *&page, const unsigned long channel, struct nvm *nvm_api, void *data, const unsigned long data_len)
 {
     unsigned long offset;
 
@@ -518,13 +518,27 @@ size_t nvm_file::WritePage(const nvm_page *page, const unsigned long channel, st
 
     offset = page->lun_id * lun_size + page->block_id * block_size + page->id * page_size;
 
+retry:
 
     NVM_DEBUG("writing page %p", page);
 
     if((unsigned)pwrite(fd_, data, data_len, offset) != data_len)
     {
-	//TODO damage report may have written only some bytes -> stale page
+	if (errno == EINTR)
+	{
+	    //EINTR may cause a stale page -> replace page
 
+	    nvm_api->ReclaimPage(page);
+
+	    page = nvm_api->RequestPage();
+
+	    if(page == nullptr)
+	    {
+		return -1;
+	    }
+
+	    goto retry;
+	}
 	return -1;
     }
 
