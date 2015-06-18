@@ -5,9 +5,9 @@
 namespace rocksdb
 {
 
-nvm_directory::nvm_directory(const char *_name, const int n, nvm *_nvm_api)
+nvm_directory::nvm_directory(const char *_name, const int n, nvm *_nvm_api, nvm_directory *_parent)
 {
-    NVM_DEBUG("constructing node %s", _name);
+    NVM_DEBUG("constructing directory %s in %s", _name, _parent == nullptr ? "NULL" : _parent->GetName());
 
     SAFE_ALLOC(name, char[n + 1]);
     strncpy(name, _name, n);
@@ -16,6 +16,8 @@ nvm_directory::nvm_directory(const char *_name, const int n, nvm *_nvm_api)
     nvm_api = _nvm_api;
 
     head = nullptr;
+
+    parent = _parent;
 
     pthread_mutexattr_init(&list_update_mtx_attr);
     pthread_mutexattr_settype(&list_update_mtx_attr, PTHREAD_MUTEX_RECURSIVE);
@@ -43,6 +45,11 @@ nvm_directory::~nvm_directory()
 
 	temp = temp1;
     }
+}
+
+char *nvm_directory::GetName()
+{
+    return name;
 }
 
 void nvm_directory::EnumerateNames(std::vector<std::string>* result)
@@ -304,7 +311,7 @@ void *nvm_directory::create_node(const char *look_up_name, const nvm_entry_type 
 	{
 	    case FileEntry:
 	    {
-		ALLOC_CLASS(fd, nvm_file(look_up_name, nvm_api->fd));
+		ALLOC_CLASS(fd, nvm_file(look_up_name, nvm_api->fd, this));
 		ALLOC_CLASS(entry, nvm_entry(FileEntry, fd));
 
 		ret = fd;
@@ -313,7 +320,7 @@ void *nvm_directory::create_node(const char *look_up_name, const nvm_entry_type 
 
 	    case DirectoryEntry:
 	    {
-		ALLOC_CLASS(dd, nvm_directory(look_up_name, strlen(look_up_name), nvm_api));
+		ALLOC_CLASS(dd, nvm_directory(look_up_name, strlen(look_up_name), nvm_api, this));
 		ALLOC_CLASS(entry, nvm_entry(DirectoryEntry, dd));
 
 		ret = dd;
@@ -331,7 +338,7 @@ void *nvm_directory::create_node(const char *look_up_name, const nvm_entry_type 
     }
     else
     {
-	ALLOC_CLASS(dd, nvm_directory(look_up_name, i, nvm_api));
+	ALLOC_CLASS(dd, nvm_directory(look_up_name, i, nvm_api, this));
 	ALLOC_CLASS(entry, nvm_entry(DirectoryEntry, dd));
 	ALLOC_CLASS(file_node, list_node(entry));
 
@@ -471,6 +478,86 @@ int nvm_directory::LinkFile(const char *src, const char *target)
     return -1;
 }
 
+void nvm_directory::Remove(nvm_file *fd)
+{
+    pthread_mutex_lock(&list_update_mtx);
+
+    struct list_node *iterator = head;
+
+    while(iterator)
+    {
+	nvm_entry *entry = (nvm_entry *)iterator->GetData();
+
+	if(entry->GetType() != FileEntry)
+	{
+	    iterator = iterator->GetNext();
+
+	    continue;
+	}
+
+	nvm_file *file = (nvm_file *)entry->GetData();
+
+	if(file != fd)
+	{
+	    iterator = iterator->GetNext();
+
+	    continue;
+	}
+
+	NVM_DEBUG("Found file to remove");
+
+	struct list_node *prev = iterator->GetPrev();
+	struct list_node *next = iterator->GetNext();
+
+	if(prev)
+	{
+	    prev->SetNext(next);
+	}
+
+	if(next)
+	{
+	    next->SetPrev(prev);
+	}
+
+	if(prev == nullptr && next != nullptr)
+	{
+	    head = head->GetNext();
+	}
+
+	if(prev == nullptr && next == nullptr)
+	{
+	    head = nullptr;
+	}
+
+	break;
+    }
+
+    pthread_mutex_unlock(&list_update_mtx);
+}
+
+void nvm_directory::Add(nvm_file *fd)
+{
+    pthread_mutex_lock(&list_update_mtx);
+
+    struct list_node *node;
+
+    nvm_entry *entry;
+
+    ALLOC_CLASS(entry, nvm_entry(FileEntry, fd));
+    ALLOC_CLASS(node, list_node(entry));
+
+    node->SetNext(head);
+
+    if(head)
+    {
+	head->SetPrev(node);
+    }
+
+    head = node;
+
+    pthread_mutex_unlock(&list_update_mtx);
+}
+
 int nvm_directory::RenameFile(const char *crt_filename, const char *new_filename)
 {
     pthread_mutex_lock(&list_update_mtx);
@@ -483,44 +570,61 @@ int nvm_directory::RenameFile(const char *crt_filename, const char *new_filename
 	return 1;
     }
 
+    nvm_directory *dir = OpenParentDirectory(new_filename);
+
+    if(dir == nullptr)
+    {
+	pthread_mutex_unlock(&list_update_mtx);
+	return 1;
+    }
+
     fd = file_look_up(crt_filename);
 
-    if(fd)
+    if(fd == nullptr)
     {
-	int last_slash_crt = 0;
-	int i = 0;
-
-	while(crt_filename[i] != '\0')
-	{
-	    if(crt_filename[i] == '/')
-	    {
-		last_slash_crt = i + 1;
-	    }
-
-	    ++i;
-	}
-
-	int last_slash_new = 0;
-	i = 0;
-
-	while(new_filename[i] != '\0')
-	{
-	    if(new_filename[i] == '/')
-	    {
-		last_slash_new = i + 1;
-	    }
-
-	    ++i;
-	}
-
-	fd->ChangeName(crt_filename + last_slash_crt, new_filename + last_slash_new);
-
 	pthread_mutex_unlock(&list_update_mtx);
-	return 0;
+	return 1;
+    }
+
+    int last_slash_crt = 0;
+    int i = 0;
+
+    while(crt_filename[i] != '\0')
+    {
+	if(crt_filename[i] == '/')
+	{
+	    last_slash_crt = i + 1;
+	}
+
+	++i;
+    }
+
+    int last_slash_new = 0;
+    i = 0;
+
+    while(new_filename[i] != '\0')
+    {
+	if(new_filename[i] == '/')
+	{
+	    last_slash_new = i + 1;
+	}
+
+	++i;
+    }
+
+    fd->ChangeName(crt_filename + last_slash_crt, new_filename + last_slash_new);
+
+    if(fd->GetParent() != dir)
+    {
+	NVM_DEBUG("Rename is changing directories");
+
+	fd->GetParent()->Remove(fd);
+	dir->Add(fd);
+	fd->SetParent(dir);
     }
 
     pthread_mutex_unlock(&list_update_mtx);
-    return 1;
+    return 0;
 }
 
 int nvm_directory::DeleteFile(const char *filename)
@@ -569,6 +673,39 @@ int nvm_directory::DeleteFile(const char *filename)
     pthread_mutex_unlock(&list_update_mtx);
 
     return 0;
+}
+
+nvm_directory *nvm_directory::OpenParentDirectory(const char *filename)
+{
+    int i = 0;
+    int last_slash = 0;
+
+    while(filename[i] != '\0')
+    {
+	if(filename[i] == '/')
+	{
+	    last_slash = i;
+	}
+
+	++i;
+    }
+
+    if(last_slash == 0)
+    {
+	return this;
+    }
+
+    char *_name;
+    SAFE_ALLOC(_name, char[last_slash + 1]);
+
+    memcpy(_name, filename, last_slash);
+    _name[last_slash] = '\0';
+
+    nvm_directory *ret = OpenDirectory(_name);
+
+    delete _name;
+
+    return ret;
 }
 
 nvm_directory *nvm_directory::OpenDirectory(const char *_name)

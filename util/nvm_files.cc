@@ -30,9 +30,11 @@ static size_t GetUniqueIdFromFile(nvm_file *fd, char* id, size_t max_size)
 
 #endif
 
-nvm_file::nvm_file(const char *_name, const int fd)
+nvm_file::nvm_file(const char *_name, const int fd, nvm_directory *_parent)
 {
     char *name;
+
+    NVM_DEBUG("constructing file %s in %s", _name, _parent == nullptr ? "NULL" : _parent->GetName());
 
     SAFE_ALLOC(name, char[strlen(_name) + 1]);
     strcpy(name, _name);
@@ -49,6 +51,8 @@ nvm_file::nvm_file(const char *_name, const int fd)
     last_page = nullptr;
 
     opened_for_write = false;
+
+    parent = _parent;
 
     pthread_mutexattr_init(&page_update_mtx_attr);
     pthread_mutexattr_settype(&page_update_mtx_attr, PTHREAD_MUTEX_RECURSIVE);
@@ -88,6 +92,16 @@ nvm_file::~nvm_file()
     pthread_mutex_destroy(&page_update_mtx);
     pthread_mutex_destroy(&meta_mtx);
     pthread_mutex_destroy(&file_lock);
+}
+
+void nvm_file::SetParent(nvm_directory *_parent)
+{
+    parent = _parent;
+}
+
+nvm_directory *nvm_file::GetParent()
+{
+    return parent;
 }
 
 int nvm_file::LockFile()

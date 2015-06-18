@@ -115,7 +115,7 @@ class NVMEnv : public Env
 	    thread_status_updater_ = CreateThreadStatusUpdater();
 
 	    ALLOC_CLASS(nvm_api, nvm());
-	    ALLOC_CLASS(root_dir, nvm_directory("root", 4, nvm_api))
+	    ALLOC_CLASS(root_dir, nvm_directory("root", 4, nvm_api, nullptr))
 	}
 
 	virtual ~NVMEnv()

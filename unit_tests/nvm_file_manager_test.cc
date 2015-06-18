@@ -308,6 +308,42 @@ void TestFileRename(nvm_directory *dir, nvm *nvm_api)
 
     dir->nvm_fclose(open1, "r");
 
+    if(dir->CreateDirectory("testd1") != 0)
+    {
+	NVM_FATAL("");
+    }
+
+    if(dir->CreateDirectory("testd2") != 0)
+    {
+	NVM_FATAL("");
+    }
+
+    open1 = dir->nvm_fopen("testd1/da1", "w");
+
+    if(open1 == nullptr)
+    {
+	NVM_FATAL("");
+    }
+
+    if(dir->RenameFile("testd1/da1", "testd2/da4") != 0)
+    {
+	NVM_FATAL("");
+    }
+
+    open1 = dir->nvm_fopen("testd1/da1", "r");
+
+    if(open1 != nullptr)
+    {
+	NVM_FATAL("");
+    }
+
+    open1 = dir->nvm_fopen("testd2/da4", "r");
+
+    if(open1 == nullptr)
+    {
+	NVM_FATAL("");
+    }
+
     NVM_DEBUG("rename file test passed");
 }
 
@@ -644,7 +680,7 @@ int main(int argc, char **argv)
     nvm *nvm_api;
 
     ALLOC_CLASS(nvm_api, nvm());
-    ALLOC_CLASS(dir, nvm_directory("root", 4, nvm_api));
+    ALLOC_CLASS(dir, nvm_directory("root", 4, nvm_api, nullptr));
 
     NVM_DEBUG("init complete");
 
@@ -664,7 +700,7 @@ int main(int argc, char **argv)
 
     //TestDirectoryCreate(dir, nvm_api);
 
-    //TestSubdirectories(dir, nvm_api);
+    TestSubdirectories(dir, nvm_api);
 
     delete dir;
     delete nvm_api;

@@ -21,9 +21,13 @@ class nvm_directory
 
 	void *create_node(const char *name, const nvm_entry_type type);
 
+	nvm_directory *parent;
+
     public:
-	nvm_directory(const char *_name, const int n, nvm *_nvm_api);
+	nvm_directory(const char *_name, const int n, nvm *_nvm_api, nvm_directory *_parent);
 	~nvm_directory();
+
+	char *GetName();
 
 	bool HasName(const char *_name, const int n);
 	void EnumerateNames(std::vector<std::string>* result);
@@ -36,6 +40,7 @@ class nvm_directory
 	nvm_file *file_look_up(const char *filename);
 
 	nvm_file *open_file_if_exists(const char *filename);
+	nvm_directory *OpenParentDirectory(const char *filename);
 	nvm_directory *OpenDirectory(const char *name);
 	nvm_file *nvm_fopen(const char *filename, const char *mode);
 	nvm_file *create_file(const char *filename);
@@ -54,6 +59,9 @@ class nvm_directory
 	void GetChildren(std::vector<std::string>* result);
 
 	bool FileExists(const char *name);
+
+	void Remove(nvm_file *fd);
+	void Add(nvm_file *fd);
 
 	void nvm_fclose(nvm_file *file, const char *mode);
 };

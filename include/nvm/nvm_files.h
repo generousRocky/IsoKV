@@ -26,8 +26,10 @@ class nvm_file
 
 	bool opened_for_write;
 
+	nvm_directory *parent;
+
     public:
-	nvm_file(const char *_name, const int fd);
+	nvm_file(const char *_name, const int fd, nvm_directory *_parent);
 	~nvm_file();
 
 	bool CanOpen(const char *mode);
@@ -49,6 +51,10 @@ class nvm_file
 	size_t WritePage(struct nvm_page *&page, const unsigned long channel, struct nvm *nvm_api, void *data, const unsigned long data_len);
 
 	struct list_node *GetNVMPagesList();
+
+	nvm_directory *GetParent();
+
+	void SetParent(nvm_directory *_parent);
 
 	size_t nvm_fread(void *data, const unsigned long offset, const size_t len);
 
