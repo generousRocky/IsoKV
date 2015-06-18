@@ -1174,32 +1174,83 @@ bool NVMRandomRWFile::Flush(const bool forced)
 
 Status NVMRandomRWFile::Write(uint64_t offset, const Slice& data)
 {
-    /*const char* src = data.data();
+    unsigned long page_pointer;
+
+    size_t i = 0;
+
+    nvm_page *new_pg = nullptr;
+
+    struct list_node *crt_page = nullptr;
+
+    char *crt_data = nullptr;
+
+    nvm_page *pg = nullptr;
+
+    const char* src = data.data();
 
     size_t left = data.size();
 
-    Status s;
-
-    pending_sync_ = true;
-    pending_fsync_ = true;
-
-    while (left != 0)
+    if(offset >= fd_->GetSize())
     {
-	ssize_t done = pwrite(fd_, src, left, offset);
-	if (done < 0)
-	{
-	    if (errno == EINTR)
-	    {
-		continue;
-	    }
-	    return IOError(filename_, errno);
-	}
-	IOSTATS_ADD(bytes_written, done);
+	NVM_DEBUG("offset is out of bounds");
 
-	left -= done;
-	src += done;
-	offset += done;
-    }*/
+	return Status::IOError("offset is out of bounds");
+    }
+
+    struct list_node *first_page = fd_->GetNVMPagesList();
+
+    if(first_page == nullptr)
+    {
+	NVM_DEBUG("first page is null");
+
+	return Status::IOError("first page is null");
+    }
+
+    while(left > 0)
+    {
+	if(crt_page == nullptr)
+	{
+	    crt_page = SeekPage(first_page, offset, &page_pointer);
+	}
+	else
+	{
+	    crt_page = crt_page->GetNext();
+
+	    page_pointer = 0;
+	}
+
+	pg = (nvm_page *)crt_page->GetData();
+
+	SAFE_ALLOC(crt_data, char[pg->sizes[channel]]);
+
+	NVM_DEBUG("page pointer is %lu, page size is %u", page_pointer, pg->sizes[channel]);
+
+	fd_->ReadPage(pg, channel, nvm_api, crt_data);
+
+	for(i = 0; i < pg->sizes[channel] - page_pointer && i < left; ++i)
+	{
+	    crt_data[page_pointer + i] = src[i];
+	}
+
+	left -= i;
+
+	new_pg = nvm_api->RequestPage();
+
+	if(new_pg == nullptr)
+	{
+	    return Status::IOError("request new page returned");
+	}
+
+	if(fd_->WritePage(new_pg, channel, nvm_api, crt_data, new_pg->sizes[channel]) != new_pg->sizes[channel])
+	{
+	    NVM_FATAL("write error");
+	}
+
+	delete[] crt_data;
+
+	nvm_api->ReclaimPage(pg);
+	crt_page->SetData(new_pg);
+    }
 
     return Status::OK();
 }
