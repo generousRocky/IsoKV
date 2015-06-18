@@ -121,18 +121,16 @@ class StackableDB : public DB {
 
   using DB::GetApproximateSizes;
   virtual void GetApproximateSizes(ColumnFamilyHandle* column_family,
-                                   const Range* r, int n,
-                                   uint64_t* sizes) override {
+                                   const Range* r, int n, uint64_t* sizes,
+                                   bool include_memtable = false) override {
       return db_->GetApproximateSizes(column_family, r, n, sizes);
   }
 
   using DB::CompactRange;
-  virtual Status CompactRange(ColumnFamilyHandle* column_family,
-                              const Slice* begin, const Slice* end,
-                              bool change_level = false, int target_level = -1,
-                              uint32_t target_path_id = 0) override {
-    return db_->CompactRange(column_family, begin, end, change_level,
-                             target_level, target_path_id);
+  virtual Status CompactRange(const CompactRangeOptions& options,
+                              ColumnFamilyHandle* column_family,
+                              const Slice* begin, const Slice* end) override {
+    return db_->CompactRange(options, column_family, begin, end);
   }
 
   using DB::CompactFiles;
