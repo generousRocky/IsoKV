@@ -235,7 +235,11 @@ class NVMEnv : public Env
 
 	virtual bool FileExists(const std::string& fname) override
 	{
-	    return root_dir->FileExists(fname.c_str());
+	    bool exists = root_dir->FileExists(fname.c_str());
+
+	    NVM_DEBUG("%s exists: %d", fname.c_str(), exists ? 1 : 0);
+
+	    return exists;
 	}
 
 	virtual Status GetChildren(const std::string& dir, std::vector<std::string>* result) override
@@ -305,6 +309,8 @@ class NVMEnv : public Env
 
 	virtual Status RenameFile(const std::string& src, const std::string& target) override
 	{
+	    NVM_DEBUG("renaming %s to %s", src.c_str(), target.c_str());
+
 	    if(root_dir->RenameFile(src.c_str(), target.c_str()))
 	    {
 		return Status::IOError("nvm rename file failed");

@@ -487,7 +487,33 @@ int nvm_directory::RenameFile(const char *crt_filename, const char *new_filename
 
     if(fd)
     {
-	fd->ChangeName(crt_filename, new_filename);
+	int last_slash_crt = 0;
+	int i = 0;
+
+	while(crt_filename[i] != '\0')
+	{
+	    if(crt_filename[i] == '/')
+	    {
+		last_slash_crt = i + 1;
+	    }
+
+	    ++i;
+	}
+
+	int last_slash_new = 0;
+	i = 0;
+
+	while(new_filename[i] != '\0')
+	{
+	    if(new_filename[i] == '/')
+	    {
+		last_slash_new = i + 1;
+	    }
+
+	    ++i;
+	}
+
+	fd->ChangeName(crt_filename + last_slash_crt, new_filename + last_slash_new);
 
 	pthread_mutex_unlock(&list_update_mtx);
 	return 0;

@@ -303,14 +303,20 @@ void nvm_file::ChangeName(const char *crt_name, const char *new_name)
     {
 	char *crt_name_node = (char *)name_node->GetData();
 
+	NVM_DEBUG("change name %s vs %s", crt_name_node, crt_name);
+
 	if(strcmp(crt_name_node, crt_name) == 0)
 	{
+	    NVM_DEBUG("MATCH");
+
 	    delete[] crt_name_node;
 
 	    SAFE_ALLOC(crt_name_node, char[strlen(new_name) + 1]);
 	    strcpy(crt_name_node, new_name);
 
 	    name_node->SetData(crt_name_node);
+
+	    NVM_DEBUG("SET DATA %s", crt_name_node);
 
 	    pthread_mutex_unlock(&meta_mtx);
 
