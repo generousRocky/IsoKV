@@ -59,4 +59,11 @@ int main(int argc, char **argv)
     NVM_DEBUG("read 2 ok");
 }
 
+#else
+
+int main(void)
+{
+    return 0;
+}
+
 #endif

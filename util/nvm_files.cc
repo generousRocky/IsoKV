@@ -548,6 +548,8 @@ NVMSequentialFile::NVMSequentialFile(const std::string& fname, nvm_file *f, nvm_
     channel = 0;
 
     nvm_api = _dir->GetNVMApi();
+
+    NVM_DEBUG("created %s", fname.c_str());
 }
 
 NVMSequentialFile::~NVMSequentialFile()
@@ -701,6 +703,8 @@ NVMRandomAccessFile::NVMRandomAccessFile(const std::string& fname, nvm_file *f, 
     channel = 0;
 
     nvm_api = dir->GetNVMApi();
+
+    NVM_DEBUG("created %s", fname.c_str());
 }
 
 NVMRandomAccessFile::~NVMRandomAccessFile()
@@ -850,6 +854,8 @@ NVMWritableFile::NVMWritableFile(const std::string& fname, nvm_file *fd, nvm_dir
     last_page = nullptr;
 
     UpdateLastPage();
+
+    NVM_DEBUG("created %s", fname.c_str());
 }
 
 NVMWritableFile::~NVMWritableFile()
@@ -860,6 +866,8 @@ NVMWritableFile::~NVMWritableFile()
     {
 	delete[] buf_;
     }
+
+    buf_ = nullptr;
 }
 
 void NVMWritableFile::UpdateLastPage()
@@ -868,10 +876,14 @@ void NVMWritableFile::UpdateLastPage()
 
     if(last_page)
     {
+	NVM_DEBUG("last page is not null, iterating");
+
 	while(last_page->GetNext())
 	{
 	    last_page = last_page->GetNext();
 	}
+
+	NVM_DEBUG("last page is at %p", last_page);
 
 	pg = (nvm_page *)last_page->GetData();
 
@@ -881,8 +893,12 @@ void NVMWritableFile::UpdateLastPage()
     {
 	last_page = fd_->GetNVMPagesList();
 
+	NVM_DEBUG("last page was null and first page is %p", last_page);
+
 	if(last_page == nullptr)
 	{
+	    bytes_per_sync_ = 0;
+
 	    goto end;
 	}
 
@@ -904,11 +920,15 @@ void NVMWritableFile::UpdateLastPage()
 
 end:
 
+    NVM_DEBUG("last page is at %p", last_page);
+
     cursize_ = 0;
 
     if(buf_)
     {
 	delete[] buf_;
+
+	buf_ = nullptr;
     }
 
     if(bytes_per_sync_ > 0)
@@ -925,6 +945,11 @@ bool NVMWritableFile::Flush(const bool forced)
 {
     struct nvm_page *pg;
 
+    if(cursize_ == 0)
+    {
+	return true;
+    }
+
     if(bytes_per_sync_ == 0)
     {
 	if(fd_->ClaimNewPage(dir_->GetNVMApi()) == false)
@@ -933,6 +958,11 @@ bool NVMWritableFile::Flush(const bool forced)
 	}
 
 	UpdateLastPage();
+    }
+
+    if(last_page == nullptr)
+    {
+	NVM_FATAL("last page is null, cursize is %lu, byte_per_sync is %lu", cursize_, bytes_per_sync_);
     }
 
     if(cursize_ == bytes_per_sync_ || forced)
@@ -1017,7 +1047,7 @@ Status NVMWritableFile::Append(const Slice& data)
 
 	if(cursize_ + left <= bytes_per_sync_)
 	{
-	    NVM_DEBUG("All in buffer from %lu", cursize_);
+	    NVM_DEBUG("All in buffer from %lu to %p", cursize_, buf_);
 
 	    memcpy(buf_ + cursize_, src + offset, left);
 
@@ -1043,10 +1073,14 @@ Status NVMWritableFile::Append(const Slice& data)
 	}
     }
 
+    NVM_DEBUG("flushing");
+
     if(Flush(false) == false)
     {
 	return Status::IOError("out of ssd space");
     }
+
+    NVM_DEBUG("Appending done");
 
     return Status::OK();
 }
@@ -1132,6 +1166,8 @@ NVMRandomRWFile::NVMRandomRWFile(const std::string& fname, nvm_file *_fd, nvm_di
     channel = 0;
 
     nvm_api = dir->GetNVMApi();
+
+    NVM_DEBUG("created %s", fname.c_str());
 }
 
 NVMRandomRWFile::~NVMRandomRWFile()

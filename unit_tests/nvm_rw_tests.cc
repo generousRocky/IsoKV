@@ -507,6 +507,85 @@ void TestRandomReadWrites(NVMRandomRWFile *rw_file)
     {
 	NVM_FATAL("");
     }
+
+    for(int i = 0; i < 2048; ++i)
+    {
+	datax[i] = 'm';
+    }
+
+    s = Slice(datax, 2048);
+
+    if(!rw_file->Write(0, s).ok())
+    {
+	NVM_FATAL("");
+    }
+
+    if(!rw_file->Read(0, 4096, &s, datax).ok())
+    {
+	NVM_FATAL("");
+    }
+
+    len = s.size();
+    data = s.data();
+
+    if(len != 4096)
+    {
+	NVM_FATAL("");
+    }
+
+    for(int i = 0; i < 2048; ++i)
+    {
+	if(data[i] != 'm')
+	{
+	    NVM_FATAL("");
+	}
+    }
+
+    for(int i = 2048; i < 4096; ++i)
+    {
+	if(data[i] != 'y')
+	{
+	    NVM_FATAL("%c", data[i]);
+	}
+    }
+
+    for(int i = 0; i < 5000; ++i)
+    {
+	datax[i] = 'o';
+    }
+
+    s = Slice(datax, 5000);
+
+    if(!rw_file->Write(2059, s).ok())
+    {
+	NVM_FATAL("");
+    }
+
+    if(!rw_file->Read(2059, 5001, &s, datax).ok())
+    {
+	NVM_FATAL("");
+    }
+
+    len = s.size();
+    data = s.data();
+
+    if(len != 5001)
+    {
+	NVM_FATAL("");
+    }
+
+    for(int i = 0; i < 5000; ++i)
+    {
+	if(data[i] != 'o')
+	{
+	    NVM_FATAL("");
+	}
+    }
+
+    if(data[5000] != 'z')
+    {
+	NVM_FATAL("%c", data[5000]);
+    }
 }
 
 
@@ -579,6 +658,13 @@ int main(int argc, char **argv)
 
     NVM_DEBUG("TEST FINISHED!");
 
+    return 0;
+}
+
+#else
+
+int main(void)
+{
     return 0;
 }
 

@@ -146,6 +146,9 @@ class NVMEnv : public Env
 	    if (f == nullptr)
 	    {
 		*result = nullptr;
+
+		NVM_DEBUG("unable to open file for read %s", fname.c_str());
+
 		return Status::IOError("unable to open file for read");
 	    }
 
@@ -164,6 +167,9 @@ class NVMEnv : public Env
 	    if (f == nullptr)
 	    {
 		*result = nullptr;
+
+		NVM_DEBUG("unable to open file for read %s", fname.c_str());
+
 		return Status::IOError("unable to open file for read");
 	    }
 
@@ -180,6 +186,9 @@ class NVMEnv : public Env
 	    if(fd == nullptr)
 	    {
 		*result = nullptr;
+
+		NVM_DEBUG("unable to open file for write %s", fname.c_str());
+
 		return Status::IOError("unable to open file for write");
 	    }
 
@@ -197,6 +206,9 @@ class NVMEnv : public Env
 	    if(fd == nullptr)
 	    {
 		*result = nullptr;
+
+		NVM_DEBUG("unable to open file for write %s", fname.c_str());
+
 		return Status::IOError("unable to open file for write");
 	    }
 
@@ -212,6 +224,7 @@ class NVMEnv : public Env
 	    nvm_directory *fd = root_dir->OpenDirectory(name.c_str());
 	    if (fd == nullptr)
 	    {
+		NVM_DEBUG("directory %s not found", name.c_str());
 		return Status::IOError("directory doesn't exist");
 	    }
 
@@ -415,7 +428,7 @@ class NVMEnv : public Env
 
 	virtual Status NewLogger(const std::string& fname, shared_ptr<Logger>* result) override
 	{
-	    FILE* f = fopen(fname.c_str(), "w");
+	    FILE* f = fopen("./LOG", "w");
 	    if (f == nullptr)
 	    {
 		result->reset();
@@ -597,17 +610,6 @@ class NVMEnv : public Env
 
 std::string Env::GenerateUniqueId()
 {
-    std::string uuid_file = "/proc/sys/kernel/random/uuid";
-    if (FileExists(uuid_file))
-    {
-	std::string uuid;
-	Status s = ReadFileToString(this, uuid_file, &uuid);
-	if (s.ok())
-	{
-	    return uuid;
-	}
-    }
-
     // Could not read uuid_file - generate uuid using "nanos-random"
     Random64 r(time(nullptr));
 
