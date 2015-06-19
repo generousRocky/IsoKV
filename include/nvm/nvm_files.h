@@ -4,6 +4,8 @@
 namespace rocksdb
 {
 
+#include <vector>
+
 class nvm_file
 {
     private:
@@ -16,8 +18,7 @@ class nvm_file
 
 	int fd_;
 
-	struct list_node *first_page;
-	struct list_node *last_page;
+	std::vector<struct nvm_page *> pages;
 
 	time_t last_modified;
 
@@ -50,7 +51,9 @@ class nvm_file
 	size_t ReadPage(const nvm_page *page, const unsigned long channel, struct nvm *nvm_api, void *data);
 	size_t WritePage(struct nvm_page *&page, const unsigned long channel, struct nvm *nvm_api, void *data, const unsigned long data_len);
 
-	struct list_node *GetNVMPagesList();
+	struct nvm_page *GetNVMPage(const unsigned long idx);
+	struct nvm_page *GetLastPage(unsigned long *page_idx);
+	bool SetPage(const unsigned long page_idx, nvm_page *page);
 
 	nvm_directory *GetParent();
 
@@ -85,7 +88,8 @@ class NVMSequentialFile: public SequentialFile
 	unsigned long channel;
 	unsigned long page_pointer;
 
-	struct list_node *crt_page;
+	unsigned long crt_page_idx;
+	struct nvm_page *crt_page;
 	struct nvm *nvm_api;
 
 	nvm_directory *dir;
@@ -114,7 +118,7 @@ class NVMRandomAccessFile: public RandomAccessFile
 
 	nvm_directory *dir;
 
-	struct list_node *SeekPage(struct list_node *first_page, const unsigned long offset, unsigned long *page_pointer) const;
+	struct nvm_page *SeekPage(const unsigned long offset, unsigned long *page_pointer, unsigned long *page_idx) const;
 
     public:
 	NVMRandomAccessFile(const std::string& fname, nvm_file *f, nvm_directory *_dir);
@@ -148,7 +152,8 @@ class NVMWritableFile : public WritableFile
 
 	unsigned long channel;
 
-	struct list_node *last_page;
+	unsigned long last_page_idx;
+	struct nvm_page *last_page;
 
 	bool Flush(const bool forced);
 
@@ -192,9 +197,7 @@ class NVMRandomRWFile : public RandomRWFile
 
 	nvm *nvm_api;
 
-	bool Flush(const bool forced);
-
-	struct list_node *SeekPage(struct list_node *first_page, const unsigned long offset, unsigned long *page_pointer) const;
+	struct nvm_page *SeekPage(const unsigned long offset, unsigned long *page_pointer, unsigned long *page_idx) const;
 
     public:
 	NVMRandomRWFile(const std::string& fname, nvm_file *_fd, nvm_directory *_dir);
