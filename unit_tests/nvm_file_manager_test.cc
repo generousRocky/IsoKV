@@ -684,26 +684,80 @@ int main(int argc, char **argv)
 
     NVM_DEBUG("init complete");
 
-    //TestOpenAndClose(dir, nvm_api);
+    if(argc <= 1)
+    {
+	NVM_DEBUG("NO PARAM");
 
-    //TestFileSize(dir, nvm_api);
+	goto end;
+    }
 
-    //TestFileDelete(dir, nvm_api);
+    switch(argv[1][0])
+    {
+	case '1':
+	{
+	    TestOpenAndClose(dir, nvm_api);
+	}
+	break;
 
-    //TestFileModification(dir, nvm_api);
+	case '2':
+	{
+	    TestFileSize(dir, nvm_api);
+	}
+	break;
 
-    //TestFileRename(dir, nvm_api);
+	case '3':
+	{
+	    TestFileDelete(dir, nvm_api);
+	}
+	break;
 
-    //TestFileLinkUnlink(dir, nvm_api);
+	case '4':
+	{
+	    TestFileModification(dir, nvm_api);
+	}
+	break;
 
-    //TestFileExists(dir, nvm_api);
+	case '5':
+	{
+	    TestFileRename(dir, nvm_api);
+	}
+	break;
 
-    //TestDirectoryCreate(dir, nvm_api);
+	case '6':
+	{
+	    TestFileLinkUnlink(dir, nvm_api);
+	}
+	break;
 
-    TestSubdirectories(dir, nvm_api);
+	case '7':
+	{
+	    TestFileExists(dir, nvm_api);
+	}
+	break;
+
+	case '8':
+	{
+	    TestDirectoryCreate(dir, nvm_api);
+	}
+	break;
+
+	case '9':
+	{
+	    TestSubdirectories(dir, nvm_api);
+	}
+	break;
+
+	default:
+	{
+	    NVM_DEBUG("UNKNOWN PARAM");
+	}
+	break;
+    }
 
     delete dir;
     delete nvm_api;
+
+end:
 
     NVM_DEBUG("TEST FINISHED");
 

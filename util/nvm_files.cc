@@ -1005,10 +1005,19 @@ bool NVMWritableFile::Flush(const bool forced)
 
 	if(pg->sizes[channel] == bytes_per_sync_)
 	{
-	    if(fd_->WritePage(pg, channel, dir_->GetNVMApi(), buf_, cursize_) != cursize_)
+	    struct nvm_page *wrote_pg = pg;
+
+	    if(fd_->WritePage(wrote_pg, channel, dir_->GetNVMApi(), buf_, cursize_) != cursize_)
 	    {
 		NVM_DEBUG("unable to write data");
 		return false;
+	    }
+
+	    if(pg != wrote_pg)
+	    {
+		pg = wrote_pg;
+
+		last_page->SetData(pg);
 	    }
 
 	    if(fd_->ClaimNewPage(dir_->GetNVMApi()) == false)
@@ -1039,10 +1048,19 @@ bool NVMWritableFile::Flush(const bool forced)
 
 	pg = (struct nvm_page *)last_page->GetData();
 
-	if(fd_->WritePage(pg, channel, dir_->GetNVMApi(), crt_data, crt_data_len) != crt_data_len)
+	struct nvm_page *wrote_pg = pg;
+
+	if(fd_->WritePage(wrote_pg, channel, dir_->GetNVMApi(), crt_data, crt_data_len) != crt_data_len)
 	{
 	    NVM_DEBUG("unable to write data");
 	    return false;
+	}
+
+	if(pg != wrote_pg)
+	{
+	    pg = wrote_pg;
+
+	    last_page->SetData(pg);
 	}
 
 	if(fd_->ClaimNewPage(dir_->GetNVMApi()) == false)
@@ -1311,9 +1329,16 @@ Status NVMRandomRWFile::Write(uint64_t offset, const Slice& data)
 	    return Status::IOError("request new page returned");
 	}
 
-	if(fd_->WritePage(new_pg, channel, nvm_api, crt_data, new_pg->sizes[channel]) != new_pg->sizes[channel])
+	struct nvm_page *wrote_pg = new_pg;
+
+	if(fd_->WritePage(wrote_pg, channel, nvm_api, crt_data, wrote_pg->sizes[channel]) != wrote_pg->sizes[channel])
 	{
 	    NVM_FATAL("write error");
+	}
+
+	if(wrote_pg != new_pg)
+	{
+	    new_pg = wrote_pg;
 	}
 
 	delete[] crt_data;
