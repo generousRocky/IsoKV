@@ -89,7 +89,7 @@ void GetIntTblPropCollectorFactory(
 }
 
 Status CheckCompressionSupported(const ColumnFamilyOptions& cf_options) {
-  if (!cf_options.compression_per_level.empty()) {
+  /*if (!cf_options.compression_per_level.empty()) {
     for (size_t level = 0; level < cf_options.compression_per_level.size();
          ++level) {
       if (!CompressionTypeSupported(cf_options.compression_per_level[level])) {
@@ -106,7 +106,7 @@ Status CheckCompressionSupported(const ColumnFamilyOptions& cf_options) {
           CompressionTypeToString(cf_options.compression) +
           " is not linked with the binary.");
     }
-  }
+  }*/
   return Status::OK();
 }
 
