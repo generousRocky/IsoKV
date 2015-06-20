@@ -816,6 +816,8 @@ int nvm_directory::DeleteDirectory(const char *_name)
 
     if(dir_node == nullptr)
     {
+	pthread_mutex_unlock(&list_update_mtx);
+
 	return 0;
     }
 
