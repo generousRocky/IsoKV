@@ -231,6 +231,7 @@ TESTS = \
 	dynamic_bloom_test \
 	c_test \
 	cache_test \
+	checkpoint_test \
 	coding_test \
 	corruption_test \
 	crc32c_test \
@@ -303,7 +304,9 @@ TOOLS = \
 	db_sanity_test \
 	db_stress \
 	ldb \
-	db_repl_stress
+	db_repl_stress \
+	rocksdb_dump \
+	rocksdb_undump
 
 BENCHMARKS = db_bench table_reader_bench cache_bench memtablerep_bench
 
@@ -519,6 +522,7 @@ check: all
 	      echo "===== Running $$t"; ./$$t || exit 1; done;          \
 	fi
 	rm -rf $(TMPD)
+	sh tools/rocksdb_dump_test.sh
 
 check_some: $(SUBSET) ldb_tests
 	for t in $(SUBSET); do echo "===== Running $$t"; ./$$t || exit 1; done
@@ -699,6 +703,9 @@ prefix_test: db/prefix_test.o $(LIBOBJECTS) $(TESTHARNESS)
 backupable_db_test: utilities/backupable/backupable_db_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
+checkpoint_test: utilities/checkpoint/checkpoint_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
 document_db_test: utilities/document/document_db_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
@@ -805,6 +812,12 @@ deletefile_test: db/deletefile_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 geodb_test: utilities/geodb/geodb_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+rocksdb_dump: tools/dump/rocksdb_dump.o $(LIBOBJECTS)
+	$(AM_LINK)
+
+rocksdb_undump: tools/dump/rocksdb_undump.o $(LIBOBJECTS)
 	$(AM_LINK)
 
 cuckoo_table_builder_test: table/cuckoo_table_builder_test.o $(LIBOBJECTS) $(TESTHARNESS)
