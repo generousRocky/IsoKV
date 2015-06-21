@@ -514,6 +514,8 @@ retry:
 	return -1;
     }
 
+    IOSTATS_ADD(bytes_read, page_size);
+
     return page_size;
 }
 
@@ -554,6 +556,8 @@ retry:
 
 	    goto retry;
 	}
+
+	NVM_ERROR("unable to write data");
 	return -1;
     }
 
@@ -564,6 +568,8 @@ retry:
     pthread_mutex_unlock(&page_update_mtx);
 
     UpdateFileModificationTime();
+
+    IOSTATS_ADD(bytes_written, data_len);
 
     return data_len;
 }
