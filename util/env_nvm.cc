@@ -135,6 +135,20 @@ class NVMEnv : public Env
 	    delete nvm_api;
 	}
 
+	virtual Status GarbageCollect() override
+	{
+	    NVM_DEBUG("doing garbage collect");
+
+	    return Status::OK();
+	}
+
+	virtual Status SaveFTL() override
+	{
+	    NVM_DEBUG("saving ftl");
+
+	    return Status::OK();
+	}
+
 	virtual Status NewSequentialFile(const std::string& fname, unique_ptr<SequentialFile>* result, const EnvOptions& options) override
 	{
 	    result->reset();

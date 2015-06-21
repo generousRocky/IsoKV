@@ -205,6 +205,9 @@ extern void rocksdb_put(
     const char* val, size_t vallen,
     char** errptr);
 
+extern void rocksdb_garbage_collect(rocksdb_t *db, char **errptr);
+extern void rocksdb_save_ftl_state(rocksdb_t *db, char **errptr);
+
 extern void rocksdb_put_cf(
     rocksdb_t* db,
     const rocksdb_writeoptions_t* options,

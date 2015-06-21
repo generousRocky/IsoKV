@@ -77,6 +77,22 @@ int main(int argc, char **argv)
 
     free(returned_value);
 
+    rocksdb_garbage_collect(db, &err);
+
+    if(err)
+    {
+	cout << "GARBAGE COLLECTION FAILED " << err << endl << flush;
+	return EXIT_FAILURE;
+    }
+
+    rocksdb_save_ftl_state(db, &err);
+
+    if(err)
+    {
+	cout << "SAVE FTL FAILED " << err << endl << flush;
+	return EXIT_FAILURE;
+    }
+
     rocksdb_writeoptions_destroy(writeoptions);
     rocksdb_readoptions_destroy(readoptions);
     rocksdb_options_destroy(options);
