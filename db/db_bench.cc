@@ -2676,8 +2676,7 @@ class Benchmark {
       thread->stats.FinishedOps(db_with_cfh, db_with_cfh->db,
                                 entries_per_batch_);
       if (!s.ok()) {
-        fprintf(stderr, "put error: %s\n", s.ToString().c_str());
-        exit(1);
+	return;
       }
     }
     thread->stats.AddBytes(bytes);
