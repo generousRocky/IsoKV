@@ -68,6 +68,8 @@ class nvm_file
 	void UnlockFile();
 
 	void AddName(const char *name);
+
+	Status Save(const int fd, const int indent_level);
 };
 
 class NVMFileLock : public FileLock

@@ -15,6 +15,7 @@ G=$((1024 * M))
 
 DB_DIR="rocksdb"
 WAL_DIR="rocksdb"
+output_dir="."
 
 # all multithreaded tests run with sync=1 unless
 # $DB_BENCH_NO_SYNC is defined

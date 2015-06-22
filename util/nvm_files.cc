@@ -104,6 +104,11 @@ void nvm_file::UnlockFile()
     pthread_mutex_unlock(&file_lock);
 }
 
+Status nvm_file::Save(const int fd, const int indent_level)
+{
+    return Status::OK();
+}
+
 bool nvm_file::ClearLastPage(nvm *nvm_api)
 {
     pthread_mutex_lock(&page_update_mtx);

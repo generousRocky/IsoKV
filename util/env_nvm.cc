@@ -146,6 +146,22 @@ class NVMEnv : public Env
 	{
 	    NVM_DEBUG("saving ftl");
 
+	    int fd = open("root_nvm.layout", O_RDWR | O_CREAT, S_IWUSR | S_IRUSR);
+
+	    if(fd < 0)
+	    {
+		return Status::IOError("Unable to create save ftl file");
+	    }
+
+	    if(!root_dir->Save(fd, 0).ok())
+	    {
+		close(fd);
+
+		return Status::IOError("Unable to save directory");
+	    }
+
+	    close(fd);
+
 	    return Status::OK();
 	}
 

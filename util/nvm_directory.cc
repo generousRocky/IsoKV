@@ -71,6 +71,82 @@ bool nvm_directory::HasName(const char *_name, const int n)
     return (name[i] == '\0');
 }
 
+Status nvm_directory::Save(const int fd, const int indent_level)
+{
+    for(int i = 0; i < indent_level; ++i)
+    {
+	if(write(fd, "\t", 1) != 1)
+	{
+	    return Status::IOError("Error writing 1");
+	}
+    }
+
+    if(write(fd, "d:", 2) != 2)
+    {
+	return Status::IOError("Error writing 1");
+    }
+
+    int name_len = strlen(name);
+
+    if(write(fd, name, name_len) != name_len)
+    {
+	return Status::IOError("Error writing 2");
+    }
+
+    if(write(fd, "\n", 1) != 1)
+    {
+	return Status::IOError("Error writing 5");
+    }
+
+    list_node *temp;
+
+    pthread_mutex_lock(&list_update_mtx);
+
+    temp = head;
+
+    pthread_mutex_unlock(&list_update_mtx);
+
+    while(temp != nullptr)
+    {
+	nvm_entry *entry = (nvm_entry *)temp->GetData();
+
+	switch(entry->GetType())
+	{
+	    case FileEntry:
+	    {
+		nvm_file *process_file = (nvm_file *)entry->GetData();
+
+		if(!process_file->Save(fd, indent_level + 1).ok())
+		{
+		    return Status::IOError("Error writing 3");
+		}
+	    }
+	    break;
+
+	    case DirectoryEntry:
+	    {
+		nvm_directory *process_directory = (nvm_directory *)entry->GetData();
+
+		if(!process_directory->Save(fd, indent_level + 1).ok())
+		{
+		    return Status::IOError("Error writing 4");
+		}
+	    }
+	    break;
+
+	    default:
+	    {
+		NVM_FATAL("Unknown entry type!!");
+	    }
+	    break;
+	}
+
+	temp = temp->GetNext();
+    }
+
+    return Status::OK();
+}
+
 //checks if the node exists
 list_node *nvm_directory::node_look_up(list_node *prev, const char *look_up_name)
 {

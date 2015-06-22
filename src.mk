@@ -203,6 +203,7 @@ TEST_BENCH_SOURCES =                                                    \
   tools/db_sanity_test.cc                                               \
   tools/reduce_levels_test.cc                                           \
   unit_tests/nvm_file_manager_test.cc					\
+  unit_tests/nvm_ftl_save_test.cc					\
   unit_tests/nvm_rw_tests.cc						\
   unit_tests/nvm_sequential_file_test.cc				\
   unit_tests/nvm_random_access_file_test.cc				\
