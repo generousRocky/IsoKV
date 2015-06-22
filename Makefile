@@ -264,6 +264,7 @@ TESTS = \
 	json_document_test \
 	spatial_db_test \
 	version_edit_test \
+	nvm_file_manager_test \
 	nvm_ftl_save_test \
 	nvm_rw_tests \
 	nvm_sequential_file_test \
