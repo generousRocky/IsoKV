@@ -3402,6 +3402,29 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     RecordTick(stats_, WRITE_TIMEDOUT);
     return Status::TimedOut();
   }
+
+  if (w.parallel_execute_id > 0 && !w.done) {
+    mutex_.Unlock();
+    // Insert into mem table
+    const SequenceNumber current_sequence =
+        versions_->LastSequence() +
+        static_cast<SequenceNumber>(w.parallel_execute_id);
+    WriteBatchInternal::SetSequence(my_batch, current_sequence);
+
+    PERF_TIMER_GUARD(write_memtable_time);
+
+    status = WriteBatchInternal::InsertInto(
+        my_batch, column_family_memtables_.get(),
+        write_options.ignore_missing_column_families, 0, this, false);
+    SetTickerCount(stats_, SEQUENCE_NUMBER, current_sequence);
+
+    bool need_wake_up_leader = write_thread_.ReportParallelRunFinish();
+
+    mutex_.Lock();
+    write_thread_.EndParallelRun(&w, need_wake_up_leader);
+    assert(w.done);
+  }
+
   if (w.done) {  // write was done by someone else
     default_cf_internal_stats_->AddDBStats(InternalStats::WRITE_DONE_BY_OTHER,
                                            1);
@@ -3420,12 +3443,14 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   assert(!single_column_family_mode_ ||
          versions_->GetColumnFamilySet()->NumberOfColumnFamilies() == 1);
 
+  bool parallel_insert = (callback == nullptr);
   uint64_t max_total_wal_size = (db_options_.max_total_wal_size == 0)
                                     ? 4 * max_total_in_memory_state_
                                     : db_options_.max_total_wal_size;
   if (UNLIKELY(!single_column_family_mode_) &&
       alive_log_files_.begin()->getting_flushed == false &&
       total_log_size_ > max_total_wal_size) {
+    parallel_insert = false;
     uint64_t flush_column_family_if_log_file = alive_log_files_.begin()->number;
     alive_log_files_.begin()->getting_flushed = true;
     Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
@@ -3449,6 +3474,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     }
     MaybeScheduleFlushOrCompaction();
   } else if (UNLIKELY(write_buffer_.ShouldFlush())) {
+    parallel_insert = false;
     Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
         "Flushing all column families. Write buffer is using %" PRIu64
         " bytes out of a total of %" PRIu64 ".",
@@ -3477,6 +3503,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
 
   if (UNLIKELY(status.ok() && !flush_scheduler_.Empty())) {
     status = ScheduleFlushes(&context);
+    parallel_insert = false;
   }
 
   if (UNLIKELY(status.ok()) &&
@@ -3526,6 +3553,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
       WriteBatch* updates = nullptr;
       if (write_batch_group.size() == 1) {
         updates = write_batch_group[0];
+        parallel_insert = false;
       } else {
         updates = &tmp_batch_;
         for (size_t i = 0; i < write_batch_group.size(); ++i) {
@@ -3573,7 +3601,27 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
           log_dir_synced_ = true;
         }
       }
-      if (status.ok()) {
+      if (parallel_insert) {
+        mutex_.Lock();
+        write_thread_.StartParallelRun(&w, write_batch_group.size(),
+                                       last_writer);
+        mutex_.Unlock();
+
+        WriteBatchInternal::SetSequence(my_batch, current_sequence);
+
+        PERF_TIMER_GUARD(write_memtable_time);
+
+        status = WriteBatchInternal::InsertInto(
+            my_batch, column_family_memtables_.get(),
+            write_options.ignore_missing_column_families, 0, this, false);
+        SetTickerCount(stats_, SEQUENCE_NUMBER, last_sequence);
+
+        write_thread_.ReportParallelRunFinish();
+
+        if (updates == &tmp_batch_) {
+          tmp_batch_.Clear();
+        }
+      } else if (status.ok()) {
         PERF_TIMER_GUARD(write_memtable_time);
 
         status = WriteBatchInternal::InsertInto(
@@ -3595,6 +3643,13 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
       }
       mutex_.Lock();
 
+      if (status.ok()) {
+        if (parallel_insert) {
+          write_thread_.LeaderWaitEndParallel(&w);
+        }
+        versions_->SetLastSequence(last_sequence);
+      }
+
       // internal stats
       default_cf_internal_stats_->AddDBStats(
           InternalStats::BYTES_WRITTEN, batch_size);
@@ -3605,9 +3660,6 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
             InternalStats::WAL_FILE_SYNCED, 1);
         default_cf_internal_stats_->AddDBStats(
             InternalStats::WAL_FILE_BYTES, log_size);
-      }
-      if (status.ok()) {
-        versions_->SetLastSequence(last_sequence);
       }
   } else {
     // Operation failed.  Make sure sure mutex is held for cleanup code below.
@@ -3620,7 +3672,12 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   }
 
   mutex_.AssertHeld();
-  write_thread_.ExitWriteThread(&w, last_writer, status);
+
+  if (parallel_insert) {
+    write_thread_.LeaderEndParallel(&w, last_writer);
+  } else {
+    write_thread_.ExitWriteThread(&w, last_writer, status);
+  }
 
   mutex_.Unlock();
 

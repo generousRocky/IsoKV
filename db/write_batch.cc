@@ -31,6 +31,7 @@
 #include "db/snapshot.h"
 #include "db/write_batch_internal.h"
 #include "util/coding.h"
+#include "util/instrumented_mutex.h"
 #include "util/statistics.h"
 #include <stdexcept>
 #include "util/perf_context_imp.h"
@@ -521,6 +522,8 @@ class MemTableInserter : public WriteBatch::Handler {
 };
 }  // namespace
 
+// InstrumentedMutex sm;
+
 // This function can only be called in these conditions:
 // 1) During Recovery()
 // 2) during Write(), in a single-threaded write thread
@@ -531,6 +534,7 @@ Status WriteBatchInternal::InsertInto(const WriteBatch* b,
                                       bool ignore_missing_column_families,
                                       uint64_t log_number, DB* db,
                                       const bool dont_filter_deletes) {
+  //  InstrumentedMutexLock l(&sm);
   MemTableInserter inserter(WriteBatchInternal::Sequence(b), memtables,
                             ignore_missing_column_families, log_number, db,
                             dont_filter_deletes);

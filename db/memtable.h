@@ -23,6 +23,7 @@
 #include "db/memtable_allocator.h"
 #include "util/arena.h"
 #include "util/dynamic_bloom.h"
+#include "util/instrumented_mutex.h"
 #include "util/mutable_cf_options.h"
 
 namespace rocksdb {
@@ -344,6 +345,8 @@ class MemTable {
   // a flag indicating if flush has been scheduled
   bool flush_scheduled_;
   Env* env_;
+
+  InstrumentedMutex mutex_;
 };
 
 extern const char* EncodeKey(std::string* scratch, const Slice& target);

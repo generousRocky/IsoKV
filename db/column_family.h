@@ -523,6 +523,7 @@ class ColumnFamilyMemTablesImpl : public ColumnFamilyMemTables {
   ColumnFamilyData* current_;
   FlushScheduler* flush_scheduler_;
   ColumnFamilyHandleInternal handle_;
+  InstrumentedMutex mutex_;
 };
 
 extern uint32_t GetColumnFamilyID(ColumnFamilyHandle* column_family);

@@ -326,6 +326,8 @@ void MemTable::Add(SequenceNumber s, ValueType type,
                                internal_key_size + VarintLength(val_size) +
                                val_size;
   char* buf = nullptr;
+
+  InstrumentedMutexLock l(&mutex_);
   KeyHandle handle = table_->Allocate(encoded_len, &buf);
   assert(buf != nullptr);
   char* p = EncodeVarint32(buf, internal_key_size);

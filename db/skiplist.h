@@ -300,7 +300,8 @@ typename SkipList<Key, Comparator>::Node* SkipList<Key, Comparator>::
     Node* next = x->Next(level);
     // Make sure the lists are sorted.
     // If x points to head_ or next points nullptr, it is trivially satisfied.
-    assert((x == head_) || (next == nullptr) || KeyIsAfterNode(next->key, x));
+    //    assert((x == head_) || (next == nullptr) || KeyIsAfterNode(next->key,
+    //    x));
     if (KeyIsAfterNode(key, next)) {
       // Keep searching in this list
       x = next;

@@ -17,7 +17,7 @@ Status WriteThread::EnterWriteThread(WriteThread::Writer* w,
   writers_.push_back(w);
 
   bool timed_out = false;
-  while (!w->done && w != writers_.front()) {
+  while (!w->done && w->parallel_execute_id <= 0 && w != writers_.front()) {
     if (expiration_time == 0) {
       w->cv.Wait();
     } else if (w->cv.TimedWait(expiration_time)) {
@@ -31,6 +31,10 @@ Status WriteThread::EnterWriteThread(WriteThread::Writer* w,
         break;
       }
     }
+  }
+
+  if (!w->done && w->parallel_execute_id > 0) {
+    return Status::OK();
   }
 
   if (timed_out) {
@@ -58,6 +62,80 @@ Status WriteThread::EnterWriteThread(WriteThread::Writer* w,
     return Status::TimedOut();
   }
   return Status::OK();
+}
+
+void WriteThread::StartParallelRun(WriteThread::Writer* w, uint32_t num_threads,
+                                   WriteThread::Writer* last_writer) {
+  assert(unfinished_threads_.load() == 0);
+  unfinished_threads_.store(num_threads);
+  int parallel_id = 1;
+  while (!writers_.empty()) {
+    Writer* parallel_writer = writers_.front();
+    parallel_writers_.push_back(parallel_writer);
+    parallel_writer->parallel_execute_id = parallel_id;
+    parallel_id += parallel_writer->batch->Count();
+    if (parallel_writer != w) {
+      parallel_writer->cv.Signal();
+    }
+    if (parallel_writer != last_writer) {
+      writers_.pop_front();
+    } else {
+      // Leave the last parallel writer so that the next one in queue
+      // will not execute
+      break;
+    }
+  }
+  assert(num_threads == parallel_writers_.size());
+}
+
+bool WriteThread::ReportParallelRunFinish() {
+  return unfinished_threads_.fetch_add(-1) == 1;
+}
+
+void WriteThread::LeaderWaitEndParallel(WriteThread::Writer* self) {
+  while (unfinished_threads_.load() != 0) {
+    self->cv.Wait();
+  }
+}
+
+void WriteThread::LeaderEndParallel(WriteThread::Writer* self,
+                                    WriteThread::Writer* last_writer) {
+  assert(unfinished_threads_.load() == 0);
+  // Tag all as done
+  for (Writer* parallel_writer : parallel_writers_) {
+    if (parallel_writer != self && parallel_writer != last_writer) {
+      parallel_writer->done = true;
+      parallel_writer->cv.Signal();
+    }
+  }
+  assert(!writers_.empty());
+  assert(parallel_writers_.back() == writers_.front());
+  assert(parallel_writers_.back() == last_writer);
+  parallel_writers_.clear();
+  // Signaling the last writer needs to be finished after cleaning
+  // up parallel_writers_. Otherwise there will be a data race.
+  last_writer->done = true;
+  last_writer->cv.Signal();
+}
+
+void WriteThread::EndParallelRun(WriteThread::Writer* w,
+                                 bool need_wake_up_leader) {
+  if (need_wake_up_leader && !w->done) {
+    assert(!parallel_writers_.empty());
+    Writer* leader = parallel_writers_.front();
+    assert(leader != nullptr);
+    leader->cv.Signal();
+  }
+
+  while (!w->done) {
+    w->cv.Wait();
+  }
+  if (!writers_.empty() && writers_.front() == w) {
+    writers_.pop_front();
+    if (!writers_.empty()) {
+      writers_.front()->cv.Signal();
+    }
+  }
 }
 
 void WriteThread::ExitWriteThread(WriteThread::Writer* w,

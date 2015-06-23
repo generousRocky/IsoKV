@@ -27,6 +27,7 @@ class WriteThread {
     bool disableWAL;
     bool in_batch_group;
     bool done;
+    int parallel_execute_id;
     bool has_callback;
     uint64_t timeout_hint_us;
     InstrumentedCondVar cv;
@@ -37,12 +38,13 @@ class WriteThread {
           disableWAL(false),
           in_batch_group(false),
           done(false),
+          parallel_execute_id(-1),
           has_callback(false),
           timeout_hint_us(kNoTimeOut),
           cv(mu) {}
   };
 
-  WriteThread() = default;
+  WriteThread() : unfinished_threads_(0) {}
   ~WriteThread() = default;
 
   // Before applying write operation (such as DBImpl::Write, DBImpl::Flush)
@@ -72,6 +74,18 @@ class WriteThread {
   // REQUIRES: db mutex held
   void ExitWriteThread(Writer* w, Writer* last_writer, Status status);
 
+  void StartParallelRun(WriteThread::Writer* w, uint32_t num_threads,
+                        WriteThread::Writer* last_writer);
+
+  bool ReportParallelRunFinish();
+
+  void LeaderWaitEndParallel(WriteThread::Writer* self);
+
+  void LeaderEndParallel(WriteThread::Writer* self,
+                         WriteThread::Writer* last_writer);
+
+  void EndParallelRun(WriteThread::Writer* w, bool need_wake_up_leader);
+
   // return total batch group size
   size_t BuildBatchGroup(Writer** last_writer,
                          autovector<WriteBatch*>* write_batch_group);
@@ -79,6 +93,8 @@ class WriteThread {
  private:
   // Queue of writers.
   std::deque<Writer*> writers_;
+  std::vector<Writer*> parallel_writers_;
+  std::atomic<uint32_t> unfinished_threads_;
 };
 
 }  // namespace rocksdb
