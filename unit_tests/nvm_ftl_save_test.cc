@@ -22,6 +22,9 @@ int main(int argc, char **argv)
     dir1->CreateDirectory("testxx");
     dir1->CreateDirectory("testxxx");
 
+    dir1->nvm_fopen("ftestx", "w");
+    dir1->nvm_fopen("ftestxx", "w");
+
     int fd = open("root_nvm.layout", O_RDWR | O_CREAT, S_IWUSR | S_IRUSR);
 
     if(fd < 0)

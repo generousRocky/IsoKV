@@ -106,6 +106,97 @@ void nvm_file::UnlockFile()
 
 Status nvm_file::Save(const int fd, const int indent_level)
 {
+    char temp[100];
+
+    unsigned int len;
+
+    for(int i = 0; i < indent_level; ++i)
+    {
+	if(write(fd, "\t", 1) != 1)
+	{
+	    return Status::IOError("fError writing 1");
+	}
+    }
+
+    std::vector<std::string> _names;
+
+    EnumerateNames(&_names);
+
+    if(write(fd, "f:<", 3) != 3)
+    {
+	return Status::IOError("fError writing 2");
+    }
+
+    for(unsigned int i = 0; i < _names.size(); ++i)
+    {
+	if(i > 0)
+	{
+	    if(write(fd, ",", 1) != 1)
+	    {
+		return Status::IOError("fError writing 3");
+	    }
+	}
+
+	len = _names[i].length();
+
+	if(write(fd, _names[i].c_str(), len) != len)
+	{
+	    return Status::IOError("fError writing 4");
+	}
+    }
+
+    if(write(fd, ">:", 2) != 2)
+    {
+	return Status::IOError("fError writing 5");
+    }
+
+    len = sprintf(temp, "%lu", GetSize());
+
+    if(write(fd, temp, len) != len)
+    {
+	return Status::IOError("fError writing 6");
+    }
+
+    if(write(fd, ":", 1) != 1)
+    {
+	return Status::IOError("fError writing 7");
+    }
+
+    len = sprintf(temp, "%ld", GetLastModified());
+
+    if(write(fd, temp, len) != len)
+    {
+	return Status::IOError("fError writing 8");
+    }
+
+    if(write(fd, ":", 1) != 1)
+    {
+	return Status::IOError("fError writing 9");
+    }
+
+    for(unsigned int i = 0; i < pages.size(); ++i)
+    {
+	if(i > 0)
+	{
+	    if(write(fd, ",", 1) != 1)
+	    {
+		return Status::IOError("fError writing 10");
+	    }
+	}
+
+	len = sprintf(temp, "%lu-%lu-%lu", pages[i]->lun_id, pages[i]->block_id, pages[i]->id);
+
+	if(write(fd, temp, len) != len)
+	{
+	    return Status::IOError("fError writing 11");
+	}
+    }
+
+    if(write(fd, "\n", 1) != 1)
+    {
+	return Status::IOError("fError writing 12");
+    }
+
     return Status::OK();
 }
 
