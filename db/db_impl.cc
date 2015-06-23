@@ -253,7 +253,6 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
   // Give a large number for setting of "infinite" open files.
   const int table_cache_size = (db_options_.max_open_files == -1) ?
         4194304 : db_options_.max_open_files - 10;
-  // Reserve ten files or so for other uses and give the rest to TableCache.
   table_cache_ =
       NewLRUCache(table_cache_size, db_options_.table_cache_numshardbits);
 
@@ -957,7 +956,9 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
           info_log, "%s%s: dropping %d bytes; %s",
           (this->status == nullptr ? "(ignoring error) " : ""),
           fname, static_cast<int>(bytes), s.ToString().c_str());
-      if (this->status != nullptr && this->status->ok()) *this->status = s;
+      if (this->status != nullptr && this->status->ok()) {
+        *this->status = s;
+      }
     }
   };
 
@@ -983,6 +984,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
     stream.EndArray();
   }
 
+  bool continue_replay_log = true;
   for (auto log_number : log_numbers) {
     // The previous incarnation may not have written any MANIFEST
     // records after allocating this log number.  So we manually
@@ -1008,21 +1010,56 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
     reporter.env = env_;
     reporter.info_log = db_options_.info_log.get();
     reporter.fname = fname.c_str();
-    reporter.status = (db_options_.paranoid_checks) ? &status : nullptr;
+    if (!db_options_.paranoid_checks ||
+        db_options_.wal_recovery_mode ==
+            WALRecoveryMode::kSkipAnyCorruptedRecords) {
+      reporter.status = nullptr;
+    } else {
+      reporter.status = &status;
+    }
     // We intentially make log::Reader do checksumming even if
     // paranoid_checks==false so that corruptions cause entire commits
     // to be skipped instead of propagating bad information (like overly
     // large sequence numbers).
     log::Reader reader(std::move(file), &reporter, true /*checksum*/,
                        0 /*initial_offset*/);
-    Log(InfoLogLevel::INFO_LEVEL,
-        db_options_.info_log, "Recovering log #%" PRIu64 "", log_number);
+    Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
+        "Recovering log #%" PRIu64 " mode %d skip-recovery %d", log_number,
+        db_options_.wal_recovery_mode, !continue_replay_log);
+
+    // Determine if we should tolerate incomplete records at the tail end of the
+    // log
+    bool report_eof_inconsistency;
+    if (db_options_.wal_recovery_mode ==
+        WALRecoveryMode::kAbsoluteConsistency) {
+      // in clean shutdown we don't expect any error in the log files
+      report_eof_inconsistency = true;
+    } else {
+      // for other modes ignore only incomplete records in the last log file
+      // which is presumably due to write in progress during restart
+      report_eof_inconsistency = false;
+
+      // TODO krad: Evaluate if we need to move to a more strict mode where we
+      // restrict the inconsistency to only the last log
+    }
 
     // Read all the records and add to a memtable
     std::string scratch;
     Slice record;
     WriteBatch batch;
-    while (reader.ReadRecord(&record, &scratch) && status.ok()) {
+
+    if (!continue_replay_log) {
+      uint64_t bytes;
+      if (env_->GetFileSize(fname, &bytes).ok()) {
+        auto info_log = db_options_.info_log.get();
+        Log(InfoLogLevel::WARN_LEVEL, info_log, "%s: dropping %d bytes",
+            fname.c_str(), static_cast<int>(bytes));
+      }
+    }
+
+    while (continue_replay_log &&
+           reader.ReadRecord(&record, &scratch, report_eof_inconsistency) &&
+           status.ok()) {
       if (record.size() < 12) {
         reporter.Corruption(record.size(),
                             Status::Corruption("log record too small"));
@@ -1075,7 +1112,24 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
     }
 
     if (!status.ok()) {
-      return status;
+      // The hook function is designed to ignore all IO errors from reader
+      // during recovery for kSkipAnyCorruptedRecords. Status variable is
+      // unmodified by the reader.
+      assert(db_options_.wal_recovery_mode !=
+             WALRecoveryMode::kSkipAnyCorruptedRecords);
+      if (db_options_.wal_recovery_mode ==
+                 WALRecoveryMode::kPointInTimeRecovery) {
+        // We should ignore the error but not continue replaying
+        status = Status::OK();
+        continue_replay_log = false;
+
+        Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
+            "Point in time recovered to log #%" PRIu64 " seq #%" PRIu64,
+            log_number, *max_sequence);
+      } else if (db_options_.wal_recovery_mode !=
+                 WALRecoveryMode::kSkipAnyCorruptedRecords) {
+        return status;
+      }
     }
 
     flush_scheduler_.Clear();
@@ -2479,15 +2533,15 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress, JobContext* job_context,
     for (size_t i = 0; i < c->num_input_files(0); i++) {
       FileMetaData* f = c->input(0, i);
       c->edit()->DeleteFile(c->level(), f->fd.GetNumber());
-      c->edit()->AddFile(c->level() + 1, f->fd.GetNumber(), f->fd.GetPathId(),
-                         f->fd.GetFileSize(), f->smallest, f->largest,
-                         f->smallest_seqno, f->largest_seqno,
+      c->edit()->AddFile(c->output_level(), f->fd.GetNumber(),
+                         f->fd.GetPathId(), f->fd.GetFileSize(), f->smallest,
+                         f->largest, f->smallest_seqno, f->largest_seqno,
                          f->marked_for_compaction);
 
       LogToBuffer(log_buffer,
                   "[%s] Moving #%" PRIu64 " to level-%d %" PRIu64 " bytes\n",
                   c->column_family_data()->GetName().c_str(), f->fd.GetNumber(),
-                  c->level() + 1, f->fd.GetFileSize());
+                  c->output_level(), f->fd.GetFileSize());
       ++moved_files;
       moved_bytes += f->fd.GetFileSize();
     }
@@ -2499,20 +2553,20 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress, JobContext* job_context,
         c->column_family_data(), job_context, *c->mutable_cf_options());
 
     VersionStorageInfo::LevelSummaryStorage tmp;
-    c->column_family_data()->internal_stats()->IncBytesMoved(c->level() + 1,
+    c->column_family_data()->internal_stats()->IncBytesMoved(c->output_level(),
                                                              moved_bytes);
     {
       event_logger_.LogToBuffer(log_buffer)
           << "job" << job_context->job_id << "event"
           << "trivial_move"
-          << "destination_level" << c->level() + 1 << "files" << moved_files
+          << "destination_level" << c->output_level() << "files" << moved_files
           << "total_files_size" << moved_bytes;
     }
     LogToBuffer(
         log_buffer,
         "[%s] Moved #%d files to level-%d %" PRIu64 " bytes %s: %s\n",
-        c->column_family_data()->GetName().c_str(), moved_files, c->level() + 1,
-        moved_bytes, status.ToString().c_str(),
+        c->column_family_data()->GetName().c_str(), moved_files,
+        c->output_level(), moved_bytes, status.ToString().c_str(),
         c->column_family_data()->current()->storage_info()->LevelSummary(&tmp));
     *madeProgress = true;
 
