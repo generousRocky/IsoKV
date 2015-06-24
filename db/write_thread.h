@@ -10,6 +10,7 @@
 #include <limits>
 #include "rocksdb/status.h"
 #include "db/write_batch_internal.h"
+#include "db/version_set.h"
 #include "util/autovector.h"
 #include "port/port.h"
 #include "util/instrumented_mutex.h"
@@ -30,6 +31,7 @@ class WriteThread {
     int parallel_execute_id;
     bool has_callback;
     uint64_t timeout_hint_us;
+    std::set<ColumnFamilyData*> cfd_set;
     InstrumentedCondVar cv;
 
     explicit Writer(InstrumentedMutex* mu)
@@ -82,7 +84,8 @@ class WriteThread {
   void LeaderWaitEndParallel(WriteThread::Writer* self);
 
   void LeaderEndParallel(WriteThread::Writer* self,
-                         WriteThread::Writer* last_writer);
+                         WriteThread::Writer* last_writer,
+                         FlushScheduler* flush_scheduler);
 
   void EndParallelRun(WriteThread::Writer* w, bool need_wake_up_leader);
 

@@ -3413,9 +3413,13 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
 
     PERF_TIMER_GUARD(write_memtable_time);
 
+    ColumnFamilyMemTablesImpl column_family_memtables(
+        versions_->GetColumnFamilySet(), &flush_scheduler_);
+
     status = WriteBatchInternal::InsertInto(
-        my_batch, column_family_memtables_.get(),
-        write_options.ignore_missing_column_families, 0, this, false);
+        my_batch, &column_family_memtables,
+        write_options.ignore_missing_column_families, 0, this, false,
+        &w.cfd_set);
     SetTickerCount(stats_, SEQUENCE_NUMBER, current_sequence);
 
     bool need_wake_up_leader = write_thread_.ReportParallelRunFinish();
@@ -3611,9 +3615,13 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
 
         PERF_TIMER_GUARD(write_memtable_time);
 
+        ColumnFamilyMemTablesImpl column_family_memtables(
+            versions_->GetColumnFamilySet(), &flush_scheduler_);
+
         status = WriteBatchInternal::InsertInto(
-            my_batch, column_family_memtables_.get(),
-            write_options.ignore_missing_column_families, 0, this, false);
+            my_batch, &column_family_memtables,
+            write_options.ignore_missing_column_families, 0, this, false,
+            &w.cfd_set);
         SetTickerCount(stats_, SEQUENCE_NUMBER, last_sequence);
 
         write_thread_.ReportParallelRunFinish();
@@ -3626,7 +3634,8 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
 
         status = WriteBatchInternal::InsertInto(
             updates, column_family_memtables_.get(),
-            write_options.ignore_missing_column_families, 0, this, false);
+            write_options.ignore_missing_column_families, 0, this, false,
+            nullptr);
         // A non-OK status here indicates iteration failure (either in-memory
         // writebatch corruption (very bad), or the client specified invalid
         // column family).  This will later on trigger bg_error_.
@@ -3674,7 +3683,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   mutex_.AssertHeld();
 
   if (parallel_insert) {
-    write_thread_.LeaderEndParallel(&w, last_writer);
+    write_thread_.LeaderEndParallel(&w, last_writer, &flush_scheduler_);
   } else {
     write_thread_.ExitWriteThread(&w, last_writer, status);
   }

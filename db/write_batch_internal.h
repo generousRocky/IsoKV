@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
+#include <set>
 #include "rocksdb/types.h"
 #include "rocksdb/write_batch.h"
 #include "rocksdb/db.h"
@@ -16,6 +17,7 @@
 namespace rocksdb {
 
 class MemTable;
+class ColumnFamilyData;
 
 class ColumnFamilyMemTables {
  public:
@@ -28,6 +30,7 @@ class ColumnFamilyMemTables {
   virtual MemTable* GetMemTable() const = 0;
   virtual ColumnFamilyHandle* GetColumnFamilyHandle() = 0;
   virtual void CheckMemtableFull() = 0;
+  virtual ColumnFamilyData* current() { return nullptr; }
 };
 
 class ColumnFamilyMemTablesDefault : public ColumnFamilyMemTables {
@@ -117,7 +120,8 @@ class WriteBatchInternal {
                            ColumnFamilyMemTables* memtables,
                            bool ignore_missing_column_families = false,
                            uint64_t log_number = 0, DB* db = nullptr,
-                           const bool dont_filter_deletes = true);
+                           const bool dont_filter_deletes = true,
+                           std::set<ColumnFamilyData*>* cfd_set = nullptr);
 
   static void Append(WriteBatch* dst, const WriteBatch* src);
 };

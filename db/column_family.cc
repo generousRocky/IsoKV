@@ -806,11 +806,8 @@ ColumnFamilyHandle* ColumnFamilyMemTablesImpl::GetColumnFamilyHandle() {
 
 void ColumnFamilyMemTablesImpl::CheckMemtableFull() {
   if (current_ != nullptr && current_->mem()->ShouldScheduleFlush()) {
-    InstrumentedMutexLock l(&mutex_);
-    if (current_->mem()->ShouldScheduleFlush()) {
-      flush_scheduler_->ScheduleFlush(current_);
-      current_->mem()->MarkFlushScheduled();
-    }
+    flush_scheduler_->ScheduleFlush(current_);
+    current_->mem()->MarkFlushScheduled();
   }
 }
 

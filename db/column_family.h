@@ -24,7 +24,6 @@
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
-#include "util/instrumented_mutex.h"
 #include "util/mutable_cf_options.h"
 #include "util/thread_local.h"
 
@@ -518,12 +517,13 @@ class ColumnFamilyMemTablesImpl : public ColumnFamilyMemTables {
   // REQUIRES: under a DB mutex OR from a write thread
   virtual void CheckMemtableFull() override;
 
+  virtual ColumnFamilyData* current() { return current_; }
+
  private:
   ColumnFamilySet* column_family_set_;
   ColumnFamilyData* current_;
   FlushScheduler* flush_scheduler_;
   ColumnFamilyHandleInternal handle_;
-  InstrumentedMutex mutex_;
 };
 
 extern uint32_t GetColumnFamilyID(ColumnFamilyHandle* column_family);

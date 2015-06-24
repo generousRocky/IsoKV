@@ -149,9 +149,8 @@ class MemTable {
   //
   // REQUIRES: external synchronization to prevent simultaneous
   // operations on the same MemTable.
-  void Add(SequenceNumber seq, ValueType type,
-           const Slice& key,
-           const Slice& value);
+  void Add(SequenceNumber seq, ValueType type, const Slice& key,
+           const Slice& value, bool allow_concurrent = false);
 
   // If memtable contains a value for key, store it in *value and return true.
   // If memtable contains a deletion for key, store a NotFound() error
@@ -220,7 +219,9 @@ class MemTable {
   // Get total number of deletes in the mem table.
   // REQUIRES: external synchronization to prevent simultaneous
   // operations on the same MemTable (unless this Memtable is immutable).
-  uint64_t num_deletes() const { return num_deletes_; }
+  uint64_t num_deletes() const {
+    return num_deletes_.load(std::memory_order_relaxed);
+  }
 
   // Returns the edits area that is needed for flushing the memtable
   VersionEdit* GetEdits() { return &edit_; }
@@ -234,7 +235,9 @@ class MemTable {
   // into the memtable.
   // REQUIRES: external synchronization to prevent simultaneous
   // operations on the same MemTable (unless this Memtable is immutable).
-  SequenceNumber GetFirstSequenceNumber() { return first_seqno_; }
+  SequenceNumber GetFirstSequenceNumber() {
+    return first_seqno_.load(std::memory_order_relaxed);
+  }
 
   // Returns the sequence number that is guaranteed to be smaller than or equal
   // to the sequence number of any key that could be inserted into this
@@ -243,7 +246,9 @@ class MemTable {
   //
   // If the earliest sequence number could not be determined,
   // kMaxSequenceNumber will be returned.
-  SequenceNumber GetEarliestSequenceNumber() { return earliest_seqno_; }
+  SequenceNumber GetEarliestSequenceNumber() {
+    return earliest_seqno_.load(std::memory_order_relaxed);
+  }
 
   // Returns the next active logfile number when this memtable is about to
   // be flushed to storage
@@ -308,7 +313,7 @@ class MemTable {
   // Total data size of all data inserted
   std::atomic<uint64_t> data_size_;
   std::atomic<uint64_t> num_entries_;
-  uint64_t num_deletes_;
+  std::atomic<uint64_t> num_deletes_;
 
   // These are used to manage memtable flushes to storage
   bool flush_in_progress_; // started the flush
@@ -320,11 +325,11 @@ class MemTable {
   VersionEdit edit_;
 
   // The sequence number of the kv that was inserted first
-  SequenceNumber first_seqno_;
+  std::atomic<SequenceNumber> first_seqno_;
 
   // The db sequence number at the time of creation or kMaxSequenceNumber
   // if not set.
-  SequenceNumber earliest_seqno_;
+  std::atomic<SequenceNumber> earliest_seqno_;
 
   // The log files earlier than this number can be deleted.
   uint64_t mem_next_logfile_number_;

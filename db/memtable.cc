@@ -313,7 +313,7 @@ uint64_t MemTable::ApproximateSize(const Slice& start_ikey,
 
 void MemTable::Add(SequenceNumber s, ValueType type,
                    const Slice& key, /* user key */
-                   const Slice& value) {
+                   const Slice& value, bool allow_concurrent) {
   // Format of an entry is concatenation of:
   //  key_size     : varint32 of internal_key.size()
   //  key bytes    : char[internal_key.size()]
@@ -327,8 +327,14 @@ void MemTable::Add(SequenceNumber s, ValueType type,
                                val_size;
   char* buf = nullptr;
 
-  InstrumentedMutexLock l(&mutex_);
+  if (allow_concurrent) {
+    mutex_.Lock();
+  }
   KeyHandle handle = table_->Allocate(encoded_len, &buf);
+  if (allow_concurrent) {
+    mutex_.Unlock();
+  }
+
   assert(buf != nullptr);
   char* p = EncodeVarint32(buf, internal_key_size);
   memcpy(p, key.data(), key_size);
@@ -339,13 +345,27 @@ void MemTable::Add(SequenceNumber s, ValueType type,
   p = EncodeVarint32(p, val_size);
   memcpy(p, value.data(), val_size);
   assert((unsigned)(p + val_size - buf) == (unsigned)encoded_len);
+  if (allow_concurrent) {
+    mutex_.Lock();
+  }
   table_->Insert(handle);
-  num_entries_.store(num_entries_.load(std::memory_order_relaxed) + 1,
+  if (allow_concurrent) {
+    mutex_.Unlock();
+  }
+  if (!allow_concurrent) {
+    num_entries_.store(num_entries_.load(std::memory_order_relaxed) + 1,
+                       std::memory_order_relaxed);
+    data_size_.store(data_size_.load(std::memory_order_relaxed) + encoded_len,
                      std::memory_order_relaxed);
-  data_size_.store(data_size_.load(std::memory_order_relaxed) + encoded_len,
-                   std::memory_order_relaxed);
-  if (type == kTypeDeletion) {
-    num_deletes_++;
+    if (type == kTypeDeletion) {
+      num_deletes_++;
+    }
+  } else {
+    num_entries_.fetch_add(1, std::memory_order_relaxed);
+    data_size_.fetch_add(encoded_len, std::memory_order_relaxed);
+    if (type == kTypeDeletion) {
+      num_deletes_++;
+    }
   }
 
   if (prefix_bloom_) {
@@ -354,14 +374,42 @@ void MemTable::Add(SequenceNumber s, ValueType type,
   }
 
   // The first sequence number inserted into the memtable
-  assert(first_seqno_ == 0 || s > first_seqno_);
-  if (first_seqno_ == 0) {
-    first_seqno_ = s;
+  if (!allow_concurrent) {
+    assert(first_seqno_ == 0 || s > first_seqno_);
+    if (first_seqno_ == 0) {
+      first_seqno_.store(s, std::memory_order_relaxed);
 
-    if (earliest_seqno_ == kMaxSequenceNumber) {
-      earliest_seqno_ = first_seqno_;
+      if (earliest_seqno_ == kMaxSequenceNumber) {
+        earliest_seqno_.store(GetFirstSequenceNumber(),
+                              std::memory_order_relaxed);
+      }
+      assert(first_seqno_.load() >= earliest_seqno_.load());
     }
-    assert(first_seqno_ >= earliest_seqno_);
+  } else {
+    // atomically update first_seqno_
+    // TODO can we set it when switch mem table?
+    while (true) {
+      uint64_t cur_seq_num = first_seqno_.load(std::memory_order_relaxed);
+      if (cur_seq_num == 0 || s < cur_seq_num) {
+        if (first_seqno_.compare_exchange_strong(cur_seq_num, s) == true) {
+          break;
+        }
+      } else {
+        break;
+      }
+    }
+    while (true) {
+      uint64_t cur_earliest_seqno =
+          earliest_seqno_.load(std::memory_order_relaxed);
+      if (cur_earliest_seqno == kMaxSequenceNumber || s < cur_earliest_seqno) {
+        if (first_seqno_.compare_exchange_strong(cur_earliest_seqno, s) ==
+            true) {
+          break;
+        }
+      } else {
+        break;
+      }
+    }
   }
 
   should_flush_ = ShouldFlushNow();

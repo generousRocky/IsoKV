@@ -313,16 +313,19 @@ class MemTableInserter : public WriteBatch::Handler {
   uint64_t log_number_;
   DBImpl* db_;
   const bool dont_filter_deletes_;
+  std::set<ColumnFamilyData*>* cfd_set_;
 
   MemTableInserter(SequenceNumber sequence, ColumnFamilyMemTables* cf_mems,
                    bool ignore_missing_column_families, uint64_t log_number,
-                   DB* db, const bool dont_filter_deletes)
+                   DB* db, const bool dont_filter_deletes,
+                   std::set<ColumnFamilyData*>* cfd_set)
       : sequence_(sequence),
         cf_mems_(cf_mems),
         ignore_missing_column_families_(ignore_missing_column_families),
         log_number_(log_number),
         db_(reinterpret_cast<DBImpl*>(db)),
-        dont_filter_deletes_(dont_filter_deletes) {
+        dont_filter_deletes_(dont_filter_deletes),
+        cfd_set_(cfd_set) {
     assert(cf_mems);
     if (!dont_filter_deletes_) {
       assert(db_);
@@ -364,7 +367,7 @@ class MemTableInserter : public WriteBatch::Handler {
     MemTable* mem = cf_mems_->GetMemTable();
     auto* moptions = mem->GetMemTableOptions();
     if (!moptions->inplace_update_support) {
-      mem->Add(sequence_, kTypeValue, key, value);
+      mem->Add(sequence_, kTypeValue, key, value, cfd_set_ != nullptr);
     } else if (moptions->inplace_callback == nullptr) {
       mem->Update(sequence_, key, value);
       RecordTick(moptions->statistics, NUMBER_KEYS_UPDATED);
@@ -406,7 +409,7 @@ class MemTableInserter : public WriteBatch::Handler {
     // sequence number. Even if the update eventually fails and does not result
     // in memtable add/update.
     sequence_++;
-    cf_mems_->CheckMemtableFull();
+    CheckMemtableFull();
     return Status::OK();
   }
 
@@ -482,11 +485,11 @@ class MemTableInserter : public WriteBatch::Handler {
 
     if (!perform_merge) {
       // Add merge operator to memtable
-      mem->Add(sequence_, kTypeMerge, key, value);
+      mem->Add(sequence_, kTypeMerge, key, value, cfd_set_ != nullptr);
     }
 
     sequence_++;
-    cf_mems_->CheckMemtableFull();
+    CheckMemtableFull();
     return Status::OK();
   }
 
@@ -514,15 +517,23 @@ class MemTableInserter : public WriteBatch::Handler {
         return Status::OK();
       }
     }
-    mem->Add(sequence_, kTypeDeletion, key, Slice());
+    mem->Add(sequence_, kTypeDeletion, key, Slice(), cfd_set_ != nullptr);
     sequence_++;
-    cf_mems_->CheckMemtableFull();
+    CheckMemtableFull();
     return Status::OK();
+  }
+
+  void CheckMemtableFull() {
+    if (cfd_set_ == nullptr) {
+      cf_mems_->CheckMemtableFull();
+    } else {
+      auto* cfd = cf_mems_->current();
+      assert(cfd != nullptr);
+      cfd_set_->insert(cfd);
+    }
   }
 };
 }  // namespace
-
-// InstrumentedMutex sm;
 
 // This function can only be called in these conditions:
 // 1) During Recovery()
@@ -533,11 +544,11 @@ Status WriteBatchInternal::InsertInto(const WriteBatch* b,
                                       ColumnFamilyMemTables* memtables,
                                       bool ignore_missing_column_families,
                                       uint64_t log_number, DB* db,
-                                      const bool dont_filter_deletes) {
-  //  InstrumentedMutexLock l(&sm);
+                                      const bool dont_filter_deletes,
+                                      std::set<ColumnFamilyData*>* cfd_set) {
   MemTableInserter inserter(WriteBatchInternal::Sequence(b), memtables,
                             ignore_missing_column_families, log_number, db,
-                            dont_filter_deletes);
+                            dont_filter_deletes, cfd_set);
   return b->Iterate(&inserter);
 }
 

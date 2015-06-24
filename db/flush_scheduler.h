@@ -9,6 +9,7 @@
 #include <deque>
 #include <set>
 #include <vector>
+#include "util/instrumented_mutex.h"
 
 namespace rocksdb {
 
@@ -30,8 +31,11 @@ class FlushScheduler {
 
   void Clear();
 
+  InstrumentedMutex* mutex() { return &mutex_; }
+
  private:
   std::deque<ColumnFamilyData*> column_families_;
+  InstrumentedMutex mutex_;
 #ifndef NDEBUG
   std::set<ColumnFamilyData*> column_families_set_;
 #endif  // NDEBUG
