@@ -80,6 +80,7 @@ LIB_SOURCES =                                                   \
   util/comparator.cc                                            \
   util/compaction_job_stats_impl.cc                             \
   util/crc32c.cc                                                \
+  util/concurrent_arena.cc                                      \
   util/db_info_dumper.cc                                        \
   util/dynamic_bloom.cc                                         \
   util/env.cc                                                   \

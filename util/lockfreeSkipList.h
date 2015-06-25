@@ -215,7 +215,7 @@ class LockFreeSkipList {
       if (found) {
         return false;
       } else {
-        char* mem = allocator_->AllocateAlignedSafe(
+        char* mem = allocator_->AllocateAligned(
             sizeof(Node) + topLevel * sizeof(std::atomic<Node*>));
         Node* newNode = new (mem) Node(x, topLevel);
 

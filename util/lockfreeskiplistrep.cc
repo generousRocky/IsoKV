@@ -11,19 +11,24 @@
 #include "util/lockfreeSkipList.h"
 #include "util/arena.h"
 #include "util/coding.h"
+#include "util/concurrent_arena.h"
 
 namespace rocksdb {
 namespace {
 class LockFreeSkipListRep : public MemTableRep {
+ private:
+  SimpleConcurrentArena my_arena_;
   LockFreeSkipList<char*, const MemTableRep::KeyComparator&> skip_list_;
 
  public:
   explicit LockFreeSkipListRep(const MemTableRep::KeyComparator& compare,
                                MemTableAllocator* allocator)
-      : MemTableRep(allocator), skip_list_(compare, allocator) {}
+      : MemTableRep(allocator),
+        my_arena_(false),
+        skip_list_(compare, &my_arena_) {}
 
   KeyHandle Allocate(const size_t len, char** buf) override {
-    *buf = allocator_->AllocateSafe(len);
+    *buf = my_arena_.Allocate(len);
     return static_cast<KeyHandle>(*buf);
   }
   // Insert key into the list.
@@ -38,8 +43,7 @@ class LockFreeSkipListRep : public MemTableRep {
   }
 
   virtual size_t ApproximateMemoryUsage() override {
-    // All memory is allocated through arena; nothing to report here
-    return 0;
+    return my_arena_.ApproximateMemoryUsage();
   }
 
   virtual void Get(const LookupKey& k, void* callback_args,

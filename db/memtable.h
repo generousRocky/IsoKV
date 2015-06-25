@@ -350,8 +350,6 @@ class MemTable {
   // a flag indicating if flush has been scheduled
   bool flush_scheduled_;
   Env* env_;
-
-  InstrumentedMutex mutex_;
 };
 
 extern const char* EncodeKey(std::string* scratch, const Slice& target);
