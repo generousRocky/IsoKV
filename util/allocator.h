@@ -13,6 +13,7 @@
 #pragma once
 #include <cstddef>
 #include <cerrno>
+#include "util/instrumented_mutex.h"
 
 namespace rocksdb {
 
@@ -27,6 +28,19 @@ class Allocator {
                                 Logger* logger = nullptr) = 0;
 
   virtual size_t BlockSize() const = 0;
+
+  char* AllocateSafe(size_t bytes) {
+    InstrumentedMutexLock l(&mutex_);
+    return Allocate(bytes);
+  }
+  char* AllocateAlignedSafe(size_t bytes, size_t huge_page_size = 0,
+                            Logger* logger = nullptr) {
+    InstrumentedMutexLock l(&mutex_);
+    return AllocateAligned(bytes, huge_page_size, logger);
+  }
+
+ private:
+  InstrumentedMutex mutex_;
 };
 
 }  // namespace rocksdb

@@ -93,6 +93,7 @@ LIB_SOURCES =                                                   \
   util/hash_skiplist_rep.cc                                     \
   util/histogram.cc                                             \
   util/instrumented_mutex.cc                                    \
+	util/lockfreeskiplistrep.cc                                   \
   util/iostats_context.cc                                       \
   utilities/backupable/backupable_db.cc                         \
   utilities/convenience/convenience.cc                          \

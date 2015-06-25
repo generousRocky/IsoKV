@@ -192,6 +192,7 @@ class MemTableRepFactory {
                                          const SliceTransform*,
                                          Logger* logger) = 0;
   virtual const char* Name() const = 0;
+  virtual bool support_concurrent_write() const { return false; }
 };
 
 // This uses a skip list to store keys. It is the default.
@@ -236,6 +237,18 @@ class VectorRepFactory : public MemTableRepFactory {
   virtual const char* Name() const override {
     return "VectorRepFactory";
   }
+};
+
+class LockFreeSkipListFactory : public MemTableRepFactory {
+ public:
+  virtual MemTableRep* CreateMemTableRep(const MemTableRep::KeyComparator&,
+                                         MemTableAllocator*,
+                                         const SliceTransform*, Logger* logger);
+
+  virtual const char* Name() const override {
+    return "LockFreeSkipListFactory";
+  }
+  bool support_concurrent_write() const override { return true; }
 };
 
 // This class contains a fixed array of buckets, each
