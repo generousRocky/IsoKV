@@ -14,8 +14,15 @@ const char DBPath[] = "rocksdb";
 
 int main(int argc, char **argv)
 {
-    const char key[] = "key";
-    const char *value = "value";
+    if(argc != 4)
+    {
+	cout << "[key value write]" << endl << flush;
+
+	return 0;
+    }
+
+    const char *key = argv[1];
+    const char *value = argv[2];
 
     char *err = NULL;
     char *returned_value;
@@ -47,15 +54,18 @@ int main(int argc, char **argv)
 
     cout << "Database is open\n" << flush;
 
-    writeoptions = rocksdb_writeoptions_create();
-
-    cout << "PUT DATA " << key << ":" << value << endl << flush;
-
-    rocksdb_put(db, writeoptions, key, strlen(key), value, strlen(value) + 1, &err);
-    if(err)
+    if(argv[3][0] == '1')
     {
-	cout << "WRITE ERROR: " << err << endl << flush;
-	return EXIT_FAILURE;
+	writeoptions = rocksdb_writeoptions_create();
+
+	cout << "PUT DATA " << key << ":" << value << endl << flush;
+
+	rocksdb_put(db, writeoptions, key, strlen(key), value, strlen(value) + 1, &err);
+	if(err)
+	{
+	    cout << "WRITE ERROR: " << err << endl << flush;
+	    return EXIT_FAILURE;
+	}
     }
 
     readoptions = rocksdb_readoptions_create();
@@ -68,12 +78,6 @@ int main(int argc, char **argv)
     }
 
     cout << "GOT DATA " << returned_value << endl << flush;
-
-    if(strcmp(returned_value, "value") != 0)
-    {
-	cout << "INVALID DATA ERROR: " << err << endl << flush;
-	return EXIT_FAILURE;
-    }
 
     free(returned_value);
 
