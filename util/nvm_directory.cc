@@ -732,13 +732,7 @@ int nvm_directory::RenameFile(const char *crt_filename, const char *new_filename
 {
     pthread_mutex_lock(&list_update_mtx);
 
-    nvm_file *fd = file_look_up(new_filename);
-
-    if(fd)
-    {
-	pthread_mutex_unlock(&list_update_mtx);
-	return 1;
-    }
+    nvm_file *fd;
 
     nvm_directory *dir = OpenParentDirectory(new_filename);
 
@@ -755,6 +749,8 @@ int nvm_directory::RenameFile(const char *crt_filename, const char *new_filename
 	pthread_mutex_unlock(&list_update_mtx);
 	return 1;
     }
+
+    DeleteFile(new_filename);
 
     int last_slash_crt = 0;
     int i = 0;

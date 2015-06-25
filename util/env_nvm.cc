@@ -122,6 +122,8 @@ class NVMEnv : public Env
 
 	virtual ~NVMEnv()
 	{
+	    SaveFTL();
+
 	    for (const auto tid : threads_to_join_)
 	    {
 		pthread_join(tid, nullptr);
@@ -345,6 +347,8 @@ class NVMEnv : public Env
 
 	    if(root_dir->RenameFile(src.c_str(), target.c_str()))
 	    {
+		NVM_DEBUG("Failed to rename %s to %s", src.c_str(), target.c_str());
+
 		return Status::IOError("nvm rename file failed");
 	    }
 

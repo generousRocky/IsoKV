@@ -54,10 +54,10 @@ int main(int argc, char **argv)
 
     cout << "Database is open\n" << flush;
 
+    writeoptions = rocksdb_writeoptions_create();
+
     if(argv[3][0] == '1')
     {
-	writeoptions = rocksdb_writeoptions_create();
-
 	cout << "PUT DATA " << key << ":" << value << endl << flush;
 
 	rocksdb_put(db, writeoptions, key, strlen(key), value, strlen(value) + 1, &err);
@@ -77,7 +77,7 @@ int main(int argc, char **argv)
 	return EXIT_FAILURE;
     }
 
-    cout << "GOT DATA " << returned_value << endl << flush;
+    cout << "GOT DATA " << (returned_value ? returned_value : "null") << endl << flush;
 
     free(returned_value);
 
