@@ -104,17 +104,18 @@ void WriteThread::LeaderEndParallel(WriteThread::Writer* self,
   assert(unfinished_threads_.load() == 0);
   // Tag all as done
   for (Writer* parallel_writer : parallel_writers_) {
-    if (parallel_writer != self && parallel_writer != last_writer) {
+    if (parallel_writer != self) {
       self->cfd_set.insert(parallel_writer->cfd_set.cbegin(),
                            parallel_writer->cfd_set.cend());
+
+      InstrumentedMutexLock l(&parallel_writer->self_mutex);
       parallel_writer->done = true;
-      parallel_writer->cv.Signal();
+      parallel_writer->self_cv.Signal();
     }
   }
   assert(!writers_.empty());
   assert(parallel_writers_.back() == writers_.front());
   assert(parallel_writers_.back() == last_writer);
-  parallel_writers_.clear();
 
   for (auto* cfd : self->cfd_set) {
     if (cfd->mem()->ShouldScheduleFlush()) {
@@ -123,28 +124,36 @@ void WriteThread::LeaderEndParallel(WriteThread::Writer* self,
     }
   }
 
-  // Signaling the last writer needs to be finished after cleaning
-  // up parallel_writers_. Otherwise there will be a data race.
-  last_writer->done = true;
-  last_writer->cv.Signal();
+  parallel_writers_.clear();
+  // Now the last parallel writer still in the writer queue
+  // though it can be a dumb pointer.
+  assert(!writers_.empty());
+  assert(writers_.front() == last_writer);
+  writers_.pop_front();
+  if (!writers_.empty()) {
+    writers_.front()->cv.Signal();
+  }
 }
 
 void WriteThread::EndParallelRun(WriteThread::Writer* w,
-                                 bool need_wake_up_leader) {
-  if (need_wake_up_leader && !w->done) {
-    assert(!parallel_writers_.empty());
-    Writer* leader = parallel_writers_.front();
-    assert(leader != nullptr);
-    leader->cv.Signal();
+                                 bool need_wake_up_leader,
+                                 InstrumentedMutex* db_mutex) {
+  if (need_wake_up_leader) {
+    InstrumentedMutexLock l(db_mutex);
+    // There is a race condition that leader already wakes up and
+    // exit.
+    if (!parallel_writers_.empty()) {
+      Writer* leader = parallel_writers_.front();
+      assert(leader != nullptr);
+      // It can be signal to a wrong process but if that happened,
+      // the leader already exits so we are fine.
+      leader->cv.Signal();
+    }
   }
-
-  while (!w->done) {
-    w->cv.Wait();
-  }
-  if (!writers_.empty() && writers_.front() == w) {
-    writers_.pop_front();
-    if (!writers_.empty()) {
-      writers_.front()->cv.Signal();
+  {
+    InstrumentedMutexLock l(&w->self_mutex);
+    while (!w->done) {
+      w->self_cv.Wait();
     }
   }
 }

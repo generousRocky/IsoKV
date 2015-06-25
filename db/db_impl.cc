@@ -3424,9 +3424,10 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
 
     bool need_wake_up_leader = write_thread_.ReportParallelRunFinish();
 
-    mutex_.Lock();
-    write_thread_.EndParallelRun(&w, need_wake_up_leader);
+    write_thread_.EndParallelRun(&w, need_wake_up_leader, &mutex_);
     assert(w.done);
+    RecordTick(stats_, WRITE_DONE_BY_SELF);  // Is that right?
+    return w.status;
   }
 
   if (w.done) {  // write was done by someone else
@@ -3611,6 +3612,10 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
                                        last_writer);
         mutex_.Unlock();
 
+        // Anohter counter for that?
+        default_cf_internal_stats_->AddDBStats(
+            InternalStats::WRITE_DONE_BY_SELF, write_batch_group.size() - 1);
+
         WriteBatchInternal::SetSequence(my_batch, current_sequence);
 
         PERF_TIMER_GUARD(write_memtable_time);
@@ -3651,11 +3656,10 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
         tmp_batch_.Clear();
       }
       mutex_.Lock();
-
+      if (parallel_insert) {
+        write_thread_.LeaderWaitEndParallel(&w);
+      }
       if (status.ok()) {
-        if (parallel_insert) {
-          write_thread_.LeaderWaitEndParallel(&w);
-        }
         versions_->SetLastSequence(last_sequence);
       }
 

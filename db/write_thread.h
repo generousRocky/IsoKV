@@ -33,6 +33,9 @@ class WriteThread {
     uint64_t timeout_hint_us;
     std::set<ColumnFamilyData*> cfd_set;
     InstrumentedCondVar cv;
+    // Thread holding order: DB mutex needs to be hold before self_mutex
+    InstrumentedMutex self_mutex;
+    InstrumentedCondVar self_cv;
 
     explicit Writer(InstrumentedMutex* mu)
         : batch(nullptr),
@@ -43,7 +46,8 @@ class WriteThread {
           parallel_execute_id(-1),
           has_callback(false),
           timeout_hint_us(kNoTimeOut),
-          cv(mu) {}
+          cv(mu),
+          self_cv(&self_mutex) {}
   };
 
   WriteThread() : unfinished_threads_(0) {}
@@ -76,18 +80,22 @@ class WriteThread {
   // REQUIRES: db mutex held
   void ExitWriteThread(Writer* w, Writer* last_writer, Status status);
 
+  // REQUIES: db mutex held
   void StartParallelRun(WriteThread::Writer* w, uint32_t num_threads,
                         WriteThread::Writer* last_writer);
 
   bool ReportParallelRunFinish();
 
+  // REQUIES: db mutex held
   void LeaderWaitEndParallel(WriteThread::Writer* self);
 
+  // REQUIES: db mutex held
   void LeaderEndParallel(WriteThread::Writer* self,
                          WriteThread::Writer* last_writer,
                          FlushScheduler* flush_scheduler);
 
-  void EndParallelRun(WriteThread::Writer* w, bool need_wake_up_leader);
+  void EndParallelRun(WriteThread::Writer* w, bool need_wake_up_leader,
+                      InstrumentedMutex* db_mutex);
 
   // return total batch group size
   size_t BuildBatchGroup(Writer** last_writer,
