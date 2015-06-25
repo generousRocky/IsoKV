@@ -153,6 +153,47 @@ nvm::~nvm()
     NVM_DEBUG("api closed");
 }
 
+struct nvm_page *nvm::RequestPage(const unsigned long lun_id, const unsigned long block_id, const unsigned long page_id)
+{
+    struct nvm_page *ret;
+
+    if(lun_id >= nr_luns)
+    {
+	return nullptr;
+    }
+
+    if(block_id >= luns[lun_id].nr_blocks)
+    {
+	return nullptr;
+    }
+
+    if(page_id >= luns[lun_id].nr_pages_per_blk)
+    {
+	return nullptr;
+    }
+
+    pthread_mutex_lock(&allocate_page_mtx);
+
+    ret = &luns[lun_id].blocks[block_id].pages[page_id];
+
+    NVM_DEBUG("Allocating page %p", ret);
+
+    if(ret->allocated == true)
+    {
+	NVM_DEBUG("Already allocated");
+
+	pthread_mutex_unlock(&allocate_page_mtx);
+
+	return nullptr;
+    }
+
+    ret->allocated = true;
+
+    pthread_mutex_unlock(&allocate_page_mtx);
+
+    return ret;
+}
+
 struct nvm_page *nvm::RequestPage()
 {
     struct nvm_page *ret;

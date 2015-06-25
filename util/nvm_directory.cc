@@ -73,6 +73,98 @@ bool nvm_directory::HasName(const char *_name, const int n)
 
 Status nvm_directory::Load(const int fd)
 {
+    std::string _name;
+
+    char readIn;
+
+    NVM_DEBUG("loading directory %p", this);
+
+    if(read(fd, &readIn, 1) != 1)
+    {
+	return Status::IOError("Could no read d 1");
+    }
+
+    if(readIn != ':')
+    {
+	NVM_DEBUG("ftl file is corrupt %c at %p", readIn, this);
+
+	return Status::IOError("Corrupt ftl file");
+    }
+
+    do
+    {
+	if(read(fd, &readIn, 1) != 1)
+	{
+	    return Status::IOError("Could no read d 1");
+	}
+
+	if(readIn != '{')
+	{
+	    _name.append(&readIn, 1);
+	}
+    }
+    while(readIn != '{');
+
+    if(name)
+    {
+	delete[] name;
+
+	SAFE_ALLOC(name, char[_name.length() + 1]);
+    }
+
+    strcpy(name, _name.c_str());
+
+    NVM_DEBUG("Loaded directory %s", name);
+
+    do
+    {
+	if(read(fd, &readIn, 1) != 1)
+	{
+	    return Status::IOError("Could no read d 2");
+	}
+
+	switch(readIn)
+	{
+	    case 'd':
+	    {
+		nvm_directory *load_dir = (nvm_directory *)create_node("d", DirectoryEntry);
+
+		if(!load_dir->Load(fd).ok())
+		{
+		    NVM_DEBUG("directory %p reported corruption", load_dir);
+
+		    return Status::IOError("Corrupt ftl file");
+		}
+	    }
+	    break;
+
+	    case 'f':
+	    {
+		nvm_file *load_file = (nvm_file *)create_node("", FileEntry);
+
+		if(!load_file->Load(fd).ok())
+		{
+		    NVM_DEBUG("File %p reported corruption", load_file);
+
+		    return Status::IOError("Corrupt ftl file");
+		}
+	    }
+	    break;
+
+	    case '}':
+	    {
+	    }
+	    break;
+
+	    default:
+	    {
+		NVM_DEBUG("ftl file is corrupt %c", readIn);
+	    }
+	    return Status::IOError("Corrupt ftl file");
+	}
+    }
+    while(readIn != '}');
+
     return Status::OK();
 }
 

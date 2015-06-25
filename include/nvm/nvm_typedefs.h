@@ -110,6 +110,7 @@ class nvm
 
 	void ReclaimPage(struct nvm_page *page);
 	struct nvm_page *RequestPage();
+	struct nvm_page *RequestPage(const unsigned long lun_id, const unsigned long block_id, const unsigned long page_id);
 
 	const char *GetLocation();
 

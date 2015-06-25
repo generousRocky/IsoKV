@@ -29,6 +29,8 @@ class nvm_file
 
 	nvm_directory *parent;
 
+	bool ClaimNewPage(nvm *nvm_api, const unsigned long lun_id, const unsigned long block_id, const unsigned long page_id);
+
     public:
 	nvm_file(const char *_name, const int fd, nvm_directory *_parent);
 	~nvm_file();

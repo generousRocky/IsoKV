@@ -36,9 +36,19 @@ void TestFtlSave(nvm *nvm_api, nvm_directory *dir)
 
 void TestFtlLoad(nvm *nvm_api, nvm_directory *dir)
 {
+    char temp;
+
     int fd = open("root_nvm.layout", O_RDONLY);
 
-    lseek(fd, 2, SEEK_SET);
+    if(read(fd, &temp, 1) != 1)
+    {
+	NVM_FATAL("");
+    }
+
+    if(temp != 'd')
+    {
+	NVM_FATAL("");
+    }
 
     dir->Load(fd);
 

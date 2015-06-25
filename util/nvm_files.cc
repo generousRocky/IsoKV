@@ -36,10 +36,19 @@ nvm_file::nvm_file(const char *_name, const int fd, nvm_directory *_parent)
 
     NVM_DEBUG("constructing file %s in %s", _name, _parent == nullptr ? "NULL" : _parent->GetName());
 
-    SAFE_ALLOC(name, char[strlen(_name) + 1]);
-    strcpy(name, _name);
+    int name_len = strlen(_name);
 
-    ALLOC_CLASS(names, list_node(name))
+    if(name_len != 0)
+    {
+	SAFE_ALLOC(name, char[name_len + 1]);
+	strcpy(name, _name);
+
+	ALLOC_CLASS(names, list_node(name))
+    }
+    else
+    {
+	names = nullptr;
+    }
 
     size = 0;
 
@@ -106,6 +115,178 @@ void nvm_file::UnlockFile()
 
 Status nvm_file::Load(const int fd)
 {
+    std::string _name;
+
+    char readIn;
+
+    NVM_DEBUG("loading file %p", this);
+
+    if(read(fd, &readIn, 1) != 1)
+    {
+	return Status::IOError("Could no read f 1");
+    }
+
+    if(readIn != ':')
+    {
+	NVM_DEBUG("ftl file is corrupt %c at %p", readIn, this);
+
+	return Status::IOError("Corrupt ftl file");
+    }
+
+    //load names
+
+    _name = "";
+
+    do
+    {
+	if(read(fd, &readIn, 1) != 1)
+	{
+	    return Status::IOError("Could no read f 2");
+	}
+
+	if(readIn == ',' || readIn == ':')
+	{
+	    NVM_DEBUG("Adding name %s to %p", _name.c_str(), this);
+
+	    AddName(_name.c_str());
+
+	    _name = "";
+	}
+	else
+	{
+	    _name.append(&readIn, 1);
+	}
+    }
+    while(readIn != ':');
+
+    //load size
+
+    size = 0;
+
+    do
+    {
+	if(read(fd, &readIn, 1) != 1)
+	{
+	    return Status::IOError("Could no read f 3");
+	}
+
+	if(readIn >= '0' && readIn <= '9')
+	{
+	    size = size * 10 + readIn - '0';
+	}
+    }
+    while(readIn >= '0' && readIn <= '9');
+
+    if(readIn != ':')
+    {
+	NVM_DEBUG("ftl file is corrupt %c at %p", readIn, this);
+
+	return Status::IOError("Corrupt ftl file");
+    }
+
+    //load last modified
+
+    last_modified = 0;
+
+    do
+    {
+	if(read(fd, &readIn, 1) != 1)
+	{
+	    return Status::IOError("Could no read f 3");
+	}
+
+	if(readIn >= '0' && readIn <= '9')
+	{
+	    last_modified = last_modified * 10 + readIn - '0';
+	}
+    }
+    while(readIn >= '0' && readIn <= '9');
+
+    if(readIn != ':')
+    {
+	NVM_DEBUG("ftl file is corrupt %c at %p", readIn, this);
+
+	return Status::IOError("Corrupt ftl file");
+    }
+
+    do
+    {
+	unsigned long lun_id = 0;
+	unsigned long block_id = 0;
+	unsigned long page_id = 0;
+
+	bool page_to_claim = true;
+
+	do
+	{
+	    if(readIn == '\n')
+	    {
+		page_to_claim = false;
+
+		break;
+	    }
+
+	    if(read(fd, &readIn, 1) != 1)
+	    {
+		return Status::IOError("Could no read f 3");
+	    }
+
+	    if(readIn >= '0' && readIn <= '9')
+	    {
+		lun_id = lun_id * 10 + readIn - '0';
+	    }
+	}
+	while(readIn != '-');
+
+	do
+	{
+	    if(readIn == '\n')
+	    {
+		page_to_claim = false;
+
+		break;
+	    }
+
+	    if(read(fd, &readIn, 1) != 1)
+	    {
+		return Status::IOError("Could no read f 3");
+	    }
+
+	    if(readIn >= '0' && readIn <= '9')
+	    {
+		block_id = block_id * 10 + readIn - '0';
+	    }
+	}
+	while(readIn != '-');
+
+	do
+	{
+	    if(readIn == '\n')
+	    {
+		page_to_claim = false;
+
+		break;
+	    }
+
+	    if(read(fd, &readIn, 1) != 1)
+	    {
+		return Status::IOError("Could no read f 3");
+	    }
+
+	    if(readIn >= '0' && readIn <= '9')
+	    {
+		page_id = page_id * 10 + readIn - '0';
+	    }
+	}
+	while(readIn != ',' && readIn != '\n');
+
+	if(page_to_claim)
+	{
+	    ClaimNewPage(parent->GetNVMApi(), lun_id, block_id, page_id);
+	}
+    }
+    while(readIn != '\n');
+
     return Status::OK();
 }
 
@@ -119,7 +300,7 @@ Status nvm_file::Save(const int fd)
 
     EnumerateNames(&_names);
 
-    if(write(fd, "f:<", 3) != 3)
+    if(write(fd, "f:", 2) != 2)
     {
 	return Status::IOError("fError writing 2");
     }
@@ -142,7 +323,7 @@ Status nvm_file::Save(const int fd)
 	}
     }
 
-    if(write(fd, ">:", 2) != 2)
+    if(write(fd, ":", 1) != 1)
     {
 	return Status::IOError("fError writing 5");
     }
@@ -222,6 +403,26 @@ bool nvm_file::ClearLastPage(nvm *nvm_api)
     }
 
     pages[pages.size() - 1] = pg;
+
+    pthread_mutex_unlock(&page_update_mtx);
+
+    return true;
+}
+
+bool nvm_file::ClaimNewPage(nvm *nvm_api, const unsigned long lun_id, const unsigned long block_id, const unsigned long page_id)
+{
+    struct nvm_page *new_page = nvm_api->RequestPage(lun_id, block_id, page_id);
+
+    NVM_DEBUG("File at %p claimed page %lu-%lu-%lu", this, new_page->lun_id, new_page->block_id, new_page->id);
+
+    if(new_page == nullptr)
+    {
+	return false;
+    }
+
+    pthread_mutex_lock(&page_update_mtx);
+
+    pages.push_back(new_page);
 
     pthread_mutex_unlock(&page_update_mtx);
 

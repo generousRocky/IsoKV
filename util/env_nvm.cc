@@ -677,23 +677,7 @@ class NVMEnv : public Env
 		return;
 	    }
 
-	    if(read(fd, &temp, 1) != 1)
-	    {
-		NVM_DEBUG("FTL file is corrupt");
-
-		close(fd);
-
-		return;
-	    }
-
-	    if(temp != ':')
-	    {
-		NVM_DEBUG("FTL file is corrupt");
-
-		close(fd);
-
-		return;
-	    }
+	    NVM_DEBUG("read d. loading root directory");
 
 	    if(!root_dir->Load(fd).ok())
 	    {
