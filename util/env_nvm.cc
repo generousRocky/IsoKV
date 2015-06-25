@@ -115,7 +115,9 @@ class NVMEnv : public Env
 	    thread_status_updater_ = CreateThreadStatusUpdater();
 
 	    ALLOC_CLASS(nvm_api, nvm());
-	    ALLOC_CLASS(root_dir, nvm_directory("root", 4, nvm_api, nullptr))
+	    ALLOC_CLASS(root_dir, nvm_directory("root", 4, nvm_api, nullptr));
+
+	    LoadFtl();
 	}
 
 	virtual ~NVMEnv()
@@ -146,14 +148,14 @@ class NVMEnv : public Env
 	{
 	    NVM_DEBUG("saving ftl");
 
-	    int fd = open("root_nvm.layout", O_RDWR | O_CREAT, S_IWUSR | S_IRUSR);
+	    int fd = open(ftl_save_location, O_RDWR | O_CREAT, S_IWUSR | S_IRUSR);
 
 	    if(fd < 0)
 	    {
 		return Status::IOError("Unable to create save ftl file");
 	    }
 
-	    if(!root_dir->Save(fd, 0).ok())
+	    if(!root_dir->Save(fd).ok())
 	    {
 		close(fd);
 
@@ -622,6 +624,8 @@ class NVMEnv : public Env
 
 	nvm_directory *root_dir;
 
+	const char *ftl_save_location = "root_nvm.layout";
+
 	bool checkedDiskForMmap_;
 	bool forceMmapOff; // do we override Env options?
 
@@ -642,6 +646,68 @@ class NVMEnv : public Env
 
 	pthread_mutex_t mu_;
 	std::vector<pthread_t> threads_to_join_;
+
+	void LoadFtl()
+	{
+	    int fd = open(ftl_save_location, O_RDONLY);
+
+	    char temp;
+
+	    if(fd < 0)
+	    {
+		NVM_DEBUG("FTL file not found");
+		return;
+	    }
+
+	    if(read(fd, &temp, 1) != 1)
+	    {
+		NVM_DEBUG("FTL file is corrupt");
+
+		close(fd);
+
+		return;
+	    }
+
+	    if(temp != 'd')
+	    {
+		NVM_DEBUG("FTL file is corrupt");
+
+		close(fd);
+
+		return;
+	    }
+
+	    if(read(fd, &temp, 1) != 1)
+	    {
+		NVM_DEBUG("FTL file is corrupt");
+
+		close(fd);
+
+		return;
+	    }
+
+	    if(temp != ':')
+	    {
+		NVM_DEBUG("FTL file is corrupt");
+
+		close(fd);
+
+		return;
+	    }
+
+	    if(!root_dir->Load(fd).ok())
+	    {
+		NVM_DEBUG("FTL file is corrupt");
+
+		delete root_dir;
+		delete nvm_api;
+
+		ALLOC_CLASS(nvm_api, nvm());
+		ALLOC_CLASS(root_dir, nvm_directory("root", 4, nvm_api, nullptr));
+	    }
+
+	    close(fd);
+	}
 };
 
 std::string Env::GenerateUniqueId()

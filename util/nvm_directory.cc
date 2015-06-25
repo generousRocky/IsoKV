@@ -71,16 +71,13 @@ bool nvm_directory::HasName(const char *_name, const int n)
     return (name[i] == '\0');
 }
 
-Status nvm_directory::Save(const int fd, const int indent_level)
+Status nvm_directory::Load(const int fd)
 {
-    for(int i = 0; i < indent_level; ++i)
-    {
-	if(write(fd, "\t", 1) != 1)
-	{
-	    return Status::IOError("Error writing 1");
-	}
-    }
+    return Status::OK();
+}
 
+Status nvm_directory::Save(const int fd)
+{
     if(write(fd, "d:", 2) != 2)
     {
 	return Status::IOError("Error writing 1");
@@ -93,9 +90,9 @@ Status nvm_directory::Save(const int fd, const int indent_level)
 	return Status::IOError("Error writing 2");
     }
 
-    if(write(fd, "\n", 1) != 1)
+    if(write(fd, "{", 1) != 1)
     {
-	return Status::IOError("Error writing 5");
+	return Status::IOError("Error writing 3");
     }
 
     list_node *temp;
@@ -116,9 +113,9 @@ Status nvm_directory::Save(const int fd, const int indent_level)
 	    {
 		nvm_file *process_file = (nvm_file *)entry->GetData();
 
-		if(!process_file->Save(fd, indent_level + 1).ok())
+		if(!process_file->Save(fd).ok())
 		{
-		    return Status::IOError("Error writing 3");
+		    return Status::IOError("Error writing 4");
 		}
 	    }
 	    break;
@@ -127,9 +124,9 @@ Status nvm_directory::Save(const int fd, const int indent_level)
 	    {
 		nvm_directory *process_directory = (nvm_directory *)entry->GetData();
 
-		if(!process_directory->Save(fd, indent_level + 1).ok())
+		if(!process_directory->Save(fd).ok())
 		{
-		    return Status::IOError("Error writing 4");
+		    return Status::IOError("Error writing 5");
 		}
 	    }
 	    break;
@@ -142,6 +139,11 @@ Status nvm_directory::Save(const int fd, const int indent_level)
 	}
 
 	temp = temp->GetNext();
+    }
+
+    if(write(fd, "}", 1) != 1)
+    {
+	return Status::IOError("Error writing 3");
     }
 
     return Status::OK();

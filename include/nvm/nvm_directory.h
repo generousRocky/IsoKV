@@ -65,7 +65,8 @@ class nvm_directory
 
 	void nvm_fclose(nvm_file *file, const char *mode);
 
-	Status Save(const int fd, const int indent_level);
+	Status Save(const int fd);
+	Status Load(const int fd);
 };
 
 class NVMDirectory : public Directory

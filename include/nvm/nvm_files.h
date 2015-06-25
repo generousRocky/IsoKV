@@ -69,7 +69,8 @@ class nvm_file
 
 	void AddName(const char *name);
 
-	Status Save(const int fd, const int indent_level);
+	Status Save(const int fd);
+	Status Load(const int fd);
 };
 
 class NVMFileLock : public FileLock
@@ -158,8 +159,7 @@ class NVMWritableFile : public WritableFile
 	struct nvm_page *last_page;
 
 	bool Flush(const bool forced);
-
-	void UpdateLastPage();
+	bool UpdateLastPage();
 
     public:
 	NVMWritableFile(const std::string& fname, nvm_file *fd, nvm_directory *dir);

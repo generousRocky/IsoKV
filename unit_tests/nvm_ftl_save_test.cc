@@ -4,14 +4,8 @@
 
 using namespace rocksdb;
 
-int main(int argc, char **argv)
+void TestFtlSave(nvm *nvm_api, nvm_directory *dir)
 {
-    nvm_directory *dir;
-    nvm *nvm_api;
-
-    ALLOC_CLASS(nvm_api, nvm());
-    ALLOC_CLASS(dir, nvm_directory("root", 4, nvm_api, nullptr));
-
     dir->CreateDirectory("test");
     dir->CreateDirectory("test1");
     dir->CreateDirectory("test2");
@@ -32,12 +26,54 @@ int main(int argc, char **argv)
 	NVM_FATAL("");
     }
 
-    if(!dir->Save(fd, 0).ok())
+    if(!dir->Save(fd).ok())
     {
 	NVM_FATAL("");
     }
 
     close(fd);
+}
+
+void TestFtlLoad(nvm *nvm_api, nvm_directory *dir)
+{
+    int fd = open("root_nvm.layout", O_RDONLY);
+
+    lseek(fd, 2, SEEK_SET);
+
+    dir->Load(fd);
+
+    close(fd);
+
+    fd = open("root_nvm.layout2", O_RDWR | O_CREAT, S_IWUSR | S_IRUSR);
+
+    if(fd < 0)
+    {
+	NVM_FATAL("");
+    }
+
+    if(!dir->Save(fd).ok())
+    {
+	NVM_FATAL("");
+    }
+
+    close(fd);
+}
+
+int main(int argc, char **argv)
+{
+    nvm_directory *save_dir;
+    nvm_directory *load_dir;
+    nvm *nvm_api;
+
+    ALLOC_CLASS(nvm_api, nvm());
+    ALLOC_CLASS(save_dir, nvm_directory("root", 4, nvm_api, nullptr));
+    ALLOC_CLASS(load_dir, nvm_directory("root", 4, nvm_api, nullptr));
+
+    TestFtlSave(nvm_api, save_dir);
+
+    NVM_DEBUG("\nLOADING\n")
+
+    TestFtlLoad(nvm_api, load_dir);
 
     return 0;
 }
