@@ -795,7 +795,19 @@ int nvm_directory::RenameFile(const char *crt_filename, const char *new_filename
 
 int nvm_directory::DeleteFile(const char *filename)
 {
+    unsigned char last_slash = 0;
+
+    for(unsigned int i = 0; i < strlen(filename); ++i)
+    {
+	if(filename[i] == '/')
+	{
+	    last_slash = i;
+	}
+    }
+
     pthread_mutex_lock(&list_update_mtx);
+
+    NVM_DEBUG("Deleting %s", filename);
 
     list_node *file_node = node_look_up(filename, FileEntry);
 
@@ -808,26 +820,36 @@ int nvm_directory::DeleteFile(const char *filename)
 
 	nvm_file *file = (nvm_file *)entry->GetData();
 
-	if(file->Delete(filename, nvm_api))
+	if(file->Delete(filename + last_slash + 1, nvm_api))
 	{
+	    NVM_DEBUG("NO MORE LINKS.. removing from list");
+
 	    //we have no more link files
 	    if(prev)
 	    {
+		NVM_DEBUG("Prev is not null");
+
 		prev->SetNext(next);
 	    }
 
 	    if(next)
 	    {
+		NVM_DEBUG("Next is not null");
+
 		next->SetPrev(prev);
 	    }
 
 	    if(prev == nullptr && next != nullptr)
 	    {
+		NVM_DEBUG("Moving head");
+
 		head = head->GetNext();
 	    }
 
 	    if(next == nullptr && prev == nullptr)
 	    {
+		NVM_DEBUG("Head becomes null");
+
 		head = nullptr;
 	    }
 

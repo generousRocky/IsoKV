@@ -673,6 +673,8 @@ bool nvm_file::Delete(const char * filename, struct nvm *nvm_api)
 
     temp = names;
 
+    NVM_DEBUG("Deleting %s", filename);
+
     while(temp)
     {
 	if(strcmp(filename, (char *)temp->GetData()) == 0)
@@ -684,21 +686,29 @@ bool nvm_file::Delete(const char * filename, struct nvm *nvm_api)
 
 	    if(prev)
 	    {
+		NVM_DEBUG("Prev is not null");
+
 		prev->SetNext(next);
 	    }
 
 	    if(next)
 	    {
+		NVM_DEBUG("Next is not null");
+
 		next->SetPrev(prev);
 	    }
 
 	    if(prev == nullptr && next != nullptr)
 	    {
+		NVM_DEBUG("Moving head");
+
 		names = names->GetNext();
 	    }
 
 	    if(next == nullptr && prev == nullptr)
 	    {
+		NVM_DEBUG("No more links for this file");
+
 		link_files_left = false;
 
 		names = nullptr;
@@ -721,6 +731,8 @@ bool nvm_file::Delete(const char * filename, struct nvm *nvm_api)
 
 	return false;
     }
+
+    NVM_DEBUG("Deleting all links");
 
     DeleteAllLinks(nvm_api);
 

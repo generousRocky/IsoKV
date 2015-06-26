@@ -588,8 +588,7 @@ void TestRandomReadWrites(NVMRandomRWFile *rw_file)
     }
 }
 
-
-int main(int argc, char **argv)
+void test1()
 {
     nvm_directory *dir;
     nvm *nvm_api;
@@ -657,6 +656,83 @@ int main(int argc, char **argv)
     delete nvm_api;
 
     NVM_DEBUG("TEST FINISHED!");
+}
+
+void test2()
+{
+    nvm_directory *dir;
+    nvm *nvm_api;
+
+    ALLOC_CLASS(nvm_api, nvm());
+    ALLOC_CLASS(dir, nvm_directory("root", 4, nvm_api, nullptr));
+
+    nvm_file *wfd = dir->nvm_fopen("test.c", "w");
+
+    if(wfd == nullptr)
+    {
+	NVM_FATAL("");
+    }
+
+    NVMWritableFile *w_file;
+    NVMRandomAccessFile *ra_file;
+
+    char data[100];
+
+    Slice s;
+
+    for(int i = 0; i < 100; ++i)
+    {
+	for(int j = 0; j < 100; ++j)
+	{
+	    data[j] = i;
+	}
+
+	s = Slice(data, 100);
+
+	ALLOC_CLASS(w_file, NVMWritableFile("test.c", wfd, dir));
+
+	w_file->Append(s);
+	w_file->Close();
+
+	delete w_file;
+
+	unsigned long actual_size = wfd->GetSize();
+	unsigned long expected_size = 100 * (i + 1);
+
+	if(actual_size != expected_size)
+	{
+	    NVM_FATAL("%lu vs %lu", actual_size, expected_size);
+	}
+    }
+
+    ALLOC_CLASS(ra_file, NVMRandomAccessFile("test.c", wfd, dir));
+
+    for(int i = 0; i < 100; ++i)
+    {
+	ra_file->Read(i * 100, 100, &s, data);
+
+	const char *sd = s.data();
+	unsigned long len = s.size();
+
+	for(unsigned long j = 0; j < len; ++j)
+	{
+	    if(sd[j] != i)
+	    {
+		NVM_FATAL("");
+	    }
+	}
+    }
+
+    delete ra_file;
+
+    NVM_DEBUG("TEST FINISHED!");
+}
+
+
+int main(int argc, char **argv)
+{
+    //test1();
+    test2();
 
     return 0;
 }

@@ -16,10 +16,17 @@ int main(int argc, char **argv)
 {
     if(argc != 4)
     {
+	if(argc == 3 && strcmp(argv[1], "read") == 0)
+	{
+	    goto proceed;
+	}
+
 	cout << "[write/read key value]" << endl << flush;
 
 	return 0;
     }
+
+proceed:
 
     const char *key = argv[2];
     const char *value = argv[3];

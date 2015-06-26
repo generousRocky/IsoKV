@@ -470,6 +470,8 @@ class NVMEnv : public Env
 
 	virtual Status NewLogger(const std::string& fname, shared_ptr<Logger>* result) override
 	{
+	    remove("./LOG");
+
 	    FILE* f = fopen("./LOG", "w");
 	    if (f == nullptr)
 	    {
