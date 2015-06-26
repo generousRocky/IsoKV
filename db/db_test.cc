@@ -10811,6 +10811,19 @@ TEST_F(DBTest, DBIteratorBoundTest) {
     // should stop here...
     ASSERT_TRUE(!iter->Valid());
   }
+  // Testing SeekToLast with iterate_upper_bound set
+  {
+    ReadOptions ro;
+
+    Slice prefix("foo");
+    ro.iterate_upper_bound = &prefix;
+
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ro));
+
+    iter->SeekToLast();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().compare(Slice("a")), 0);
+  }
 
   // prefix is the first letter of the key
   options.prefix_extractor.reset(NewFixedPrefixTransform(1));
@@ -11300,6 +11313,17 @@ TEST_F(DBTest, PreShutdownManualCompaction) {
       CreateAndReopenWithCF({"pikachu"}, options);
     }
   }
+}
+
+TEST_F(DBTest, PreShutdownFlush) {
+  Options options = CurrentOptions();
+  options.max_background_flushes = 0;
+  CreateAndReopenWithCF({"pikachu"}, options);
+  ASSERT_OK(Put(1, "key", "value"));
+  CancelAllBackgroundWork(db_);
+  Status s =
+      db_->CompactRange(CompactRangeOptions(), handles_[1], nullptr, nullptr);
+  ASSERT_TRUE(s.IsShutdownInProgress());
 }
 
 TEST_F(DBTest, PreShutdownMultipleCompaction) {
