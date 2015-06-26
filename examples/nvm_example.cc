@@ -20,8 +20,12 @@ int main(int argc, char **argv)
 	{
 	    goto proceed;
 	}
+	else if(argc == 2 && strcmp(argv[1], "fill") == 0)
+	{
+	    goto proceed;
+	}
 
-	cout << "[write/read key value]" << endl << flush;
+	cout << "[write/read/fill key value]" << endl << flush;
 
 	return 0;
     }
@@ -76,7 +80,7 @@ proceed:
 
 	rocksdb_writeoptions_destroy(writeoptions);
     }
-    else
+    else if(strcmp(argv[1], "read") == 0)
     {
 	readoptions = rocksdb_readoptions_create();
 
@@ -92,6 +96,23 @@ proceed:
 	free(returned_value);
 
 	rocksdb_readoptions_destroy(readoptions);
+    }
+    else if(strcmp(argv[1], "fill") == 0)
+    {
+	writeoptions = rocksdb_writeoptions_create();
+
+	for(unsigned long i = 0; i < 1000; ++i)
+	{
+	    char k_data[20];
+	    char v_data[20];
+
+	    sprintf(k_data, "%lu", i);
+	    sprintf(v_data, "%lu", i);
+
+	    rocksdb_put(db, writeoptions, k_data, strlen(k_data), v_data, strlen(v_data) + 1, &err);
+	}
+
+	rocksdb_writeoptions_destroy(writeoptions);
     }
 
     rocksdb_garbage_collect(db, &err);
