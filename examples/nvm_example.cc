@@ -16,13 +16,13 @@ int main(int argc, char **argv)
 {
     if(argc != 4)
     {
-	cout << "[key value write]" << endl << flush;
+	cout << "[write/read key value]" << endl << flush;
 
 	return 0;
     }
 
-    const char *key = argv[1];
-    const char *value = argv[2];
+    const char *key = argv[2];
+    const char *value = argv[3];
 
     char *err = NULL;
     char *returned_value;
@@ -54,10 +54,10 @@ int main(int argc, char **argv)
 
     cout << "Database is open\n" << flush;
 
-    writeoptions = rocksdb_writeoptions_create();
-
-    if(argv[3][0] == '1')
+    if(strcmp(argv[1], "write") == 0)
     {
+	writeoptions = rocksdb_writeoptions_create();
+
 	cout << "PUT DATA " << key << ":" << value << endl << flush;
 
 	rocksdb_put(db, writeoptions, key, strlen(key), value, strlen(value) + 1, &err);
@@ -66,20 +66,26 @@ int main(int argc, char **argv)
 	    cout << "WRITE ERROR: " << err << endl << flush;
 	    return EXIT_FAILURE;
 	}
+
+	rocksdb_writeoptions_destroy(writeoptions);
     }
-
-    readoptions = rocksdb_readoptions_create();
-
-    returned_value = rocksdb_get(db, readoptions, key, strlen(key), &len, &err);
-    if(err)
+    else
     {
-	cout << "GET ERROR: " << err << endl << flush;
-	return EXIT_FAILURE;
+	readoptions = rocksdb_readoptions_create();
+
+	returned_value = rocksdb_get(db, readoptions, key, strlen(key), &len, &err);
+	if(err)
+	{
+	    cout << "GET ERROR: " << err << endl << flush;
+	    return EXIT_FAILURE;
+	}
+
+	cout << "GOT DATA " << (returned_value ? returned_value : "null") << endl << flush;
+
+	free(returned_value);
+
+	rocksdb_readoptions_destroy(readoptions);
     }
-
-    cout << "GOT DATA " << (returned_value ? returned_value : "null") << endl << flush;
-
-    free(returned_value);
 
     rocksdb_garbage_collect(db, &err);
 
@@ -89,16 +95,6 @@ int main(int argc, char **argv)
 	return EXIT_FAILURE;
     }
 
-    rocksdb_save_ftl_state(db, &err);
-
-    if(err)
-    {
-	cout << "SAVE FTL FAILED " << err << endl << flush;
-	return EXIT_FAILURE;
-    }
-
-    rocksdb_writeoptions_destroy(writeoptions);
-    rocksdb_readoptions_destroy(readoptions);
     rocksdb_options_destroy(options);
     rocksdb_close(db);
 
