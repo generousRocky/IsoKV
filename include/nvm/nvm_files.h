@@ -6,6 +6,8 @@ namespace rocksdb
 
 #include <vector>
 
+class NVMWritableFile;
+
 class nvm_file
 {
     private:
@@ -29,6 +31,8 @@ class nvm_file
 
 	nvm_directory *parent;
 
+	NVMWritableFile *seq_writable_file;
+
 	bool ClaimNewPage(nvm *nvm_api, const unsigned long lun_id, const unsigned long block_id, const unsigned long page_id);
 
     public:
@@ -41,6 +45,7 @@ class nvm_file
 	bool HasName(const char *name, const int n);
 	void ChangeName(const char *crt_name, const char *new_name);
 	void EnumerateNames(std::vector<std::string>* result);
+	void SetSeqWritableFile(NVMWritableFile *_writable_file);
 
 	unsigned long GetSize();
 
@@ -159,6 +164,8 @@ class NVMWritableFile : public WritableFile
 
 	unsigned long last_page_idx;
 	struct nvm_page *last_page;
+
+	bool closed;
 
 	bool Flush(const bool closing);
 	bool UpdateLastPage();

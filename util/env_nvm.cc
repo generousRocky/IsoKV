@@ -215,7 +215,7 @@ class NVMEnv : public Env
 	{
 	    result->reset();
 
-	    nvm_file *fd = root_dir->nvm_fopen(fname.c_str(), "w");
+	    nvm_file *fd = root_dir->nvm_fopen(fname.c_str(), "a");
 
 	    if(fd == nullptr)
 	    {
@@ -226,7 +226,13 @@ class NVMEnv : public Env
 		return Status::IOError("unable to open file for write");
 	    }
 
-	    result->reset(new NVMWritableFile(fname, fd, root_dir));
+	    NVMWritableFile *writable_file;
+
+	    ALLOC_CLASS(writable_file, NVMWritableFile(fname, fd, root_dir));
+
+	    fd->SetSeqWritableFile(writable_file);
+
+	    result->reset(writable_file);
 
 	    return Status::OK();
 	}

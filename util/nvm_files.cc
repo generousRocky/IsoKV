@@ -62,6 +62,8 @@ nvm_file::nvm_file(const char *_name, const int fd, nvm_directory *_parent)
 
     parent = _parent;
 
+    seq_writable_file = nullptr;
+
     pthread_mutexattr_init(&page_update_mtx_attr);
     pthread_mutexattr_settype(&page_update_mtx_attr, PTHREAD_MUTEX_RECURSIVE);
 
@@ -72,6 +74,15 @@ nvm_file::nvm_file(const char *_name, const int fd, nvm_directory *_parent)
 
 nvm_file::~nvm_file()
 {
+    if(seq_writable_file)
+    {
+	//flush any existing buffers
+
+	seq_writable_file->Close();
+
+	seq_writable_file = nullptr;
+    }
+
     //delete all nvm pages in the vector
     pages.clear();
 
@@ -91,6 +102,11 @@ nvm_file::~nvm_file()
     pthread_mutex_destroy(&page_update_mtx);
     pthread_mutex_destroy(&meta_mtx);
     pthread_mutex_destroy(&file_lock);
+}
+
+void nvm_file::SetSeqWritableFile(NVMWritableFile *_writable_file)
+{
+    seq_writable_file = _writable_file;
 }
 
 void nvm_file::SetParent(nvm_directory *_parent)
@@ -1183,6 +1199,8 @@ NVMWritableFile::NVMWritableFile(const std::string& fname, nvm_file *fd, nvm_dir
     last_page = nullptr;
     last_page_idx = 0;
 
+    closed = false;
+
     UpdateLastPage();
 
     NVM_DEBUG("created %s at %p", fname.c_str(), this);
@@ -1190,6 +1208,8 @@ NVMWritableFile::NVMWritableFile(const std::string& fname, nvm_file *fd, nvm_dir
 
 NVMWritableFile::~NVMWritableFile()
 {
+    fd_->SetSeqWritableFile(nullptr);
+
     NVMWritableFile::Close();
 
     if(buf_)
@@ -1278,43 +1298,32 @@ bool NVMWritableFile::Flush(const bool closing)
 	NVM_FATAL("last page is null, cursize is %lu, byte_per_sync is %lu", cursize_, bytes_per_sync_);
     }
 
-    struct nvm_page *wrote_pg = last_page;
-
-    if(fd_->WritePage(wrote_pg, channel, dir_->GetNVMApi(), buf_, cursize_) != cursize_)
+    if(cursize_ == bytes_per_sync_ || closing)
     {
-	NVM_DEBUG("unable to write data");
-	return false;
-    }
+	struct nvm_page *wrote_pg = last_page;
 
-    if(last_page != wrote_pg)
-    {
-	last_page = wrote_pg;
-
-	if(fd_->SetPage(last_page_idx, last_page) == false)
+	if(fd_->WritePage(wrote_pg, channel, dir_->GetNVMApi(), buf_, cursize_) != cursize_)
 	{
-	    NVM_FATAL("unable to update last page after EINTR");
-	}
-    }
-
-    if(cursize_ == bytes_per_sync_)
-    {
-	if(UpdateLastPage() == false)
-	{
+	    NVM_DEBUG("unable to write data");
 	    return false;
 	}
-    }
-    else if(closing == false)
-    {
-	last_page = nullptr;
 
-	bytes_per_sync_ = 0;
-
-	cursize_ = 0;
-
-	if(buf_)
+	if(last_page != wrote_pg)
 	{
-	    delete[] buf_;
-	    buf_ = nullptr;
+	    last_page = wrote_pg;
+
+	    if(fd_->SetPage(last_page_idx, last_page) == false)
+	    {
+		NVM_FATAL("unable to update last page after EINTR");
+	    }
+	}
+
+	if(cursize_ == bytes_per_sync_)
+	{
+	    if(UpdateLastPage() == false)
+	    {
+		return false;
+	    }
 	}
     }
 
@@ -1327,6 +1336,11 @@ Status NVMWritableFile::Append(const Slice& data)
 
     size_t left = data.size();
     size_t offset = 0;
+
+    if(closed)
+    {
+	return Status::IOError("file has been closed");
+    }
 
     if(bytes_per_sync_ == 0)
     {
@@ -1376,6 +1390,13 @@ Status NVMWritableFile::Append(const Slice& data)
 
 Status NVMWritableFile::Close()
 {
+    if(closed)
+    {
+	return Status::OK();
+    }
+
+    closed = true;
+
     NVM_DEBUG("closing %p", this);
 
     if(Flush(true) == false)
@@ -1383,13 +1404,18 @@ Status NVMWritableFile::Close()
 	return Status::IOError("out of ssd space");
     }
 
-    dir_->nvm_fclose(fd_, "w");
+    dir_->nvm_fclose(fd_, "a");
 
     return Status::OK();
 }
 
 Status NVMWritableFile::Flush()
 {
+    if(closed)
+    {
+	return Status::IOError("file has been closed");
+    }
+
     if(Flush(false) == false)
     {
 	return Status::IOError("out of ssd space");
@@ -1400,6 +1426,11 @@ Status NVMWritableFile::Flush()
 
 Status NVMWritableFile::Sync()
 {
+    if(closed)
+    {
+	return Status::IOError("file has been closed");
+    }
+
     if(Flush(false) == false)
     {
 	return Status::IOError("out of ssd space");
@@ -1410,6 +1441,11 @@ Status NVMWritableFile::Sync()
 
 Status NVMWritableFile::Fsync()
 {
+    if(closed)
+    {
+	return Status::IOError("file has been closed");
+    }
+
     if(Flush(false) == false)
     {
 	return Status::IOError("out of ssd space");
