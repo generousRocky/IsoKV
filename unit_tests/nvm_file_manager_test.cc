@@ -282,12 +282,12 @@ void TestFileRename(nvm_directory *dir, nvm *nvm_api)
 
     dir->nvm_fclose(open1, "w");
 
-    if(dir->RenameFile("test1.c", "test2.c") == 0)
+    if(dir->RenameFile("test1.c", "test2.c") != 0)
     {
 	NVM_FATAL("");
     }
 
-    if(dir->RenameFile("test1.c", "test3.c") != 0)
+    if(dir->RenameFile("test1.c", "test3.c") == 0)
     {
 	NVM_FATAL("");
     }
@@ -301,7 +301,7 @@ void TestFileRename(nvm_directory *dir, nvm *nvm_api)
 
     open1 = dir->nvm_fopen("test3.c", "r");
 
-    if(open1 == NULL)
+    if(open1 != NULL)
     {
 	NVM_FATAL("");
     }

@@ -820,7 +820,18 @@ int nvm_directory::DeleteFile(const char *filename)
 
 	nvm_file *file = (nvm_file *)entry->GetData();
 
-	if(file->Delete(filename + last_slash + 1, nvm_api))
+	bool ret;
+
+	if(last_slash > 0)
+	{
+	    ret = file->Delete(filename + last_slash + 1, nvm_api);
+	}
+	else
+	{
+	    ret = file->Delete(filename, nvm_api);
+	}
+
+	if(ret)
 	{
 	    NVM_DEBUG("NO MORE LINKS.. removing from list");
 
