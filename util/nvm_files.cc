@@ -1185,7 +1185,7 @@ NVMWritableFile::NVMWritableFile(const std::string& fname, nvm_file *fd, nvm_dir
 
     UpdateLastPage();
 
-    NVM_DEBUG("created %s", fname.c_str());
+    NVM_DEBUG("created %s at %p", fname.c_str(), this);
 }
 
 NVMWritableFile::~NVMWritableFile()
@@ -1241,10 +1241,15 @@ bool NVMWritableFile::UpdateLastPage()
 
 	SAFE_ALLOC(buf_, char[bytes_per_sync_]);
 
-	fd_->ReadPage(last_page, channel, dir_->GetNVMApi(), buf_);
-	fd_->ClearLastPage(dir_->GetNVMApi());
+	if(cursize_ > 0)
+	{
+	    //swap last page to be ready for page write
 
-	last_page = fd_->GetLastPage(&last_page_idx);
+	    fd_->ReadPage(last_page, channel, dir_->GetNVMApi(), buf_);
+	    fd_->ClearLastPage(dir_->GetNVMApi());
+
+	    last_page = fd_->GetLastPage(&last_page_idx);
+	}
     }
 
     NVM_DEBUG("last page is at %p, bytes per sync is %lu, cursize_ is %lu", last_page, bytes_per_sync_, cursize_);
@@ -1252,7 +1257,7 @@ bool NVMWritableFile::UpdateLastPage()
     return true;
 }
 
-bool NVMWritableFile::Flush(const bool forced)
+bool NVMWritableFile::Flush(const bool closing)
 {
     if(cursize_ == 0)
     {
@@ -1273,24 +1278,21 @@ bool NVMWritableFile::Flush(const bool forced)
 	NVM_FATAL("last page is null, cursize is %lu, byte_per_sync is %lu", cursize_, bytes_per_sync_);
     }
 
-    if(cursize_ == bytes_per_sync_ || forced)
+    struct nvm_page *wrote_pg = last_page;
+
+    if(fd_->WritePage(wrote_pg, channel, dir_->GetNVMApi(), buf_, cursize_) != cursize_)
     {
-	struct nvm_page *wrote_pg = last_page;
+	NVM_DEBUG("unable to write data");
+	return false;
+    }
 
-	if(fd_->WritePage(wrote_pg, channel, dir_->GetNVMApi(), buf_, cursize_) != cursize_)
+    if(last_page != wrote_pg)
+    {
+	last_page = wrote_pg;
+
+	if(fd_->SetPage(last_page_idx, last_page) == false)
 	{
-	    NVM_DEBUG("unable to write data");
-	    return false;
-	}
-
-	if(last_page != wrote_pg)
-	{
-	    last_page = wrote_pg;
-
-	    if(fd_->SetPage(last_page_idx, last_page) == false)
-	    {
-		NVM_FATAL("unable to update last page after EINTR");
-	    }
+	    NVM_FATAL("unable to update last page after EINTR");
 	}
     }
 
@@ -1299,6 +1301,20 @@ bool NVMWritableFile::Flush(const bool forced)
 	if(UpdateLastPage() == false)
 	{
 	    return false;
+	}
+    }
+    else if(closing == false)
+    {
+	last_page = nullptr;
+
+	bytes_per_sync_ = 0;
+
+	cursize_ = 0;
+
+	if(buf_)
+	{
+	    delete[] buf_;
+	    buf_ = nullptr;
 	}
     }
 
@@ -1319,6 +1335,8 @@ Status NVMWritableFile::Append(const Slice& data)
 	    return Status::IOError("out of ssd space");
 	}
     }
+
+    NVM_DEBUG("Appending slice %lu bytes to %p", left, this);
 
     while(left > 0)
     {
@@ -1358,6 +1376,8 @@ Status NVMWritableFile::Append(const Slice& data)
 
 Status NVMWritableFile::Close()
 {
+    NVM_DEBUG("closing %p", this);
+
     if(Flush(true) == false)
     {
 	return Status::IOError("out of ssd space");

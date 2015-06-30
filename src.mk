@@ -166,6 +166,7 @@ TEST_BENCH_SOURCES =                                                    \
   db/corruption_test.cc                                                 \
   db/cuckoo_table_db_test.cc                                            \
   db/db_bench.cc                                                        \
+  db/nvm_bench.cc                                                       \
   db/dbformat_test.cc                                                   \
   db/db_iter_test.cc                                                    \
   db/db_test.cc                                                         \

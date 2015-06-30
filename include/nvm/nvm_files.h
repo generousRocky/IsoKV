@@ -160,7 +160,7 @@ class NVMWritableFile : public WritableFile
 	unsigned long last_page_idx;
 	struct nvm_page *last_page;
 
-	bool Flush(const bool forced);
+	bool Flush(const bool closing);
 	bool UpdateLastPage();
 
     public:

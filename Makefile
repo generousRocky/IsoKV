@@ -309,7 +309,7 @@ TOOLS = \
 	rocksdb_dump \
 	rocksdb_undump
 
-BENCHMARKS = db_bench table_reader_bench cache_bench memtablerep_bench
+BENCHMARKS = db_bench table_reader_bench cache_bench memtablerep_bench nvm_bench
 
 # The library name is configurable since we are maintaining libraries of both
 # debug/release mode.
@@ -375,6 +375,7 @@ dbg: $(LIBRARY) $(BENCHMARKS) $(TOOLS) $(TESTS)
 release:
 	$(MAKE) clean
 	OPT="-DNDEBUG -O2" $(MAKE) static_lib $(TOOLS) db_bench
+	OPT="-DNDEBUG -O2" $(MAKE) static_lib $(TOOLS) nvm_bench
 
 coverage:
 	$(MAKE) clean
@@ -608,6 +609,9 @@ $(LIBRARY): $(LIBOBJECTS)
 	$(AM_V_at)$(AR) $(ARFLAGS) $@ $(LIBOBJECTS)
 
 db_bench: db/db_bench.o $(LIBOBJECTS) $(TESTUTIL)
+	$(AM_LINK)
+
+nvm_bench: db/nvm_bench.o $(LIBOBJECTS) $(TESTUTIL)
 	$(AM_LINK)
 
 cache_bench: util/cache_bench.o $(LIBOBJECTS) $(TESTUTIL)

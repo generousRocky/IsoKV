@@ -197,6 +197,7 @@ function run_filluniquerandom {
 }
 
 function run_readrandom {
+  ./nvm_bench readrandom
   echo "Reading $num_keys random keys"
   out_name="benchmark_readrandom.t${num_threads}.log"
   cmd="./db_bench --benchmarks=readrandom \
