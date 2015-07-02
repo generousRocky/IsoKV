@@ -37,8 +37,12 @@ struct nvm_page
     unsigned long block_id;
     unsigned long id;
 
+#ifndef NVM_ALLOCATE_BLOCKS
+
     bool allocated;
     bool erased;
+
+#endif
 
     unsigned int sizes_no;
     unsigned int *sizes;
@@ -46,10 +50,21 @@ struct nvm_page
 
 struct nvm_block
 {
+#ifndef NVM_ALLOCATE_BLOCKS
+
     bool has_stale_pages;
+
+#endif
 
     struct nba_block *block;
     struct nvm_page *pages;
+
+#ifdef NVM_ALLOCATE_BLOCKS
+
+    bool allocated;
+    bool erased;
+
+#endif
 };
 
 struct nvm_lun
@@ -85,6 +100,15 @@ class list_node
 	void *SetNext(list_node *_next);
 	void *SetPrev(list_node *_prev);
 };
+#ifdef NVM_ALLOCATE_BLOCKS
+
+struct next_block_to_allocate
+{
+    unsigned long lun_id;
+    unsigned long block_id;
+};
+
+#else
 
 struct next_page_to_allocate
 {
@@ -92,6 +116,8 @@ struct next_page_to_allocate
     unsigned long block_id;
     unsigned long page_id;
 };
+
+#endif
 
 class nvm
 {
@@ -108,14 +134,33 @@ class nvm
 	nvm();
 	~nvm();
 
+#ifdef NVM_ALLOCATE_BLOCKS
+
+	void ReclaimBlock(const unsigned long lun_id, const unsigned long block_id);
+	bool RequestBlock(std::vector<struct nvm_page *> *block_pages);
+	bool RequestBlock(std::vector<struct nvm_page *> *block_pages, const unsigned long lun_id, const unsigned long block_id);
+
+#else
+
 	void ReclaimPage(struct nvm_page *page);
 	struct nvm_page *RequestPage();
 	struct nvm_page *RequestPage(const unsigned long lun_id, const unsigned long block_id, const unsigned long page_id);
 
+#endif
+
 	const char *GetLocation();
 
     private:
+
+#ifdef NVM_ALLOCATE_BLOCKS
+
+	next_block_to_allocate next_block;
+
+#else
+
 	next_page_to_allocate next_page;
+
+#endif
 
 	pthread_mutex_t allocate_page_mtx;
 	pthread_mutexattr_t allocate_page_mtx_attr;

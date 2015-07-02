@@ -104,6 +104,141 @@ nvm_file::~nvm_file()
     pthread_mutex_destroy(&file_lock);
 }
 
+void nvm_file::ReclaimPage(nvm *nvm_api, struct nvm_page *pg)
+{
+#ifdef NVM_ALLOCATE_BLOCKS
+
+    bool has_more_pages_allocated = false;
+
+    for(unsigned long i = 0; i < pages.size(); ++i)
+    {
+	if(pages[i]->lun_id != pg->lun_id)
+	{
+	    continue;
+	}
+
+	if(pages[i]->block_id != pg->block_id)
+	{
+	    continue;
+	}
+
+	has_more_pages_allocated = true;
+
+	break;
+    }
+
+    if(has_more_pages_allocated)
+    {
+	return;
+    }
+
+    for(unsigned long i = 0; i < block_pages.size(); ++i)
+    {
+	if(block_pages[i]->lun_id != pg->lun_id)
+	{
+	    continue;
+	}
+
+	if(block_pages[i]->block_id != pg->block_id)
+	{
+	    continue;
+	}
+
+	has_more_pages_allocated = true;
+
+	break;
+    }
+
+    if(has_more_pages_allocated == false)
+    {
+	NVM_DEBUG("block %lu - %lu has no more pages allocated", pg->lun_id, pg->block_id);
+
+	nvm_api->ReclaimBlock(pg->lun_id, pg->block_id);
+    }
+
+#else
+
+    nvm_api->ReclaimPage(pg);
+
+#endif
+}
+
+struct nvm_page *nvm_file::RequestPage(nvm *nvm_api)
+{
+    struct nvm_page *ret;
+
+#ifdef NVM_ALLOCATE_BLOCKS
+
+    if(block_pages.empty())
+    {
+	if(nvm_api->RequestBlock(&block_pages) == false)
+	{
+	    return nullptr;
+	}
+    }
+
+    ret = block_pages.back();
+    block_pages.pop_back();
+
+#else
+
+    ret = nvm_api->RequestPage();
+
+#endif
+
+    return ret;
+}
+
+struct nvm_page *nvm_file::RequestPage(nvm *nvm_api, const unsigned long lun_id, const unsigned long block_id, const unsigned long page_id)
+{
+
+#ifdef NVM_ALLOCATE_BLOCKS
+
+    struct nvm_page *ret = nullptr;
+
+retry:
+
+    for(unsigned long i = 0; i < block_pages.size(); ++i)
+    {
+	if(block_pages[i]->lun_id != lun_id)
+	{
+	    continue;
+	}
+
+	if(block_pages[i]->block_id != block_id)
+	{
+	    continue;
+	}
+
+	if(block_pages[i]->id != page_id)
+	{
+	    continue;
+	}
+
+	ret = block_pages[i];
+
+	break;
+    }
+
+    if(ret)
+    {
+	return ret;
+    }
+
+    if(nvm_api->RequestBlock(&block_pages, lun_id, block_id) == false)
+    {
+	return nullptr;
+    }
+
+    goto retry;
+
+#else
+
+    return nvm_api->RequestPage(lun_id, block_id, page_id);
+
+#endif
+}
+
 void nvm_file::SetSeqWritableFile(NVMWritableFile *_writable_file)
 {
     seq_writable_file = _writable_file;
@@ -407,9 +542,9 @@ bool nvm_file::ClearLastPage(nvm *nvm_api)
 
     struct nvm_page *pg = pages[pages.size() - 1];
 
-    nvm_api->ReclaimPage(pg);
+    ReclaimPage(nvm_api, pg);
 
-    pg = nvm_api->RequestPage();
+    pg = RequestPage(nvm_api);
 
     if(pg == nullptr)
     {
@@ -427,7 +562,7 @@ bool nvm_file::ClearLastPage(nvm *nvm_api)
 
 bool nvm_file::ClaimNewPage(nvm *nvm_api, const unsigned long lun_id, const unsigned long block_id, const unsigned long page_id)
 {
-    struct nvm_page *new_page = nvm_api->RequestPage(lun_id, block_id, page_id);
+    struct nvm_page *new_page = RequestPage(nvm_api, lun_id, block_id, page_id);
 
     NVM_DEBUG("File at %p claimed page %lu-%lu-%lu", this, new_page->lun_id, new_page->block_id, new_page->id);
 
@@ -447,7 +582,7 @@ bool nvm_file::ClaimNewPage(nvm *nvm_api, const unsigned long lun_id, const unsi
 
 bool nvm_file::ClaimNewPage(nvm *nvm_api)
 {
-    struct nvm_page *new_page = nvm_api->RequestPage();
+    struct nvm_page *new_page = RequestPage(nvm_api);
 
     NVM_DEBUG("File at %p claimed page %lu-%lu-%lu", this, new_page->lun_id, new_page->block_id, new_page->id);
 
@@ -664,7 +799,7 @@ void nvm_file::DeleteAllLinks(struct nvm *_nvm_api)
 
     for(unsigned long i = 0; i < pages.size(); ++i)
     {
-	_nvm_api->ReclaimPage(pages[i]);
+	ReclaimPage(_nvm_api, pages[i]);
     }
 
     pages.clear();
@@ -869,9 +1004,9 @@ retry:
 	{
 	    //EINTR may cause a stale page -> replace page
 
-	    nvm_api->ReclaimPage(page);
+	    ReclaimPage(nvm_api, page);
 
-	    page = nvm_api->RequestPage();
+	    page = RequestPage(nvm_api);
 
 	    if(page == nullptr)
 	    {
@@ -1592,7 +1727,7 @@ Status NVMRandomRWFile::Write(uint64_t offset, const Slice& data)
 
 	left -= i;
 
-	new_pg = nvm_api->RequestPage();
+	new_pg = fd_->RequestPage(nvm_api);
 
 	if(new_pg == nullptr)
 	{
@@ -1613,7 +1748,7 @@ Status NVMRandomRWFile::Write(uint64_t offset, const Slice& data)
 	    new_pg = wrote_pg;
 	}
 
-	nvm_api->ReclaimPage(crt_page);
+	fd_->ReclaimPage(nvm_api, crt_page);
 	fd_->SetPage(page_idx, new_pg);
     }
 

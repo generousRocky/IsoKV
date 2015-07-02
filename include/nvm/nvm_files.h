@@ -22,6 +22,10 @@ class nvm_file
 
 	std::vector<struct nvm_page *> pages;
 
+#ifdef NVM_ALLOCATE_BLOCKS
+	std::vector<struct nvm_page *> block_pages;
+#endif
+
 	time_t last_modified;
 
 	pthread_mutex_t meta_mtx;
@@ -61,6 +65,10 @@ class nvm_file
 	struct nvm_page *GetNVMPage(const unsigned long idx);
 	struct nvm_page *GetLastPage(unsigned long *page_idx);
 	bool SetPage(const unsigned long page_idx, nvm_page *page);
+
+	struct nvm_page *RequestPage(nvm *nvm_api);
+	struct nvm_page *RequestPage(nvm *nvm_api, const unsigned long lun_id, const unsigned long block_id, const unsigned long page_id);
+	void ReclaimPage(nvm *nvm_api, struct nvm_page *pg);
 
 	nvm_directory *GetParent();
 

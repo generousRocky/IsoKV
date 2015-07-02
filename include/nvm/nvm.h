@@ -1,6 +1,8 @@
 #ifndef _NVM_H_
 #define _NVM_H_
 
+#include "nvm_compile_flags.h"
+
 typedef enum
 {
     FileEntry,
