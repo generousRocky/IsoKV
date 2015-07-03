@@ -40,7 +40,6 @@ struct nvm_page
 #ifndef NVM_ALLOCATE_BLOCKS
 
     bool allocated;
-    bool erased;
 
 #endif
 
@@ -50,19 +49,17 @@ struct nvm_page
 
 struct nvm_block
 {
-#ifndef NVM_ALLOCATE_BLOCKS
-
-    bool has_stale_pages;
-
-#endif
-
     struct nba_block *block;
     struct nvm_page *pages;
 
 #ifdef NVM_ALLOCATE_BLOCKS
 
     bool allocated;
-    bool erased;
+
+#else
+
+    bool has_stale_pages;
+    bool has_pages_allocated;
 
 #endif
 };
@@ -134,6 +131,8 @@ class nvm
 	nvm();
 	~nvm();
 
+	void GarbageCollection();
+
 #ifdef NVM_ALLOCATE_BLOCKS
 
 	void ReclaimBlock(const unsigned long lun_id, const unsigned long block_id);
@@ -160,6 +159,10 @@ class nvm
 
 	next_page_to_allocate next_page;
 
+	nvm_block *gc_block;
+
+	std::vector<struct nvm_page *> allocated_pages;
+
 #endif
 
 	pthread_mutex_t allocate_page_mtx;
@@ -168,6 +171,8 @@ class nvm
 	int open_nvm_device(const char *file);
 	int ioctl_initialize();
 
+	void SwapBlocksOnNVM(struct nvm_block *src, struct nvm_block *dest);
+	void SwapBlocksInMem(struct nvm_block *src, struct nvm_block *dest);
 };
 
 #endif

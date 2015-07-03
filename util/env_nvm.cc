@@ -143,6 +143,8 @@ class NVMEnv : public Env
 	{
 	    NVM_DEBUG("doing garbage collect");
 
+	    nvm_api->GarbageCollection();
+
 	    return Status::OK();
 	}
 

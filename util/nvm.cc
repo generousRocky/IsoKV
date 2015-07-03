@@ -110,23 +110,25 @@ nvm::nvm()
 	NVM_FATAL("");
     }
 
-    if(ioctl_initialize())
-    {
-	NVM_FATAL("");
-    }
-
 #ifdef NVM_ALLOCATE_BLOCKS
 
     next_block.lun_id = 0;
-    next_block.block_id = 1;
+    next_block.block_id = 0;
 
 #else
 
     next_page.lun_id = 0;
-    next_page.block_id = 1;
+    next_page.block_id = 0;
     next_page.page_id = 0;
 
+    gc_block = nullptr;
+
 #endif
+
+    if(ioctl_initialize())
+    {
+	NVM_FATAL("");
+    }
 
     pthread_mutexattr_init(&allocate_page_mtx_attr);
     pthread_mutexattr_settype(&allocate_page_mtx_attr, PTHREAD_MUTEX_RECURSIVE);
@@ -155,6 +157,17 @@ nvm::~nvm()
 	}
 	free(luns);
     }
+
+#ifndef NVM_ALLOCATE_BLOCKS
+
+    for(i = 0; i < allocated_pages.size(); ++i)
+    {
+	free(allocated_pages[i]);
+    }
+
+    allocated_pages.clear();
+
+#endif
 
     pthread_mutexattr_destroy(&allocate_page_mtx_attr);
     pthread_mutex_destroy(&allocate_page_mtx);
@@ -189,7 +202,6 @@ void nvm::ReclaimBlock(const unsigned long lun_id, const unsigned long block_id)
     }
 
     luns[lun_id].blocks[block_id].allocated = false;
-    luns[lun_id].blocks[block_id].erased = true;
 }
 
 bool nvm::RequestBlock(std::vector<struct nvm_page *> *block_pages, const unsigned long lun_id, const unsigned long block_id)
@@ -262,7 +274,7 @@ retry:
 	goto end;
     }
 
-    next_block.block_id = 1;
+    next_block.block_id = 0;
 
     ++next_block.lun_id;
 
@@ -274,13 +286,13 @@ retry:
     next_block.lun_id = 0;
 
 end:
-    if(ret->erased == false || ret->allocated == true)
+    if(ret->allocated == true)
     {
-	NVM_DEBUG("Page already allocated %p", ret);
+	NVM_DEBUG("Block already allocated %p", ret);
 	goto retry;
     }
 
-    NVM_DEBUG("Allocating page %p", ret);
+    NVM_DEBUG("Allocating block %p", ret);
 
     ret->allocated = true;
 
@@ -294,7 +306,127 @@ end:
     return true;
 }
 
+void nvm::GarbageCollection()
+{
+
+}
+
 #else
+
+void nvm::SwapBlocksInMem(struct nvm_block *src, struct nvm_block *dest)
+{
+    unsigned long src_lun_id = src->block->lun;
+    unsigned long src_block_id = src->block->id;
+
+    unsigned long dest_lun_id = dest->block->lun;
+    unsigned long dest_block_id = dest->block->id;
+
+    for(unsigned long i = 0; i < allocated_pages.size(); ++i)
+    {
+	if(allocated_pages[i]->lun_id == src_lun_id &&
+	   allocated_pages[i]->block_id == src_block_id)
+	{
+	    memcpy(allocated_pages[i], &luns[dest_lun_id].blocks[dest_block_id].pages[allocated_pages[i]->id], sizeof(struct nvm_page));
+	}
+    }
+}
+
+void nvm::SwapBlocksOnNVM(struct nvm_block *src, struct nvm_block *dest)
+{
+    int ret;
+
+    unsigned long lun_id = src->block->lun;
+    unsigned long block_id = src->block->id;
+
+    unsigned long block_size = luns[lun_id].nr_pages_per_blk * luns[lun_id].blocks[block_id].pages[0].sizes[0];
+    unsigned long lun_size = luns[lun_id].nr_blocks * block_size;
+    unsigned long offset = lun_id * lun_size + block_id * block_size;
+
+    unsigned char *data;
+    SAFE_ALLOC(data, unsigned char[block_size]);
+
+retry_read:
+
+    NVM_DEBUG("reading block %p", src);
+
+    if((unsigned)pread(fd, data, block_size, offset) != block_size)
+    {
+	if (errno == EINTR)
+	{
+	    goto retry_read;
+	}
+	NVM_FATAL("Unable to read data");
+    }
+
+retry_write:
+
+    lun_id = dest->block->lun;
+    block_id = dest->block->id;
+
+    offset = lun_id * lun_size + block_id * block_size;
+
+    NVM_DEBUG("writing page %p", dest);
+
+    if((unsigned)pwrite(fd, data, block_size, offset) != block_size)
+    {
+	if (errno == EINTR)
+	{
+	    ret = ioctl(fd, NVMBLOCKERASE, dest->block);
+
+	    if(ret)
+	    {
+		NVM_FATAL("could not erase dest block %p", dest->block);
+	    }
+
+	    goto retry_write;
+	}
+
+	NVM_FATAL("unable to write data");
+    }
+
+    delete[] data;
+
+    ret = ioctl(fd, NVMBLOCKERASE, src->block);
+
+    if(ret)
+    {
+	NVM_FATAL("could not erase dest block %p", src->block);
+    }
+
+    src->has_stale_pages = false;
+    src->has_pages_allocated = false;
+}
+
+void nvm::GarbageCollection()
+{
+    pthread_mutex_lock(&allocate_page_mtx);
+
+    NVM_ASSERT(gc_block != nullptr, "gc_block is NULL");
+
+    for(unsigned long i = 0; i < nr_luns; ++i)
+    {
+	for(unsigned long j = 0; j < luns[i].nr_blocks; ++j)
+	{
+	    if(gc_block == &luns[i].blocks[j])
+	    {
+		continue;
+	    }
+
+	    if(luns[i].blocks[j].has_stale_pages)
+	    {
+		SwapBlocksOnNVM(&luns[i].blocks[j], gc_block);
+		SwapBlocksInMem(&luns[i].blocks[j], gc_block);
+
+		gc_block = &luns[i].blocks[j];
+
+		gc_block->has_stale_pages = false;
+		gc_block->has_pages_allocated = false;
+	    }
+	}
+    }
+
+    pthread_mutex_unlock(&allocate_page_mtx);
+}
 
 struct nvm_page *nvm::RequestPage(const unsigned long lun_id, const unsigned long block_id, const unsigned long page_id)
 {
@@ -331,6 +463,48 @@ struct nvm_page *nvm::RequestPage(const unsigned long lun_id, const unsigned lon
     }
 
     ret->allocated = true;
+    luns[lun_id].blocks[block_id].has_pages_allocated = true;
+
+    struct nvm_page *allocated_ret;
+    ALLOC_STRUCT(allocated_ret, 1, struct nvm_page);
+
+    memcpy(allocated_ret, ret, sizeof(struct nvm_page));
+
+    ret = allocated_ret;
+
+    allocated_pages.push_back(ret);
+
+    if(gc_block == &luns[lun_id].blocks[block_id])
+    {
+	unsigned long i;
+
+	for(i = 0; i < nr_luns; ++i)
+	{
+	    unsigned long j;
+
+	    for(j = 0; j < luns[i].nr_blocks; ++j)
+	    {
+		if(luns[i].blocks[j].has_pages_allocated == false)
+		{
+		    gc_block = &luns[i].blocks[j];
+
+		    NVM_DEBUG("moved gc block to %p", gc_block);
+
+		    break;
+		}
+	    }
+
+	    if(j < luns[i].nr_blocks)
+	    {
+		break;
+	    }
+	}
+
+	if(i == nr_luns)
+	{
+	    NVM_FATAL("Could not find a gc block");
+	}
+    }
 
     pthread_mutex_unlock(&allocate_page_mtx);
 
@@ -375,7 +549,7 @@ retry:
 	goto end;
     }
 
-    next_page.block_id = 1;
+    next_page.block_id = 0;
 
     ++next_page.lun_id;
 
@@ -387,15 +561,48 @@ retry:
     next_page.lun_id = 0;
 
 end:
-    if(ret->erased == false || ret->allocated == true)
+    if(ret->allocated == true)
     {
 	NVM_DEBUG("Page already allocated %p", ret);
+	goto retry;
+    }
+
+    if(gc_block == &luns[ret->lun_id].blocks[ret->block_id])
+    {
+	NVM_DEBUG("Skip gc block");
+
+	next_page.page_id = 0;
+
+	++next_page.block_id;
+
+	if(next_page.block_id >= luns[next_page.lun_id].nr_blocks)
+	{
+	    next_page.block_id = 0;
+	}
+
+	++next_page.lun_id;
+
+	if(next_page.lun_id >= nr_luns)
+	{
+	    next_page.lun_id = 0;
+	}
+
 	goto retry;
     }
 
     NVM_DEBUG("Allocating page %p", ret);
 
     ret->allocated = true;
+    luns[next_page.lun_id].blocks[next_page.block_id].has_pages_allocated = true;
+
+    struct nvm_page *allocated_ret;
+    ALLOC_STRUCT(allocated_ret, 1, struct nvm_page);
+
+    memcpy(allocated_ret, ret, sizeof(struct nvm_page));
+
+    ret = allocated_ret;
+
+    allocated_pages.push_back(ret);
 
     pthread_mutex_unlock(&allocate_page_mtx);
 
@@ -404,9 +611,27 @@ end:
 
 void nvm::ReclaimPage(struct nvm_page *page)
 {
-    page->allocated = false;
+    luns[page->lun_id].blocks[page->block_id].pages[page->id].allocated = false;
 
     luns[page->lun_id].blocks[page->block_id].has_stale_pages = true;
+
+    pthread_mutex_unlock(&allocate_page_mtx);
+
+    for(unsigned long i = 0; i < allocated_pages.size();)
+    {
+	if(allocated_pages[i]->lun_id == page->lun_id &&
+	   allocated_pages[i]->block_id == page->block_id &&
+	   allocated_pages[i]->id == page->id)
+	{
+	    allocated_pages.erase(allocated_pages.begin() + i);
+	}
+	else
+	{
+	    ++i;
+	}
+    }
+
+    pthread_mutex_unlock(&allocate_page_mtx);
 }
 
 #endif
@@ -561,13 +786,20 @@ int nvm::ioctl_initialize()
 #ifdef NVM_ALLOCATE_BLOCKS
 
 	    process_blk->allocated = false;
-	    process_blk->erased = true;
 
 #else
 
 	    process_blk->has_stale_pages = false;
+	    process_blk->has_pages_allocated = false;
 
 #endif
+
+	    if(gc_block == nullptr)
+	    {
+		gc_block = process_blk;
+
+		NVM_DEBUG("GC is %p", gc_block);
+	    }
 
 	    ALLOC_STRUCT(process_blk->pages, luns[i].nr_pages_per_blk, struct nvm_page);
 
@@ -580,7 +812,6 @@ int nvm::ioctl_initialize()
 #ifndef NVM_ALLOCATE_BLOCKS
 
 		process_blk->pages[k].allocated = false;
-		process_blk->pages[k].erased = true;
 
 #endif
 
