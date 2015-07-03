@@ -792,14 +792,14 @@ int nvm::ioctl_initialize()
 	    process_blk->has_stale_pages = false;
 	    process_blk->has_pages_allocated = false;
 
-#endif
-
 	    if(gc_block == nullptr)
 	    {
 		gc_block = process_blk;
 
 		NVM_DEBUG("GC is %p", gc_block);
 	    }
+
+#endif	    
 
 	    ALLOC_STRUCT(process_blk->pages, luns[i].nr_pages_per_blk, struct nvm_page);
 

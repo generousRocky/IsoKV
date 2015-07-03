@@ -266,6 +266,7 @@ TESTS = \
 	version_edit_test \
 	nvm_file_manager_test \
 	nvm_ftl_save_test \
+	nvm_gc_tests \
 	nvm_rw_tests \
 	nvm_sequential_file_test \
 	nvm_random_access_file_test \
@@ -778,6 +779,9 @@ nvm_file_manager_test: unit_tests/nvm_file_manager_test.o  $(LIBOBJECTS) $(TESTH
 	$(AM_LINK)
 
 nvm_ftl_save_test: unit_tests/nvm_ftl_save_test.o  $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+nvm_gc_tests: unit_tests/nvm_gc_tests.o  $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 nvm_rw_tests: unit_tests/nvm_rw_tests.o  $(LIBOBJECTS) $(TESTHARNESS)
