@@ -414,6 +414,8 @@ void nvm::GarbageCollection()
 
 	    if(luns[i].blocks[j].has_stale_pages)
 	    {
+		NVM_DEBUG("gc need to swap blocks %lu and %lu", luns[i].blocks[j].block->id, gc_block->block->id);
+
 		SwapBlocksOnNVM(&luns[i].blocks[j], gc_block);
 		SwapBlocksInMem(&luns[i].blocks[j], gc_block);
 

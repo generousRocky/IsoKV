@@ -978,11 +978,13 @@ retry:
     return page_size;
 }
 
-size_t nvm_file::WritePage(struct nvm_page *&page, const unsigned long channel, struct nvm *nvm_api, void *data, const unsigned long data_len)
+size_t nvm_file::WritePage(struct nvm_page *&page, const unsigned long channel, struct nvm *nvm_api, void *data, const unsigned long data_len, const unsigned long new_data_offset, const unsigned long new_data_len)
 {
     unsigned long offset;
 
     unsigned long page_size = page->sizes[channel];
+
+    struct nvm_page *param_page = page;
 
     if(data_len > page_size)
     {
@@ -1022,7 +1024,7 @@ retry:
 
     pthread_mutex_lock(&page_update_mtx);
 
-    if(page == pages[pages.size() - 1])
+    if(param_page == pages[pages.size() - 1])
     {
 	NVM_DEBUG("Wrote last page");
 
@@ -1030,9 +1032,9 @@ retry:
 
 	crt_size_offset = size % page->sizes[channel];
 
-	if(data_len > crt_size_offset)
+	if(new_data_len + new_data_offset > crt_size_offset)
 	{
-	    size += (data_len - crt_size_offset);
+	    size += (new_data_len + new_data_offset - crt_size_offset);
 
 	    NVM_DEBUG("File %p now has size %lu", this, size);
 	}
@@ -1437,7 +1439,7 @@ bool NVMWritableFile::Flush(const bool closing)
     {
 	struct nvm_page *wrote_pg = last_page;
 
-	if(fd_->WritePage(wrote_pg, channel, dir_->GetNVMApi(), buf_, cursize_) != cursize_)
+	if(fd_->WritePage(wrote_pg, channel, dir_->GetNVMApi(), buf_, wrote_pg->sizes[channel], 0, cursize_) != wrote_pg->sizes[channel])
 	{
 	    NVM_DEBUG("unable to write data");
 	    return false;
@@ -1641,6 +1643,11 @@ struct nvm_page *NVMRandomRWFile::SeekPage(const unsigned long offset, unsigned 
 {
     struct nvm_page *crt_page = fd_->GetNVMPage(0);
 
+    if(crt_page == nullptr)
+    {
+	return nullptr;
+    }
+
     *page_pointer = offset;
 
     *page_idx = (unsigned long)(*page_pointer / crt_page->sizes[channel]);
@@ -1677,18 +1684,34 @@ Status NVMRandomRWFile::Write(uint64_t offset, const Slice& data)
 
     size_t left = data.size();
 
-    if(offset >= fd_->GetSize())
+    if(offset > fd_->GetSize())
     {
 	NVM_DEBUG("offset is out of bounds");
 
 	return Status::IOError("offset is out of bounds");
     }
 
+    bool page_just_claimed;
+
     while(left > 0)
     {
+	page_just_claimed = false;
+
 	if(crt_page == nullptr)
 	{
 	    crt_page = SeekPage(offset, &page_pointer, &page_idx);
+
+	    if(crt_page == nullptr)
+	    {
+		if(fd_->ClaimNewPage(dir->GetNVMApi()) == false)
+		{
+		    NVM_FATAL("Out of SSD space");
+		}
+
+		crt_page = SeekPage(offset, &page_pointer, &page_idx);
+
+		page_just_claimed = true;
+	    }
 
 	    SAFE_ALLOC(crt_data, char[crt_page->sizes[channel]]);
 	}
@@ -1709,16 +1732,19 @@ Status NVMRandomRWFile::Write(uint64_t offset, const Slice& data)
 		{
 		    NVM_FATAL("Out of SSD space");
 		}
+
+		page_just_claimed = true;
 	    }
 
 	    page_pointer = 0;
 	}
 
-	NVM_ASSERT(crt_page != nullptr, "crt page is null");
-
 	NVM_DEBUG("page pointer is %lu, page size is %u", page_pointer, crt_page->sizes[channel]);
 
-	fd_->ReadPage(crt_page, channel, nvm_api, crt_data);
+	if(page_just_claimed == false)
+	{
+	    fd_->ReadPage(crt_page, channel, nvm_api, crt_data);
+	}
 
 	for(i = 0; i < crt_page->sizes[channel] - page_pointer && i < left; ++i)
 	{
@@ -1727,29 +1753,40 @@ Status NVMRandomRWFile::Write(uint64_t offset, const Slice& data)
 
 	left -= i;
 
-	new_pg = fd_->RequestPage(nvm_api);
-
-	if(new_pg == nullptr)
+	if(page_just_claimed)
 	{
-	    delete[] crt_data;
+	    new_pg = crt_page;
+	}
+	else
+	{
+	    new_pg = fd_->RequestPage(nvm_api);
 
-	    return Status::IOError("request new page returned");
+	    if(new_pg == nullptr)
+	    {
+		delete[] crt_data;
+
+		return Status::IOError("request new page returned");
+	    }
+
+	    fd_->SetPage(page_idx, new_pg);
 	}
 
 	struct nvm_page *wrote_pg = new_pg;
 
-	if(fd_->WritePage(wrote_pg, channel, nvm_api, crt_data, wrote_pg->sizes[channel]) != wrote_pg->sizes[channel])
+	if(fd_->WritePage(wrote_pg, channel, nvm_api, crt_data, wrote_pg->sizes[channel], page_pointer, i) != wrote_pg->sizes[channel])
 	{
 	    NVM_FATAL("write error");
 	}
 
 	if(wrote_pg != new_pg)
 	{
-	    new_pg = wrote_pg;
+	    fd_->SetPage(page_idx, wrote_pg);
 	}
 
-	fd_->ReclaimPage(nvm_api, crt_page);
-	fd_->SetPage(page_idx, new_pg);
+	if(page_just_claimed == false)
+	{
+	    fd_->ReclaimPage(nvm_api, crt_page);
+	}
     }
 
     if(crt_data)
@@ -1764,7 +1801,7 @@ Status NVMRandomRWFile::Read(uint64_t offset, size_t n, Slice* result, char* scr
 {
     unsigned long page_pointer;
 
-    if(offset >= fd_->GetSize())
+    if(offset > fd_->GetSize())
     {
 	NVM_DEBUG("offset is out of bounds");
 

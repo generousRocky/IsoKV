@@ -60,7 +60,7 @@ class nvm_file
 	int GetFD();
 
 	size_t ReadPage(const nvm_page *page, const unsigned long channel, struct nvm *nvm_api, void *data);
-	size_t WritePage(struct nvm_page *&page, const unsigned long channel, struct nvm *nvm_api, void *data, const unsigned long data_len);
+	size_t WritePage(struct nvm_page *&page, const unsigned long channel, struct nvm *nvm_api, void *data, const unsigned long data_len, const unsigned long new_data_offset, const unsigned long new_data_len);
 
 	struct nvm_page *GetNVMPage(const unsigned long idx);
 	struct nvm_page *GetLastPage(unsigned long *page_idx);
