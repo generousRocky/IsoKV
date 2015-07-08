@@ -1052,6 +1052,12 @@ struct DBOptions {
   // Default: 1MB/s
   uint64_t delayed_write_rate;
 
+  // If true, allow multi-writers to update mem tables in parallel.
+  // For now, it only has performance benefits when write batch size is large.
+  // Most mem table doesn't support this mode.
+  // Default: false
+  bool allow_concurrent_memtable_write;
+
   // Recovery mode to control the consistency while replaying WAL
   // Default: kTolerateCorruptedTailRecords
   WALRecoveryMode wal_recovery_mode;

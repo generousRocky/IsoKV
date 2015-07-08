@@ -167,6 +167,12 @@ Status SanitizeOptionsByTable(
     if (!s.ok()) {
       return s;
     }
+    if (db_opts.allow_concurrent_memtable_write &&
+        !cf.options.memtable_factory->support_concurrent_write()) {
+      return Status::NotSupported(
+          "options.allow_concurrent_memtable_write is "
+          "true but memtable doesn't support it.");
+    }
   }
   return Status::OK();
 }
@@ -2982,6 +2988,13 @@ Status DBImpl::CreateColumnFamily(const ColumnFamilyOptions& cf_options,
     return s;
   }
 
+  if (db_options_.allow_concurrent_memtable_write &&
+      !cf_options.memtable_factory->support_concurrent_write()) {
+    return Status::NotSupported(
+        "options.allow_concurrent_memtable_write is true "
+        "but memtable doesn't support it.");
+  }
+
   {
     InstrumentedMutexLock l(&mutex_);
 
@@ -3447,7 +3460,8 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   assert(!single_column_family_mode_ ||
          versions_->GetColumnFamilySet()->NumberOfColumnFamilies() == 1);
 
-  bool parallel_insert = (callback == nullptr);
+  bool parallel_insert =
+      db_options_.allow_concurrent_memtable_write && (callback == nullptr);
   uint64_t max_total_wal_size = (db_options_.max_total_wal_size == 0)
                                     ? 4 * max_total_in_memory_state_
                                     : db_options_.max_total_wal_size;

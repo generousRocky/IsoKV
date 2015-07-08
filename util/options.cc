@@ -243,6 +243,7 @@ DBOptions::DBOptions()
       listeners(),
       enable_thread_tracking(false),
       delayed_write_rate(1024U * 1024U),
+      allow_concurrent_memtable_write(false),
       wal_recovery_mode(WALRecoveryMode::kTolerateCorruptedTailRecords) {
 }
 
@@ -290,6 +291,7 @@ DBOptions::DBOptions(const Options& options)
       listeners(options.listeners),
       enable_thread_tracking(options.enable_thread_tracking),
       delayed_write_rate(options.delayed_write_rate),
+      allow_concurrent_memtable_write(options.allow_concurrent_memtable_write),
       wal_recovery_mode(options.wal_recovery_mode),
       row_cache(options.row_cache) {}
 
@@ -361,6 +363,8 @@ void DBOptions::Dump(Logger* log) const {
         wal_bytes_per_sync);
     Warn(log, "                  Options.enable_thread_tracking: %d",
         enable_thread_tracking);
+    Warn(log, "         Options.allow_concurrent_memtable_write: %d",
+         allow_concurrent_memtable_write);
     if (row_cache) {
       Warn(log, "                               Options.row_cache: %" PRIu64,
            row_cache->GetCapacity());

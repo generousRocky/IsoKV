@@ -418,7 +418,8 @@ class DBTest : public testing::Test {
     kFIFOCompaction = 26,
     kOptimizeFiltersForHits = 27,
     kRowCache = 28,
-    kEnd = 29
+    kLockFreeSkipList = 29,
+    kEnd = 30
   };
   int option_config_;
 
@@ -712,6 +713,10 @@ class DBTest : public testing::Test {
         options.row_cache = NewLRUCache(1024 * 1024);
         break;
       }
+      case kLockFreeSkipList:
+        options.allow_concurrent_memtable_write = true;
+        options.memtable_factory.reset(new LockFreeSkipListFactory);
+        break;
 
       default:
         break;

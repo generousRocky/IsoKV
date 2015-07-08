@@ -104,7 +104,7 @@ void WriteThread::LeaderEndParallel(WriteThread::Writer* self,
   assert(unfinished_threads_.load() == 0);
   // Tag all as done
   for (Writer* parallel_writer : parallel_writers_) {
-    if (parallel_writer != self && parallel_writer != last_writer) {
+    if (parallel_writer != self) {
       self->cfd_set.insert(parallel_writer->cfd_set.cbegin(),
                            parallel_writer->cfd_set.cend());
       parallel_writer->done = true;
@@ -122,11 +122,12 @@ void WriteThread::LeaderEndParallel(WriteThread::Writer* self,
       cfd->mem()->MarkFlushScheduled();
     }
   }
-
-  // Signaling the last writer needs to be finished after cleaning
-  // up parallel_writers_. Otherwise there will be a data race.
-  last_writer->done = true;
-  last_writer->cv.Signal();
+  assert(!writers_.empty());
+  assert(writers_.front() == last_writer);
+  writers_.pop_front();
+  if (!writers_.empty()) {
+    writers_.front()->cv.Signal();
+  }
 }
 
 void WriteThread::EndParallelRun(WriteThread::Writer* w,
@@ -140,12 +141,6 @@ void WriteThread::EndParallelRun(WriteThread::Writer* w,
 
   while (!w->done) {
     w->cv.Wait();
-  }
-  if (!writers_.empty() && writers_.front() == w) {
-    writers_.pop_front();
-    if (!writers_.empty()) {
-      writers_.front()->cv.Signal();
-    }
   }
 }
 
