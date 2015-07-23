@@ -30,8 +30,8 @@
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/comparator.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/merge_operator.h"
-#include "rocksdb/utilities/convenience.h"
 #include "utilities/merge_operators.h"
 
 /*
@@ -1136,6 +1136,27 @@ jbyte Java_org_rocksdb_Options_compactionStyle(
 
 /*
  * Class:     org_rocksdb_Options
+ * Method:    setMaxTableFilesSizeFIFO
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_Options_setMaxTableFilesSizeFIFO(
+    JNIEnv* env, jobject jobj, jlong jhandle, jlong jmax_table_files_size) {
+  reinterpret_cast<rocksdb::Options*>(jhandle)->compaction_options_fifo.max_table_files_size =
+    static_cast<long>(jmax_table_files_size);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    maxTableFilesSizeFIFO
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_Options_maxTableFilesSizeFIFO(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  return reinterpret_cast<rocksdb::Options*>(jhandle)->compaction_options_fifo.max_table_files_size;
+}
+
+/*
+ * Class:     org_rocksdb_Options
  * Method:    numLevels
  * Signature: (J)I
  */
@@ -1233,8 +1254,7 @@ void Java_org_rocksdb_Options_setLevelZeroStopWritesTrigger(
  */
 jint Java_org_rocksdb_Options_maxMemCompactionLevel(
     JNIEnv* env, jobject jobj, jlong jhandle) {
-  return reinterpret_cast<rocksdb::Options*>(
-      jhandle)->max_mem_compaction_level;
+  return 0;
 }
 
 /*
@@ -1243,11 +1263,7 @@ jint Java_org_rocksdb_Options_maxMemCompactionLevel(
  * Signature: (JI)V
  */
 void Java_org_rocksdb_Options_setMaxMemCompactionLevel(
-    JNIEnv* env, jobject jobj, jlong jhandle,
-    jint jmax_mem_compaction_level) {
-  reinterpret_cast<rocksdb::Options*>(jhandle)->max_mem_compaction_level =
-      static_cast<int>(jmax_mem_compaction_level);
-}
+    JNIEnv* env, jobject jobj, jlong jhandle, jint jmax_mem_compaction_level) {}
 
 /*
  * Class:     org_rocksdb_Options
@@ -2273,6 +2289,27 @@ jbyte Java_org_rocksdb_ColumnFamilyOptions_compactionStyle(
 
 /*
  * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    setMaxTableFilesSizeFIFO
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_ColumnFamilyOptions_setMaxTableFilesSizeFIFO(
+    JNIEnv* env, jobject jobj, jlong jhandle, jlong jmax_table_files_size) {
+  reinterpret_cast<rocksdb::ColumnFamilyOptions*>(jhandle)->compaction_options_fifo.max_table_files_size =
+    static_cast<long>(jmax_table_files_size);
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    maxTableFilesSizeFIFO
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_ColumnFamilyOptions_maxTableFilesSizeFIFO(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  return reinterpret_cast<rocksdb::ColumnFamilyOptions*>(jhandle)->compaction_options_fifo.max_table_files_size;
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
  * Method:    numLevels
  * Signature: (J)I
  */
@@ -2371,8 +2408,7 @@ void Java_org_rocksdb_ColumnFamilyOptions_setLevelZeroStopWritesTrigger(
  */
 jint Java_org_rocksdb_ColumnFamilyOptions_maxMemCompactionLevel(
     JNIEnv* env, jobject jobj, jlong jhandle) {
-  return reinterpret_cast<rocksdb::ColumnFamilyOptions*>(
-      jhandle)->max_mem_compaction_level;
+  return 0;
 }
 
 /*
@@ -2381,11 +2417,7 @@ jint Java_org_rocksdb_ColumnFamilyOptions_maxMemCompactionLevel(
  * Signature: (JI)V
  */
 void Java_org_rocksdb_ColumnFamilyOptions_setMaxMemCompactionLevel(
-    JNIEnv* env, jobject jobj, jlong jhandle,
-    jint jmax_mem_compaction_level) {
-  reinterpret_cast<rocksdb::ColumnFamilyOptions*>(jhandle)->
-      max_mem_compaction_level = static_cast<int>(jmax_mem_compaction_level);
-}
+    JNIEnv* env, jobject jobj, jlong jhandle, jint jmax_mem_compaction_level) {}
 
 /*
  * Class:     org_rocksdb_ColumnFamilyOptions

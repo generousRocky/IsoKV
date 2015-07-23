@@ -308,6 +308,8 @@ class DBImpl : public DB {
   // It is not necessary to hold the mutex when invoking this method.
   void PurgeObsoleteFiles(const JobContext& background_contet);
 
+  Status SyncLog(log::Writer* log);
+
   ColumnFamilyHandle* DefaultColumnFamily() const override;
 
   const SnapshotList& snapshots() const { return snapshots_; }
@@ -437,7 +439,7 @@ class DBImpl : public DB {
 
   // num_bytes: for slowdown case, delay time is calculated based on
   //            `num_bytes` going through.
-  Status DelayWrite(uint64_t num_bytes, uint64_t expiration_time);
+  Status DelayWrite(uint64_t num_bytes);
 
   Status ScheduleFlushes(WriteContext* context);
 
@@ -473,13 +475,6 @@ class DBImpl : public DB {
                               LogBuffer* log_buffer);
   Status BackgroundFlush(bool* madeProgress, JobContext* job_context,
                          LogBuffer* log_buffer);
-
-  // This function is called as part of compaction. It enables Flush process to
-  // preempt compaction, since it's higher prioirty
-  uint64_t CallFlushDuringCompaction(ColumnFamilyData* cfd,
-                                     const MutableCFOptions& mutable_cf_options,
-                                     JobContext* job_context,
-                                     LogBuffer* log_buffer);
 
   void PrintStatistics();
 
@@ -521,7 +516,6 @@ class DBImpl : public DB {
   // * whenever there is an error in background flush or compaction
   InstrumentedCondVar bg_cv_;
   uint64_t logfile_number_;
-  unique_ptr<log::Writer> log_;
   bool log_dir_synced_;
   bool log_empty_;
   ColumnFamilyHandleImpl* default_cf_handle_;
@@ -529,13 +523,31 @@ class DBImpl : public DB {
   unique_ptr<ColumnFamilyMemTablesImpl> column_family_memtables_;
   struct LogFileNumberSize {
     explicit LogFileNumberSize(uint64_t _number)
-        : number(_number), size(0), getting_flushed(false) {}
+        : number(_number) {}
     void AddSize(uint64_t new_size) { size += new_size; }
     uint64_t number;
-    uint64_t size;
-    bool getting_flushed;
+    uint64_t size = 0;
+    bool getting_flushed = false;
+  };
+  struct LogWriterNumber {
+    LogWriterNumber(uint64_t _number, std::unique_ptr<log::Writer> _writer)
+        : number(_number), writer(std::move(_writer)) {}
+    uint64_t number;
+    std::unique_ptr<log::Writer> writer;
+    // true for some prefix of logs_
+    bool getting_synced = false;
   };
   std::deque<LogFileNumberSize> alive_log_files_;
+  // Log files that aren't fully synced, and the current log file.
+  // Synchronization:
+  //  - push_back() is done from write thread with locked mutex_,
+  //  - pop_front() is done from any thread with locked mutex_,
+  //  - back() and items with getting_synced=true are not popped,
+  //  - it follows that write thread with unlocked mutex_ can safely access
+  //    back() and items with getting_synced=true.
+  std::deque<LogWriterNumber> logs_;
+  // Signaled when getting_synced becomes false for some of the logs_.
+  InstrumentedCondVar log_sync_cv_;
   uint64_t total_log_size_;
   // only used for dynamically adjusting max_total_wal_size. it is a sum of
   // [write_buffer_size * max_write_buffer_number] over all column families
@@ -683,6 +695,9 @@ class DBImpl : public DB {
   bool flush_on_destroy_; // Used when disableWAL is true.
 
   static const int KEEP_LOG_FILE_NUM = 1000;
+  // MSVC version 1800 still does not have constexpr for ::max()
+  static const uint64_t kNoTimeOut = port::kMaxUint64;
+
   std::string db_absolute_path_;
 
   // The options to access storage files

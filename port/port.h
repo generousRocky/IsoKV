@@ -22,6 +22,10 @@
 
 #include "port/port_nvm.h"
 
+#elif defined(OS_WIN)
+
+#include "port/win/port_win.h"
+
 #else
 
 #error "unknown platform"

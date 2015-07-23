@@ -44,7 +44,6 @@ ImmutableCFOptions::ImmutableCFOptions(const Options& options)
       merge_operator(options.merge_operator.get()),
       compaction_filter(options.compaction_filter),
       compaction_filter_factory(options.compaction_filter_factory.get()),
-      compaction_filter_factory_v2(options.compaction_filter_factory_v2.get()),
       inplace_update_support(options.inplace_update_support),
       inplace_callback(options.inplace_callback),
       info_log(options.info_log.get()),
@@ -79,7 +78,6 @@ ColumnFamilyOptions::ColumnFamilyOptions()
       merge_operator(nullptr),
       compaction_filter(nullptr),
       compaction_filter_factory(nullptr),
-      compaction_filter_factory_v2(nullptr),
       write_buffer_size(4 << 20),
       max_write_buffer_number(2),
       min_write_buffer_number_to_merge(1),
@@ -90,7 +88,6 @@ ColumnFamilyOptions::ColumnFamilyOptions()
       level0_file_num_compaction_trigger(4),
       level0_slowdown_writes_trigger(20),
       level0_stop_writes_trigger(24),
-      max_mem_compaction_level(2),
       target_file_size_base(2 * 1048576),
       target_file_size_multiplier(1),
       max_bytes_for_level_base(10 * 1048576),
@@ -132,7 +129,6 @@ ColumnFamilyOptions::ColumnFamilyOptions(const Options& options)
       merge_operator(options.merge_operator),
       compaction_filter(options.compaction_filter),
       compaction_filter_factory(options.compaction_filter_factory),
-      compaction_filter_factory_v2(options.compaction_filter_factory_v2),
       write_buffer_size(options.write_buffer_size),
       max_write_buffer_number(options.max_write_buffer_number),
       min_write_buffer_number_to_merge(
@@ -148,7 +144,6 @@ ColumnFamilyOptions::ColumnFamilyOptions(const Options& options)
           options.level0_file_num_compaction_trigger),
       level0_slowdown_writes_trigger(options.level0_slowdown_writes_trigger),
       level0_stop_writes_trigger(options.level0_stop_writes_trigger),
-      max_mem_compaction_level(options.max_mem_compaction_level),
       target_file_size_base(options.target_file_size_base),
       target_file_size_multiplier(options.target_file_size_multiplier),
       max_bytes_for_level_base(options.max_bytes_for_level_base),
@@ -307,11 +302,14 @@ void DBOptions::Dump(Logger* log) const {
     Warn(log, "      Options.max_total_wal_size: %" PRIu64, max_total_wal_size);
     Warn(log, "       Options.disableDataSync: %d", disableDataSync);
     Warn(log, "             Options.use_fsync: %d", use_fsync);
-    Warn(log, "     Options.max_log_file_size: %zu", max_log_file_size);
+    Warn(log, "     Options.max_log_file_size: %" ROCKSDB_PRIszt,
+         max_log_file_size);
     Warn(log, "Options.max_manifest_file_size: %" PRIu64,
-        max_manifest_file_size);
-    Warn(log, "     Options.log_file_time_to_roll: %zu", log_file_time_to_roll);
-    Warn(log, "     Options.keep_log_file_num: %zu", keep_log_file_num);
+         max_manifest_file_size);
+    Warn(log, "     Options.log_file_time_to_roll: %" ROCKSDB_PRIszt,
+         log_file_time_to_roll);
+    Warn(log, "     Options.keep_log_file_num: %" ROCKSDB_PRIszt,
+         keep_log_file_num);
     Warn(log, "       Options.allow_os_buffer: %d", allow_os_buffer);
     Warn(log, "      Options.allow_mmap_reads: %d", allow_mmap_reads);
     Warn(log, "     Options.allow_mmap_writes: %d", allow_mmap_writes);
@@ -333,8 +331,9 @@ void DBOptions::Dump(Logger* log) const {
         WAL_ttl_seconds);
     Warn(log, "                      Options.WAL_size_limit_MB: %" PRIu64,
         WAL_size_limit_MB);
-    Warn(log, "            Options.manifest_preallocation_size: %zu",
-        manifest_preallocation_size);
+    Warn(log,
+         "            Options.manifest_preallocation_size: %" ROCKSDB_PRIszt,
+         manifest_preallocation_size);
     Warn(log, "                         Options.allow_os_buffer: %d",
         allow_os_buffer);
     Warn(log, "                        Options.allow_mmap_reads: %d",
@@ -347,8 +346,10 @@ void DBOptions::Dump(Logger* log) const {
         stats_dump_period_sec);
     Warn(log, "                   Options.advise_random_on_open: %d",
         advise_random_on_open);
-    Warn(log, "                    Options.db_write_buffer_size: %zd",
-        db_write_buffer_size);
+    Warn(log,
+         "                    Options.db_write_buffer_size: %" ROCKSDB_PRIszt
+         "d",
+         db_write_buffer_size);
     Warn(log, "         Options.access_hint_on_compaction_start: %s",
         access_hints[access_hint_on_compaction_start]);
     Warn(log, "                      Options.use_adaptive_mutex: %d",
@@ -377,14 +378,12 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
       compaction_filter ? compaction_filter->Name() : "None");
   Warn(log, "       Options.compaction_filter_factory: %s",
       compaction_filter_factory ? compaction_filter_factory->Name() : "None");
-  Warn(log, "       Options.compaction_filter_factory_v2: %s",
-       compaction_filter_factory_v2 ? compaction_filter_factory_v2->Name()
-                                    : "None");
   Warn(log, "        Options.memtable_factory: %s", memtable_factory->Name());
   Warn(log, "           Options.table_factory: %s", table_factory->Name());
   Warn(log, "           table_factory options: %s",
       table_factory->GetPrintableTableOptions().c_str());
-  Warn(log, "       Options.write_buffer_size: %zd", write_buffer_size);
+  Warn(log, "       Options.write_buffer_size: %" ROCKSDB_PRIszt,
+       write_buffer_size);
   Warn(log, " Options.max_write_buffer_number: %d", max_write_buffer_number);
     if (!compression_per_level.empty()) {
       for (unsigned int i = 0; i < compression_per_level.size(); i++) {
@@ -400,8 +399,6 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
     Warn(log, "            Options.num_levels: %d", num_levels);
     Warn(log, "       Options.min_write_buffer_number_to_merge: %d",
         min_write_buffer_number_to_merge);
-    Warn(log, "        Options.purge_redundant_kvs_while_flush: %d",
-         purge_redundant_kvs_while_flush);
     Warn(log, "    Options.max_write_buffer_number_to_maintain: %d",
          max_write_buffer_number_to_maintain);
     Warn(log, "           Options.compression_opts.window_bits: %d",
@@ -416,8 +413,6 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
         level0_slowdown_writes_trigger);
     Warn(log, "             Options.level0_stop_writes_trigger: %d",
         level0_stop_writes_trigger);
-    Warn(log, "               Options.max_mem_compaction_level: %d",
-        max_mem_compaction_level);
     Warn(log, "                  Options.target_file_size_base: %" PRIu64,
         target_file_size_base);
     Warn(log, "            Options.target_file_size_multiplier: %d",
@@ -430,8 +425,9 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
         max_bytes_for_level_multiplier);
     for (size_t i = 0; i < max_bytes_for_level_multiplier_additional.size();
          i++) {
-      Warn(log, "Options.max_bytes_for_level_multiplier_addtl[%zu]: %d", i,
-          max_bytes_for_level_multiplier_additional[i]);
+      Warn(log, "Options.max_bytes_for_level_multiplier_addtl[%" ROCKSDB_PRIszt
+                "]: %d",
+           i, max_bytes_for_level_multiplier_additional[i]);
     }
     Warn(log, "      Options.max_sequential_skip_in_iterations: %" PRIu64,
         max_sequential_skip_in_iterations);
@@ -441,8 +437,10 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
         source_compaction_factor);
     Warn(log, "         Options.max_grandparent_overlap_factor: %d",
         max_grandparent_overlap_factor);
-    Warn(log, "                       Options.arena_block_size: %zu",
-        arena_block_size);
+
+    Warn(log,
+         "                       Options.arena_block_size: %" ROCKSDB_PRIszt,
+         arena_block_size);
     Warn(log, "                      Options.soft_rate_limit: %.2f",
         soft_rate_limit);
     Warn(log, "                      Options.hard_rate_limit: %.2f",
@@ -451,8 +449,6 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
         rate_limit_delay_max_milliseconds);
     Warn(log, "               Options.disable_auto_compactions: %d",
         disable_auto_compactions);
-    Warn(log, "         Options.purge_redundant_kvs_while_flush: %d",
-        purge_redundant_kvs_while_flush);
     Warn(log, "                          Options.filter_deletes: %d",
         filter_deletes);
     Warn(log, "          Options.verify_checksums_in_compaction: %d",
@@ -482,8 +478,9 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
         collector_names.c_str());
     Warn(log, "                  Options.inplace_update_support: %d",
         inplace_update_support);
-    Warn(log, "                Options.inplace_update_num_locks: %zd",
-        inplace_update_num_locks);
+    Warn(log,
+         "                Options.inplace_update_num_locks: %" ROCKSDB_PRIszt,
+         inplace_update_num_locks);
     Warn(log, "              Options.min_partial_merge_operands: %u",
         min_partial_merge_operands);
     // TODO: easier config for bloom (maybe based on avg key/value size)
@@ -491,12 +488,16 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
         memtable_prefix_bloom_bits);
     Warn(log, "            Options.memtable_prefix_bloom_probes: %d",
         memtable_prefix_bloom_probes);
-    Warn(log, "  Options.memtable_prefix_bloom_huge_page_tlb_size: %zu",
-        memtable_prefix_bloom_huge_page_tlb_size);
+
+    Warn(log,
+         "  Options.memtable_prefix_bloom_huge_page_tlb_size: %" ROCKSDB_PRIszt,
+         memtable_prefix_bloom_huge_page_tlb_size);
     Warn(log, "                          Options.bloom_locality: %d",
         bloom_locality);
-    Warn(log, "                   Options.max_successive_merges: %zd",
-        max_successive_merges);
+
+    Warn(log,
+         "                   Options.max_successive_merges: %" ROCKSDB_PRIszt,
+         max_successive_merges);
     Warn(log, "               Options.optimize_fllters_for_hits: %d",
         optimize_filters_for_hits);
 }  // ColumnFamilyOptions::Dump

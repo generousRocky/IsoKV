@@ -24,6 +24,12 @@
 #include "rocksdb/listener.h"
 #include "rocksdb/thread_status.h"
 
+#ifdef _WIN32
+// Windows API macro interference
+#undef DeleteFile
+#endif
+
+
 namespace rocksdb {
 
 struct Options;
@@ -336,6 +342,7 @@ class DB {
   //      See version_set.h for details. More live versions often mean more SST
   //      files are held from being deleted, by iterators or unfinished
   //      compactions.
+  //  "rocksdb.estimate-live-data-size"
 #ifndef ROCKSDB_LITE
   struct Properties {
     static const std::string kNumFilesAtLevelPrefix;
@@ -359,6 +366,7 @@ class DB {
     static const std::string kNumSnapshots;
     static const std::string kOldestSnapshotTime;
     static const std::string kNumLiveVersions;
+    static const std::string kEstimateLiveDataSize;
   };
 #endif /* ROCKSDB_LITE */
 
@@ -387,6 +395,7 @@ class DB {
   //  "rocksdb.num-snapshots"
   //  "rocksdb.oldest-snapshot-time"
   //  "rocksdb.num-live-versions"
+  //  "rocksdb.estimate-live-data-size"
   virtual bool GetIntProperty(ColumnFamilyHandle* column_family,
                               const Slice& property, uint64_t* value) = 0;
   virtual bool GetIntProperty(const Slice& property, uint64_t* value) {
@@ -435,7 +444,12 @@ class DB {
     return CompactRange(options, DefaultColumnFamily(), begin, end);
   }
 
-  __attribute__((deprecated)) virtual Status
+#if defined(__GNUC__) || defined(__clang__)
+  __attribute__((deprecated))
+#elif _WIN32
+  __declspec(deprecated)
+#endif
+   virtual Status
       CompactRange(ColumnFamilyHandle* column_family, const Slice* begin,
                    const Slice* end, bool change_level = false,
                    int target_level = -1, uint32_t target_path_id = 0) {
@@ -445,7 +459,12 @@ class DB {
     options.target_path_id = target_path_id;
     return CompactRange(options, column_family, begin, end);
   }
-  __attribute__((deprecated)) virtual Status
+#if defined(__GNUC__) || defined(__clang__)
+  __attribute__((deprecated))
+#elif _WIN32
+  __declspec(deprecated)
+#endif
+    virtual Status
       CompactRange(const Slice* begin, const Slice* end,
                    bool change_level = false, int target_level = -1,
                    uint32_t target_path_id = 0) {
@@ -585,6 +604,8 @@ class DB {
       const TransactionLogIterator::ReadOptions&
           read_options = TransactionLogIterator::ReadOptions()) = 0;
 
+// Windows API macro interference
+#undef DeleteFile
   // Delete the file name from the db directory and update the internal state to
   // reflect that. Supports deletion of sst and log files only. 'name' must be
   // path relative to the db directory. eg. 000001.sst, /archive/000003.log

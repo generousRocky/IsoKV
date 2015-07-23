@@ -11,9 +11,6 @@
 
 #include "nvm/nvm.h"
 
-// This is only set from db_stress.cc and not used at the moment
-int rocksdb_kill_odds = 0;
-
 namespace rocksdb
 {
 
@@ -275,13 +272,20 @@ class NVMEnv : public Env
 	    return Status::OK();
 	}
 
-	virtual bool FileExists(const std::string& fname) override
+	virtual Status FileExists(const std::string& fname) override
 	{
 	    bool exists = root_dir->FileExists(fname.c_str());
 
 	    NVM_DEBUG("%s exists: %d", fname.c_str(), exists ? 1 : 0);
 
-	    return exists;
+	    if(exists)
+	    {
+		return Status::OK();
+	    }
+	    else
+	    {
+		return Status::NotFound();
+	    }
 	}
 
 	virtual Status GetChildren(const std::string& dir, std::vector<std::string>* result) override

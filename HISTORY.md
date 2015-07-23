@@ -1,10 +1,23 @@
 # Rocksdb Change Log
 
+## Unreleased
+
+### Public API Changes
+* Deprecated WriteOptions::timeout_hint_us. We no longer support write timeout. If you really need this option, talk to us and we might consider returning it.
+* Deprecated purge_redundant_kvs_while_flush option.
+* Removed BackupEngine::NewBackupEngine() and NewReadOnlyBackupEngine() that were deprecated in RocksDB 3.8. Please use BackupEngine::Open() instead.
+* Deprecated Compaction Filter V2. We are not aware of any existing use-cases. If you use this filter, your compile will break with RocksDB 3.13. Please let us know if you use it and we'll put it back in RocksDB 3.14.
+* Env::FileExists now returns a Status instead of a boolean
+
 ## 3.12.0 (7/2/2015)
 ### New Features
 * Added experimental support for optimistic transactions.  See include/rocksdb/utilities/optimistic_transaction.h for more info.
 * Added a new way to report QPS from db_bench (check out --report_file and --report_interval_seconds)
 * Added a cache for individual rows. See DBOptions::row_cache for more info.
+* Several new features on EventListener (see include/rocksdb/listener.h):
+ - OnCompationCompleted() now returns per-compaciton job statistics, defined in include/rocksdb/compaction_job_stats.h.
+ - Added OnTableFileCreated() and OnTableFileDeleted().
+* Add compaction_options_universal.enable_trivial_move to true, to allow trivial move while performing universal compaction. Trivial move will happen only when all the input files are non overlapping.
 
 ### Public API changes
 * EventListener::OnFlushCompleted() now passes FlushJobInfo instead of a list of parameters.

@@ -84,7 +84,7 @@ struct ThreadStatusData {
 
   std::atomic<uint64_t> thread_id;
   std::atomic<ThreadStatus::ThreadType> thread_type;
-  std::atomic<const void*> cf_key;
+  std::atomic<void*> cf_key;
   std::atomic<ThreadStatus::OperationType> operation_type;
   std::atomic<uint64_t> op_start_time;
   std::atomic<ThreadStatus::OperationStage> operation_stage;

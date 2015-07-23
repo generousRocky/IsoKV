@@ -123,7 +123,11 @@ uint64_t AutoRollLoggerTest::RollLogFileByTimeTest(
   }
 
   // -- Make the log file expire
+#ifdef OS_WIN
+  Sleep(static_cast<unsigned int>(time) * 1000);
+#else
   sleep(static_cast<unsigned int>(time));
+#endif
   LogMessage(logger, log_message.c_str());
 
   // At this time, the new log file should be created.
@@ -151,9 +155,9 @@ TEST_F(AutoRollLoggerTest, RollLogFileByTime) {
 
     InitTestDb();
     // -- Test the existence of file during the server restart.
-    ASSERT_TRUE(!env->FileExists(kLogFile));
+    ASSERT_EQ(Status::NotFound(), env->FileExists(kLogFile));
     AutoRollLogger logger(Env::Default(), kTestDir, "", log_size, time);
-    ASSERT_TRUE(env->FileExists(kLogFile));
+    ASSERT_OK(env->FileExists(kLogFile));
 
     RollLogFileByTimeTest(&logger, time, kSampleMessage + ":RollLogFileByTime");
 }
@@ -200,6 +204,9 @@ TEST_F(AutoRollLoggerTest, CompositeRollByTimeAndSizeLogger) {
       kSampleMessage + ":CompositeRollByTimeAndSizeLogger");
 }
 
+#ifndef OS_WIN
+// TODO: does not build for Windows because of PosixLogger use below. Need to
+// port
 TEST_F(AutoRollLoggerTest, CreateLoggerFromOptions) {
   DBOptions options;
   shared_ptr<Logger> logger;
@@ -249,6 +256,7 @@ TEST_F(AutoRollLoggerTest, CreateLoggerFromOptions) {
       auto_roll_logger, options.log_file_time_to_roll,
       kSampleMessage + ":CreateLoggerFromOptions - both");
 }
+#endif
 
 TEST_F(AutoRollLoggerTest, InfoLogLevel) {
   InitTestDb();
@@ -394,7 +402,7 @@ TEST_F(AutoRollLoggerTest, LogFileExistence) {
   options.max_log_file_size = 100 * 1024 * 1024;
   options.create_if_missing = true;
   ASSERT_OK(rocksdb::DB::Open(options, kTestDir, &db));
-  ASSERT_TRUE(env->FileExists(kLogFile));
+  ASSERT_OK(env->FileExists(kLogFile));
   delete db;
 }
 

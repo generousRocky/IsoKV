@@ -26,6 +26,12 @@
 #include "rocksdb/status.h"
 #include "rocksdb/thread_status.h"
 
+#ifdef _WIN32
+// Windows API macro interference
+#undef DeleteFile
+#undef GetCurrentTime
+#endif
+
 namespace rocksdb {
 
 class FileLock;
@@ -39,6 +45,7 @@ class Directory;
 struct DBOptions;
 class RateLimiter;
 class ThreadStatusUpdater;
+struct ThreadStatus;
 
 using std::unique_ptr;
 using std::shared_ptr;
@@ -152,8 +159,12 @@ class Env {
   virtual Status NewDirectory(const std::string& name,
                               unique_ptr<Directory>* result) = 0;
 
-  // Returns true iff the named file exists.
-  virtual bool FileExists(const std::string& fname) = 0;
+  // Returns OK if the named file exists.
+  //         NotFound if the named file does not exist,
+  //                  the calling process does not have permission to determine
+  //                  whether this file exists, or if the path is invalid.
+  //         IOError if an IO Error was encountered
+  virtual Status FileExists(const std::string& fname) = 0;
 
   // Store in *result the names of the children of the specified directory.
   // The names are relative to "dir".
@@ -461,6 +472,8 @@ class WritableFile {
     io_priority_ = pri;
   }
 
+  virtual Env::IOPriority GetIOPriority() { return io_priority_; }
+
   /*
    * Get the size of valid data in the file.
    */
@@ -497,7 +510,14 @@ class WritableFile {
     return Status::NotSupported("InvalidateCache not supported.");
   }
 
- protected:
+  // Sync a file range with disk.
+  // offset is the starting byte of the file range to be synchronized.
+  // nbytes specifies the length of the range to be synchronized.
+  // This asks the OS to initiate flushing the cached data to disk,
+  // without waiting for completion.
+  // Default implementation does nothing.
+  virtual Status RangeSync(off_t offset, off_t nbytes) { return Status::OK(); }
+
   // PrepareWrite performs any necessary preparation for a write
   // before the write actually occurs.  This allows for pre-allocation
   // of space on devices where it can result in less file
@@ -522,20 +542,11 @@ class WritableFile {
     }
   }
 
+ protected:
   /*
    * Pre-allocate space for a file.
    */
   virtual Status Allocate(off_t offset, off_t len) {
-    return Status::OK();
-  }
-
-  // Sync a file range with disk.
-  // offset is the starting byte of the file range to be synchronized.
-  // nbytes specifies the length of the range to be synchronized.
-  // This asks the OS to initiate flushing the cached data to disk,
-  // without waiting for completion.
-  // Default implementation does nothing.
-  virtual Status RangeSync(off_t offset, off_t nbytes) {
     return Status::OK();
   }
 
@@ -647,27 +658,8 @@ class Logger {
   // and format.  Any log with level under the internal log level
   // of *this (see @SetInfoLogLevel and @GetInfoLogLevel) will not be
   // printed.
-  virtual void Logv(const InfoLogLevel log_level, const char* format, va_list ap) {
-    static const char* kInfoLogLevelNames[5] = {"DEBUG", "INFO", "WARN",
-                                                "ERROR", "FATAL"};
-    if (log_level < log_level_) {
-      return;
-    }
+  virtual void Logv(const InfoLogLevel log_level, const char* format, va_list ap);
 
-    if (log_level == InfoLogLevel::INFO_LEVEL) {
-      // Doesn't print log level if it is INFO level.
-      // This is to avoid unexpected performance regression after we add
-      // the feature of log level. All the logs before we add the feature
-      // are INFO level. We don't want to add extra costs to those existing
-      // logging.
-      Logv(format, ap);
-    } else {
-      char new_format[500];
-      snprintf(new_format, sizeof(new_format) - 1, "[%s] %s",
-               kInfoLogLevelNames[log_level], format);
-      Logv(new_format, ap);
-    }
-  }
   virtual size_t GetLogFileSize() const { return kDoNotSupportGetLogFileSize; }
   // Flush to the OS buffers
   virtual void Flush() {}
@@ -779,7 +771,7 @@ class EnvWrapper : public Env {
                               unique_ptr<Directory>* result) override {
     return target_->NewDirectory(name, result);
   }
-  bool FileExists(const std::string& f) override {
+  Status FileExists(const std::string& f) override {
     return target_->FileExists(f);
   }
   Status GetChildren(const std::string& dir,
@@ -914,6 +906,7 @@ class WritableFileWrapper : public WritableFile {
   void SetIOPriority(Env::IOPriority pri) override {
     target_->SetIOPriority(pri);
   }
+  Env::IOPriority GetIOPriority() override { return target_->GetIOPriority(); }
   uint64_t GetFileSize() override { return target_->GetFileSize(); }
   void GetPreallocationStatus(size_t* block_size,
                               size_t* last_allocated_block) override {

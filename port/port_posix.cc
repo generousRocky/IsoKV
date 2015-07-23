@@ -11,11 +11,13 @@
 
 #include "port/port.h"
 
-#include <stdio.h>
 #include <assert.h>
 #include <errno.h>
-#include <sys/time.h>
+#include <signal.h>
+#include <stdio.h>
 #include <string.h>
+#include <sys/time.h>
+#include <unistd.h>
 #include <cstdlib>
 #include "util/logging.h"
 
@@ -133,6 +135,12 @@ void RWMutex::WriteUnlock() { PthreadCall("write unlock", pthread_rwlock_unlock(
 
 void InitOnce(OnceType* once, void (*initializer)()) {
   PthreadCall("once", pthread_once(once, initializer));
+}
+
+void Crash(const std::string& srcfile, int srcline) {
+  fprintf(stdout, "Crashing at %s:%d\n", srcfile.c_str(), srcline);
+  fflush(stdout);
+  kill(getpid(), SIGTERM);
 }
 
 }  // namespace port

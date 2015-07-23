@@ -12,6 +12,7 @@
 #include "db/filename.h"
 #include "port/port.h"
 #include "util/logger.h"
+#include "port/util_logger.h"
 
 namespace rocksdb {
 
