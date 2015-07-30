@@ -1065,7 +1065,7 @@ rocksdbjava: $(java_libobjects)
 jclean:
 	cd java;$(MAKE) clean;
 
-jtest:
+jtest: rocksdbjava
 	cd java;$(MAKE) sample;$(MAKE) test;
 
 jdb_bench:
