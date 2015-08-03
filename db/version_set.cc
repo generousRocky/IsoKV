@@ -2350,6 +2350,8 @@ Status VersionSet::Recover(
   if (s.ok()) {
     if (!have_next_file) {
       s = Status::Corruption("no meta-nextfile entry in descriptor");
+      printf("no meta-nextfile entry in descriptor %s\n", manifest_filename.c_str());
+      fflush(stdout);
     } else if (!have_log_number) {
       s = Status::Corruption("no meta-lognumber entry in descriptor");
     } else if (!have_last_sequence) {
@@ -2726,7 +2728,8 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
   if (s.ok()) {
     if (!have_next_file) {
       s = Status::Corruption("no meta-nextfile entry in descriptor");
-      printf("no meta-nextfile entry in descriptor");
+      printf("no meta-nextfile entry in descriptor %s\n", dscname.c_str());
+      fflush(stdout);
     } else if (!have_last_sequence) {
       printf("no last-sequence-number entry in descriptor");
       s = Status::Corruption("no last-sequence-number entry in descriptor");

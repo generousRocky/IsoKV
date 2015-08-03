@@ -641,6 +641,16 @@ void rocksdb_put(
             db->rep->Put(options->rep, Slice(key, keylen), Slice(val, vallen)));
 }
 
+void rocksdb_garbage_collect(rocksdb_t *db, char **errptr)
+{
+    SaveError(errptr, db->rep->GarbageCollect());
+}
+
+void rocksdb_save_ftl_state(rocksdb_t *db, char **errptr)
+{
+    SaveError(errptr, db->rep->SaveFTL());
+}
+
 void rocksdb_put_cf(
     rocksdb_t* db,
     const rocksdb_writeoptions_t* options,

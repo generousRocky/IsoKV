@@ -7,6 +7,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#ifdef ROCKSDB_PLATFORM_POSIX
+
 #include <deque>
 #include <set>
 #include <dirent.h>
@@ -37,7 +39,7 @@
 #include "port/port.h"
 #include "util/coding.h"
 #include "util/logging.h"
-#include "util/posix_logger.h"
+#include "util/logger.h"
 #include "util/random.h"
 #include "util/iostats_context_imp.h"
 #include "util/string_util.h"
@@ -1813,3 +1815,5 @@ Env* Env::Default() {
 }
 
 }  // namespace rocksdb
+
+#endif

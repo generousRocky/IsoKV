@@ -12,7 +12,7 @@
 #ifndef STORAGE_LEVELDB_PORT_DIRENT_H_
 #define STORAGE_LEVELDB_PORT_DIRENT_H_
 
-#ifdef ROCKSDB_PLATFORM_POSIX
+#if defined(ROCKSDB_PLATFORM_POSIX) || defined(ROCKSDB_PLATFORM_NVM)
 #include <dirent.h>
 #include <sys/types.h>
 #elif defined(OS_WIN)

@@ -161,6 +161,10 @@ class DB {
   DB() { }
   virtual ~DB();
 
+  Status GarbageCollect();
+
+  Status SaveFTL();
+
   // Create a column_family and return the handle of column family
   // through the argument handle.
   virtual Status CreateColumnFamily(const ColumnFamilyOptions& options,

@@ -1,0 +1,7 @@
+#ifndef _NVM_COMPILE_FLAGS_H_
+#define _NVM_COMPILE_FLAGS_H_
+
+#define NVM_ALLOCATE_BLOCKS
+//#define NVM_ALLOCATE_PAGES
+
+#endif

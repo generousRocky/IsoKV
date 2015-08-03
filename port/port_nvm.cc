@@ -7,7 +7,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifdef ROCKSDB_PLATFORM_POSIX
+#ifdef ROCKSDB_PLATFORM_NVM
 
 #include "port/port.h"
 
@@ -40,11 +40,11 @@ Mutex::Mutex(bool adaptive) {
     pthread_mutexattr_t mutex_attr;
     PthreadCall("init mutex attr", pthread_mutexattr_init(&mutex_attr));
     PthreadCall("set mutex attr",
-                pthread_mutexattr_settype(&mutex_attr,
-                                          PTHREAD_MUTEX_ADAPTIVE_NP));
+		pthread_mutexattr_settype(&mutex_attr,
+					  PTHREAD_MUTEX_ADAPTIVE_NP));
     PthreadCall("init mutex", pthread_mutex_init(&mu_, &mutex_attr));
     PthreadCall("destroy mutex attr",
-                pthread_mutexattr_destroy(&mutex_attr));
+		pthread_mutexattr_destroy(&mutex_attr));
   }
 #else // ignore adaptive for non-linux platform
   PthreadCall("init mutex", pthread_mutex_init(&mu_, nullptr));

@@ -1,0 +1,15 @@
+#ifndef _NVM_IOCTL_H_
+#define _NVM_IOCTL_H_
+
+#define NVMBLOCKPUT         21525
+#define NVMBLOCKRRGET       21526
+#define NVMLUNSNRGET        21527
+#define NVMBLOCKSNRGET      21528
+#define NVMBLOCKERASE       21529
+#define NVMPAGESNRGET       21530
+#define NVMBLOCKGETBYADDR   21531
+#define NVMBLOCKGETBYID	    21532
+#define NVMPAGESIZEGET      21533
+#define NVMCHANNELSNRGET    21534
+
+#endif

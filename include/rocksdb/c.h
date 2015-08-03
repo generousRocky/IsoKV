@@ -194,6 +194,17 @@ extern ROCKSDB_LIBRARY_API void rocksdb_column_family_handle_destroy(
 
 extern ROCKSDB_LIBRARY_API void rocksdb_close(rocksdb_t* db);
 
+extern void rocksdb_garbage_collect(rocksdb_t *db, char **errptr);
+extern void rocksdb_save_ftl_state(rocksdb_t *db, char **errptr);
+
+extern void rocksdb_put_cf(
+    rocksdb_t* db,
+    const rocksdb_writeoptions_t* options,
+    rocksdb_column_family_handle_t* column_family,
+    const char* key, size_t keylen,
+    const char* val, size_t vallen,
+    char** errptr);
+
 extern ROCKSDB_LIBRARY_API void rocksdb_put(
     rocksdb_t* db, const rocksdb_writeoptions_t* options, const char* key,
     size_t keylen, const char* val, size_t vallen, char** errptr);

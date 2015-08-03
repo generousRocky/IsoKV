@@ -1,4 +1,4 @@
-## RocksDB: A Persistent Key-Value Store for Flash and RAM Storage
+## RocksDB: A Persistent Key-Value Store for Flash, RAM and Open channel SSDs on LightNVM
 
 [![Build Status](https://travis-ci.org/facebook/rocksdb.svg?branch=master)](https://travis-ci.org/facebook/rocksdb)
 
@@ -17,6 +17,7 @@ single database.
 Start with example usage here: https://github.com/facebook/rocksdb/tree/master/examples
 
 See the [github wiki](https://github.com/facebook/rocksdb/wiki) for more explanation.
+Compile for LightNVM using make ENV=NVM.
 
 The public interface is in `include/`.  Callers should not include or
 rely on the details of any other header files in this package.  Those

@@ -2,7 +2,7 @@ include ../make_config.mk
 
 .PHONY: clean
 
-all: simple_example column_families_example compact_files_example c_simple_example transaction_example
+all: simple_example column_families_example compact_files_example c_simple_example transaction_example nvm_example
 
 simple_example: simple_example.cc
 	$(CXX) $(CXXFLAGS) $@.cc -o$@ ../librocksdb.a -I../include -O2 -std=c++11 $(PLATFORM_LDFLAGS) $(PLATFORM_CXXFLAGS) $(EXEC_LDFLAGS)
@@ -22,5 +22,8 @@ c_simple_example: c_simple_example.o
 transaction_example: transaction_example.cc
 	$(CXX) $(CXXFLAGS) $@.cc -o$@ ../librocksdb.a -I../include -O2 -std=c++11 $(PLATFORM_LDFLAGS) $(PLATFORM_CXXFLAGS) $(EXEC_LDFLAGS)
 
+nvm_example: nvm_example.cc
+	$(CXX) $(CXXFLAGS) $@.cc -o$@ ../librocksdb.a -I../include -O2 -std=c++11 $(PLATFORM_LDFLAGS) $(PLATFORM_CXXFLAGS) $(EXEC_LDFLAGS)
+
 clean:
-	rm -rf ./simple_example ./column_families_example ./compact_files_example ./c_simple_example c_simple_example.o ./transaction_example
+	rm -rf ./nvm_example ./simple_example ./column_families_example ./compact_files_example ./c_simple_example c_simple_example.o ./transaction_example
