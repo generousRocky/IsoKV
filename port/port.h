@@ -15,8 +15,20 @@
 // porting to a new platform, see "port_example.h" for documentation
 // of what the new port_<platform>.h file must provide.
 #if defined(ROCKSDB_PLATFORM_POSIX)
+
 #include "port/port_posix.h"
+
+#elif defined (ROCKSDB_PLATFORM_NVM)
+
+#include "port/port_nvm.h"
+
 #elif defined(OS_WIN)
+
 #include "port/win/port_win.h"
+
+#else
+
+#error "unknown platform"
+
 #endif
 

@@ -2,7 +2,7 @@ include ../make_config.mk
 
 .PHONY: clean librocksdb
 
-all: simple_example column_families_example compact_files_example c_simple_example optimistic_transaction_example transaction_example
+all: simple_example column_families_example compact_files_example c_simple_example optimistic_transaction_example transaction_example nvm_example
 
 simple_example: librocksdb simple_example.cc
 	$(CXX) $(CXXFLAGS) $@.cc -o$@ ../librocksdb.a -I../include -O2 -std=c++11 $(PLATFORM_LDFLAGS) $(PLATFORM_CXXFLAGS) $(EXEC_LDFLAGS)
@@ -28,8 +28,11 @@ optimistic_transaction_example: librocksdb optimistic_transaction_example.cc
 transaction_example: librocksdb transaction_example.cc
 	$(CXX) $(CXXFLAGS) $@.cc -o$@ ../librocksdb.a -I../include -O2 -std=c++11 $(PLATFORM_LDFLAGS) $(PLATFORM_CXXFLAGS) $(EXEC_LDFLAGS)
 
+nvm_example: nvm_example.cc
+	$(CXX) $(CXXFLAGS) $@.cc -o$@ ../librocksdb.a -I../include -O2 -std=c++11 $(PLATFORM_LDFLAGS) $(PLATFORM_CXXFLAGS) $(EXEC_LDFLAGS)
+
 clean:
-	rm -rf ./simple_example ./column_families_example ./compact_files_example ./compaction_filter_example ./c_simple_example c_simple_example.o ./optimistic_transaction_example ./transaction_example
+	rm -rf ./simple_example ./column_families_example ./compact_files_example ./compaction_filter_example ./c_simple_example c_simple_example.o ./optimistic_transaction_example ./transaction_example ./nvm_example
 
 librocksdb:
 	cd .. && $(MAKE) librocksdb.a

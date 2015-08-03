@@ -130,14 +130,14 @@ uint64_t SstFileReader::CalculateCompressedTableSize(
   unique_ptr<InternalIterator> iter(table_reader_->NewIterator(ReadOptions()));
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
     if (!iter->status().ok()) {
-      fputs(iter->status().ToString().c_str(), stderr);
+      fprintf(stderr, "%s",iter->status().ToString().c_str());
       exit(1);
     }
     table_builder->Add(iter->key(), iter->value());
   }
   Status s = table_builder->Finish();
   if (!s.ok()) {
-    fputs(s.ToString().c_str(), stderr);
+    fprintf(stderr, "%s", s.ToString().c_str());
     exit(1);
   }
   uint64_t size = table_builder->FileSize();

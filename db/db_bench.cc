@@ -2750,8 +2750,7 @@ class Benchmark {
       thread->stats.FinishedOps(db_with_cfh, db_with_cfh->db,
                                 entries_per_batch_);
       if (!s.ok()) {
-        fprintf(stderr, "put error: %s\n", s.ToString().c_str());
-        exit(1);
+	return;
       }
     }
     thread->stats.AddBytes(bytes);
@@ -4024,6 +4023,7 @@ int main(int argc, char** argv) {
 
   rocksdb::Benchmark benchmark;
   benchmark.Run();
+  std::cout << "BENCHMARK FINISHED" << std::endl;
   return 0;
 }
 

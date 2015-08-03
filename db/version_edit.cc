@@ -29,6 +29,7 @@ enum Tag {
   kNewFile = 7,
   // 8 was used for large value refs
   kPrevLogNumber = 9,
+  kPrivMeta = 10,
 
   // these are new formats divergent from open source leveldb
   kNewFile2 = 100,
