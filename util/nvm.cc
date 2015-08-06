@@ -640,15 +640,22 @@ void nvm::ReclaimPage(struct nvm_page *page)
 
 int nvm::open_nvm_device(const char *file)
 {
-    std::string cmd = std::string("echo \"nba ") + std::string(file) +
-		      std::string(" 0:0\" > /sys/block/nvme0n1/lightnvm/configure");
+    location = std::string("/dev") + std::string(file);
+
+    fd = open(location.c_str(), O_RDWR);
+
+    if(fd != -1)
+    {
+	return fd;
+    }
+
+    std::string cmd = std::string("echo \"a nvme0n1 ") + std::string(file) +
+		      std::string(" nba 0:0\" > /sys/module/lnvm/parameters/configure_debug");
 
     if(system(cmd.c_str()))
     {
 	return -1;
     }
-
-    location = std::string("/dev") + std::string(file);
 
     return open(location.c_str(), O_RDWR);
 }

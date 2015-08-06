@@ -1553,7 +1553,7 @@ Status NVMWritableFile::Flush()
 	return Status::IOError("file has been closed");
     }
 
-    if(Flush(false) == false)
+    if(Flush(true) == false)
     {
 	return Status::IOError("out of ssd space");
     }
