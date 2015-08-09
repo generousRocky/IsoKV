@@ -1501,7 +1501,7 @@ class StressTest {
           if (!s.ok()) {
             fprintf(stderr, "dropping column family error: %s\n",
                 s.ToString().c_str());
-            std::terminate();
+	    goto end;
           }
           s = db_->CreateColumnFamily(ColumnFamilyOptions(options_), new_name,
                                       &column_families_[cf]);
@@ -1510,7 +1510,7 @@ class StressTest {
           if (!s.ok()) {
             fprintf(stderr, "creating column family error: %s\n",
                 s.ToString().c_str());
-            std::terminate();
+	    goto end;
           }
           thread->shared->UnlockColumnFamily(cf);
         }
@@ -1594,7 +1594,7 @@ class StressTest {
           }
           if (!s.ok()) {
             fprintf(stderr, "put or merge error: %s\n", s.ToString().c_str());
-            std::terminate();
+	    goto end;
           }
           thread->stats.AddBytesForWrites(1, sz);
         } else {
@@ -1610,7 +1610,7 @@ class StressTest {
           thread->stats.AddDeletes(1);
           if (!s.ok()) {
             fprintf(stderr, "delete error: %s\n", s.ToString().c_str());
-            std::terminate();
+	    goto end;
           }
         } else {
           MultiDelete(thread, write_opts, column_family, key);
@@ -1621,7 +1621,7 @@ class StressTest {
       }
       thread->stats.FinishedSingleOp();
     }
-
+end:
     thread->stats.Stop();
   }
 

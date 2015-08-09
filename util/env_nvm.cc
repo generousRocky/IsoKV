@@ -458,7 +458,8 @@ class NVMEnv : public Env
 
 	virtual Status GetTestDirectory(std::string* result) override
 	{
-	    return Status::IOError("Not supported");
+	    *result = "rocksdb";
+	    return Status::OK();
 	}
 
 	virtual Status GetThreadList(std::vector<ThreadStatus>* thread_list) override
