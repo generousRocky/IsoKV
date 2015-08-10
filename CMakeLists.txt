@@ -237,6 +237,7 @@ set(APPS
         db/memtablerep_bench.cc
         table/table_reader_bench.cc
         tools/db_stress.cc
+	tools/db_durability.cc
         tools/db_repl_stress.cc
         tools/sst_dump.cc
         tools/dump/rocksdb_dump.cc
