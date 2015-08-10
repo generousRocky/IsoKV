@@ -125,6 +125,10 @@ nvm::nvm()
 
 #endif
 
+    if (nvm_get_features()) {
+      NVM_FATAL("");
+    }
+
     if(ioctl_initialize())
     {
 	NVM_FATAL("");
@@ -663,6 +667,30 @@ int nvm::open_nvm_device(const char *file)
 const char *nvm::GetLocation()
 {
     return location.c_str();
+}
+
+int nvm::nvm_get_features()
+{
+  int ret;
+
+  ret = ioctl(fd, NVM_DEVSECTSIZE_GET, &sector_size);
+  if (ret) {
+    NVM_ERROR("%d", ret);
+    goto err;
+  }
+
+  ret = ioctl(fd, NVM_DEVMAXSECT_GET, &max_pages_in_io);
+  if (ret) {
+    NVM_ERROR("%d", ret);
+    goto err;
+  }
+
+  NVM_DEBUG("NVM: sector size: %d, max. physical sectors: %d\n", sector_size,
+                                                                max_pages_in_io);
+
+  return 0;
+err:
+  return 1;
 }
 
 int nvm::ioctl_initialize()

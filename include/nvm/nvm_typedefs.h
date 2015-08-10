@@ -122,6 +122,9 @@ class nvm
 	unsigned long nr_luns;
 	unsigned long max_alloc_try_count;
 
+        unsigned sector_size;
+        unsigned max_pages_in_io;
+
 	struct nvm_lun *luns;
 
 	int fd;
@@ -170,6 +173,7 @@ class nvm
 
 	int open_nvm_device(const char *file);
 	int ioctl_initialize();
+        int nvm_get_features();
 
 	void SwapBlocksOnNVM(struct nvm_block *src, struct nvm_block *dest);
 	void SwapBlocksInMem(struct nvm_block *src, struct nvm_block *dest);

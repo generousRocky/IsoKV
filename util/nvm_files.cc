@@ -998,7 +998,7 @@ size_t nvm_file::WritePage(struct nvm_page *&page, const unsigned long channel, 
 
 retry:
 
-    NVM_DEBUG("writing page %p", page);
+    NVM_DEBUG("writing page %p, size:%lu", page, data_len);
 
     if((unsigned)pwrite(fd_, data, data_len, offset) != data_len)
     {
