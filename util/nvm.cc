@@ -103,7 +103,7 @@ nvm_entry_type nvm_entry::GetType()
 
 nvm::nvm()
 {
-    fd = open_nvm_device("/rocksdb");
+    fd = open_nvm_device("rocksdb");
 
     if(fd < 0)
     {
@@ -644,7 +644,7 @@ void nvm::ReclaimPage(struct nvm_page *page)
 
 int nvm::open_nvm_device(const char *file)
 {
-    location = std::string("/dev") + std::string(file);
+    location = std::string("/dev/") + std::string(file);
 
     fd = open(location.c_str(), O_RDWR);
 
