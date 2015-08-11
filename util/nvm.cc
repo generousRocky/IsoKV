@@ -857,7 +857,8 @@ int nvm::ioctl_initialize()
 
 		for(l = 0; l < process_blk->pages[k].sizes_no; ++l)
 		{
-		    process_blk->pages[k].sizes[l] = luns[i].channels[l].gran_write;
+		    process_blk->pages[k].sizes[l] =
+                              luns[i].channels[l].gran_write * max_pages_in_io;
 		}
 	    }
 	}
