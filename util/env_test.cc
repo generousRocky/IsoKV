@@ -826,11 +826,11 @@ TEST_F(EnvPosixTest, InvalidateCache) {
 
 TEST_F(EnvPosixTest,
 #if defined(ROCKSDB_PLATFORM_NVM)
-       NVMRandomRWFileTest
+  NVMRandomRWFileTest
 #else
-       PosixRandomRWFileTest
+  PosixRandomRWFileTest
 #endif
-       ) {
+  ) {
   EnvOptions soptions;
   soptions.use_mmap_writes = soptions.use_mmap_reads = false;
   std::string fname = test::TmpDir() + "/" + "testfile";

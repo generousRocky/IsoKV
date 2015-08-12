@@ -287,14 +287,12 @@ void AssignEnvOptions(EnvOptions* env_options, const DBOptions& options) {
 
 }
 
-Status Env::GarbageCollect()
-{
-    return Status::NotSupported("garbage collection is not supported");
+Status Env::GarbageCollect() {
+  return Status::NotSupported("garbage collection is not supported");
 }
 
-Status Env::SaveFTL()
-{
-    return Status::NotSupported("ftl is not supported");
+Status Env::SaveFTL() {
+  return Status::NotSupported("ftl is not supported");
 }
 
 EnvOptions Env::OptimizeForLogWrite(const EnvOptions& env_options,
