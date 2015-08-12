@@ -4149,26 +4149,22 @@ Status DB::Put(const WriteOptions& opt, ColumnFamilyHandle* column_family,
 
 Status DB::GarbageCollect()
 {
-    Env *env = GetEnv();
+  Env *env = GetEnv();
 
-    if(env == nullptr)
-    {
-	return Status::IOError("env is null");
-    }
-
-    return env->GarbageCollect();
+  if (env == nullptr) {
+    return Status::IOError("env is null");
+  }
+  return env->GarbageCollect();
 }
 
 Status DB::SaveFTL()
 {
-    Env *env = GetEnv();
+  Env *env = GetEnv();
 
-    if(env == nullptr)
-    {
-	return Status::IOError("env is null");
-    }
-
-    return env->SaveFTL();
+  if (env == nullptr) {
+    return Status::IOError("env is null");
+  }
+  return env->SaveFTL();
 }
 
 Status DB::Delete(const WriteOptions& opt, ColumnFamilyHandle* column_family,
