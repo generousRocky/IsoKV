@@ -15,4 +15,4 @@
 #define NVM_DEVSECTSIZE_GET     21535
 #define NVM_DEVMAXSECT_GET      21536
 
-#endif
+#endif //_NVM_IOCTL_H_

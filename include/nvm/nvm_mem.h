@@ -27,4 +27,4 @@ if(!(x))\
 
 #define SAFE_MALLOC(x, y, z) ALLOC_STRUCT(x, y, z)
 
-#endif /* MEM_H_ */
+#endif /* _NVM_MEM_H_ */

@@ -3,180 +3,146 @@
 
 typedef unsigned long long sector_t;
 
-struct nba_channel
-{
-    unsigned long int lun_idx;
-    unsigned short int chnl_idx;
+struct nba_channel {
+  unsigned long int lun_idx;
+  unsigned short int chnl_idx;
 
-    unsigned int gran_write;
-    unsigned int gran_read;
-    unsigned int gran_erase;
+  unsigned int gran_write;
+  unsigned int gran_read;
+  unsigned int gran_erase;
 };
 
-struct nba_block
-{
-    unsigned long lun;
+struct nba_block {
+  unsigned long lun;
+  sector_t phys_addr;
 
-    sector_t phys_addr;
+  unsigned long id;
 
-    unsigned long id;
-
-    void *internals;
+  void *internals;
 };
 
-struct nvm_channel
-{
-    unsigned int gran_write;
-    unsigned int gran_read;
-    unsigned int gran_erase;
+struct nvm_channel {
+  unsigned int gran_write;
+  unsigned int gran_read;
+  unsigned int gran_erase;
 };
 
-struct nvm_page
-{
-    unsigned long lun_id;
-    unsigned long block_id;
-    unsigned long id;
+struct nvm_page {
+  unsigned long lun_id;
+  unsigned long block_id;
+  unsigned long id;
 
 #ifndef NVM_ALLOCATE_BLOCKS
+  bool allocated;
+#endif
 
+  unsigned int sizes_no;
+  unsigned int *sizes;
+};
+
+struct nvm_block {
+  struct nba_block *block;
+  struct nvm_page *pages;
+
+#ifdef NVM_ALLOCATE_BLOCKS
     bool allocated;
-
+#else
+  bool has_stale_pages;
+  bool has_pages_allocated;
 #endif
-
-    unsigned int sizes_no;
-    unsigned int *sizes;
 };
 
-struct nvm_block
-{
-    struct nba_block *block;
-    struct nvm_page *pages;
+struct nvm_lun {
+  unsigned long nr_blocks;
+  struct nvm_block *blocks;
+  unsigned long nr_pages_per_blk;
+
+  unsigned long nchannels;
+  struct nvm_channel *channels;
+};
+
+class list_node {
+  private:
+    void *data;
+
+    list_node *prev;
+    list_node *next;
+
+  public:
+    list_node(void *_data);
+    ~list_node();
+
+    list_node *GetNext();
+    list_node *GetPrev();
+
+    void *GetData();
+    void *SetData(void *_data);
+    void *SetNext(list_node *_next);
+    void *SetPrev(list_node *_prev);
+};
 
 #ifdef NVM_ALLOCATE_BLOCKS
-
-    bool allocated;
-
+struct next_block_to_allocate {
+  unsigned long lun_id;
+  unsigned long block_id;
+};
 #else
-
-    bool has_stale_pages;
-    bool has_pages_allocated;
-
-#endif
+struct next_page_to_allocate {
+  unsigned long lun_id;
+  unsigned long block_id;
+  unsigned long page_id;
 };
-
-struct nvm_lun
-{
-    unsigned long nr_blocks;
-
-    struct nvm_block *blocks;
-
-    unsigned long nr_pages_per_blk;
-
-    unsigned long nchannels;
-
-    struct nvm_channel *channels;
-};
-
-class list_node
-{
-    private:
-	void *data;
-
-	list_node *prev;
-	list_node *next;
-
-    public:
-	list_node(void *_data);
-	~list_node();
-
-	list_node *GetNext();
-	list_node *GetPrev();
-
-	void *GetData();
-	void *SetData(void *_data);
-	void *SetNext(list_node *_next);
-	void *SetPrev(list_node *_prev);
-};
-#ifdef NVM_ALLOCATE_BLOCKS
-
-struct next_block_to_allocate
-{
-    unsigned long lun_id;
-    unsigned long block_id;
-};
-
-#else
-
-struct next_page_to_allocate
-{
-    unsigned long lun_id;
-    unsigned long block_id;
-    unsigned long page_id;
-};
-
 #endif
 
-class nvm
-{
-    public:
-	unsigned long nr_luns;
-	unsigned long max_alloc_try_count;
+class nvm {
+  public:
+    unsigned long nr_luns;
+    unsigned long max_alloc_try_count;
 
-        unsigned sector_size;
-        unsigned max_pages_in_io;
+    unsigned sector_size;
+    unsigned max_pages_in_io;
 
-	struct nvm_lun *luns;
+    struct nvm_lun *luns;
 
-	int fd;
+    int fd;
 
-	std::string location;
+    std::string location;
 
-	nvm();
-	~nvm();
+    nvm();
+    ~nvm();
 
-	void GarbageCollection();
+    void GarbageCollection();
 
 #ifdef NVM_ALLOCATE_BLOCKS
-
-	void ReclaimBlock(const unsigned long lun_id, const unsigned long block_id);
-	bool RequestBlock(std::vector<struct nvm_page *> *block_pages);
-	bool RequestBlock(std::vector<struct nvm_page *> *block_pages, const unsigned long lun_id, const unsigned long block_id);
-
+    void ReclaimBlock(const unsigned long lun_id, const unsigned long block_id);
+    bool RequestBlock(std::vector<struct nvm_page *> *block_pages);
+    bool RequestBlock(std::vector<struct nvm_page *> *block_pages, const unsigned long lun_id, const unsigned long block_id);
 #else
-
-	void ReclaimPage(struct nvm_page *page);
-	struct nvm_page *RequestPage();
-	struct nvm_page *RequestPage(const unsigned long lun_id, const unsigned long block_id, const unsigned long page_id);
-
+    void ReclaimPage(struct nvm_page *page);
+    struct nvm_page *RequestPage();
+    struct nvm_page *RequestPage(const unsigned long lun_id, const unsigned long block_id, const unsigned long page_id);
 #endif
 
-	const char *GetLocation();
+    const char *GetLocation();
 
-    private:
+  private:
 
 #ifdef NVM_ALLOCATE_BLOCKS
-
-	next_block_to_allocate next_block;
-
+    next_block_to_allocate next_block;
 #else
-
-	next_page_to_allocate next_page;
-
-	nvm_block *gc_block;
-
-	std::vector<struct nvm_page *> allocated_pages;
-
+    next_page_to_allocate next_page;
+    nvm_block *gc_block;
+    std::vector<struct nvm_page *> allocated_pages;
 #endif
+    pthread_mutex_t allocate_page_mtx;
+    pthread_mutexattr_t allocate_page_mtx_attr;
 
-	pthread_mutex_t allocate_page_mtx;
-	pthread_mutexattr_t allocate_page_mtx_attr;
+    int open_nvm_device(const char *file);
+    int ioctl_initialize();
+    int nvm_get_features();
 
-	int open_nvm_device(const char *file);
-	int ioctl_initialize();
-        int nvm_get_features();
-
-	void SwapBlocksOnNVM(struct nvm_block *src, struct nvm_block *dest);
-	void SwapBlocksInMem(struct nvm_block *src, struct nvm_block *dest);
+    void SwapBlocksOnNVM(struct nvm_block *src, struct nvm_block *dest);
+    void SwapBlocksInMem(struct nvm_block *src, struct nvm_block *dest);
 };
 
-#endif
+#endif //_NVM_TYPEDEFS_H_

@@ -3,10 +3,9 @@
 
 #include "nvm_compile_flags.h"
 
-typedef enum
-{
-    FileEntry,
-    DirectoryEntry
+typedef enum {
+  FileEntry,
+  DirectoryEntry
 } nvm_entry_type;
 
 #include <iostream>
@@ -29,7 +28,7 @@ typedef enum
 #include <sys/statfs.h>
 #include <sys/syscall.h>
 
-#endif
+#endif //OS_LINUX
 
 #include <sys/time.h>
 #include <sys/types.h>
@@ -40,7 +39,7 @@ typedef enum
 
 #include <linux/fs.h>
 
-#endif
+#endif //OS_LINUX
 
 #include <signal.h>
 #include <algorithm>
@@ -100,45 +99,40 @@ typedef enum
 // holder.
 #if !(defined OS_LINUX) && !(defined CYGWIN)
 
-#define NVM_FADV_NORMAL	    0 /* [MC1] no further special treatment */
-#define NVM_FADV_RANDOM	    1 /* [MC1] expect random page refs */
+#define NVM_FADV_NORMAL     0 /* [MC1] no further special treatment */
+#define NVM_FADV_RANDOM     1 /* [MC1] expect random page refs */
 #define NVM_FADV_SEQUENTIAL 2 /* [MC1] expect sequential page refs */
 #define NVM_FADV_WILLNEED   3 /* [MC1] will need these pages */
 #define NVM_FADV_DONTNEED   4 /* [MC1] dont need these pages */
 
 #else
 
-#define NVM_FADV_NORMAL	    POSIX_FADV_NORMAL	    /* [MC1] no further special treatment */
-#define NVM_FADV_RANDOM	    POSIX_FADV_RANDOM	    /* [MC1] expect random page refs */
+#define NVM_FADV_NORMAL     POSIX_FADV_NORMAL       /* [MC1] no further special treatment */
+#define NVM_FADV_RANDOM     POSIX_FADV_RANDOM       /* [MC1] expect random page refs */
 #define NVM_FADV_SEQUENTIAL POSIX_FADV_SEQUENTIAL   /* [MC1] expect sequential page refs */
-#define NVM_FADV_WILLNEED   POSIX_FADV_WILLNEED	    /* [MC1] will need these pages */
-#define NVM_FADV_DONTNEED   POSIX_FADV_DONTNEED	    /* [MC1] dont need these pages */
+#define NVM_FADV_WILLNEED   POSIX_FADV_WILLNEED     /* [MC1] will need these pages */
+#define NVM_FADV_DONTNEED   POSIX_FADV_DONTNEED     /* [MC1] dont need these pages */
 
 #endif
 
-namespace rocksdb
-{
+namespace rocksdb {
 
-class nvm_entry
-{
-    private:
-	nvm_entry_type type;
+class nvm_entry {
+  private:
+    nvm_entry_type type;
+    void *data;
+  public:
+    nvm_entry(const nvm_entry_type _type, void *_data);
+    ~nvm_entry();
 
-	void *data;
-
-    public:
-	nvm_entry(const nvm_entry_type _type, void *_data);
-	~nvm_entry();
-
-	void *GetData();
-	nvm_entry_type GetType();
+    void *GetData();
+    nvm_entry_type GetType();
 };
 
+} //rocksdb namespace
+
+inline rocksdb::Status IOError(const std::string& context, int err_number) {
+  return rocksdb::Status::IOError(context, strerror(err_number));
 }
 
-inline rocksdb::Status IOError(const std::string& context, int err_number)
-{
-    return rocksdb::Status::IOError(context, strerror(err_number));
-}
-
-#endif
+#endif //_NVM_H_
