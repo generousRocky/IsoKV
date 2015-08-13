@@ -21,7 +21,7 @@
   #include <machine/endian.h>
   #if defined(__DARWIN_LITTLE_ENDIAN) && defined(__DARWIN_BYTE_ORDER)
     #define PLATFORM_IS_LITTLE_ENDIAN \
-	(__DARWIN_BYTE_ORDER == __DARWIN_LITTLE_ENDIAN)
+                      (__DARWIN_BYTE_ORDER == __DARWIN_LITTLE_ENDIAN)
   #endif
 #elif defined(OS_SOLARIS)
   #include <sys/isa_defs.h>

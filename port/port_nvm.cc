@@ -39,12 +39,10 @@ Mutex::Mutex(bool adaptive) {
   } else {
     pthread_mutexattr_t mutex_attr;
     PthreadCall("init mutex attr", pthread_mutexattr_init(&mutex_attr));
-    PthreadCall("set mutex attr",
-		pthread_mutexattr_settype(&mutex_attr,
-					  PTHREAD_MUTEX_ADAPTIVE_NP));
+    PthreadCall("set mutex attr", pthread_mutexattr_settype(&mutex_attr,
+                                                PTHREAD_MUTEX_ADAPTIVE_NP));
     PthreadCall("init mutex", pthread_mutex_init(&mu_, &mutex_attr));
-    PthreadCall("destroy mutex attr",
-		pthread_mutexattr_destroy(&mutex_attr));
+    PthreadCall("destroy mutex attr", pthread_mutexattr_destroy(&mutex_attr));
   }
 #else // ignore adaptive for non-linux platform
   PthreadCall("init mutex", pthread_mutex_init(&mu_, nullptr));
@@ -73,9 +71,8 @@ void Mutex::AssertHeld() {
 #endif
 }
 
-CondVar::CondVar(Mutex* mu)
-    : mu_(mu) {
-    PthreadCall("init cv", pthread_cond_init(&cv_, nullptr));
+CondVar::CondVar(Mutex* mu) : mu_(mu) {
+  PthreadCall("init cv", pthread_cond_init(&cv_, nullptr));
 }
 
 CondVar::~CondVar() { PthreadCall("destroy cv", pthread_cond_destroy(&cv_)); }
