@@ -279,6 +279,7 @@ TESTS = \
 	nvm_rw_tests \
 	nvm_sequential_file_test \
 	nvm_random_access_file_test \
+	nvm_write_test \
 	version_set_test \
 	compaction_picker_test \
 	version_builder_test \
@@ -829,6 +830,9 @@ nvm_sequential_file_test: unit_tests/nvm_sequential_file_test.o  $(LIBOBJECTS) $
 	$(AM_LINK)
 
 nvm_random_access_file_test: unit_tests/nvm_random_access_file_test.o  $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+nvm_write_test: unit_tests/nvm_write_test.o  $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 version_set_test: db/version_set_test.o $(LIBOBJECTS) $(TESTHARNESS)
