@@ -5,8 +5,7 @@
 
 using namespace rocksdb;
 
-void w_test_1()
-{
+void w_test_1() {
   nvm_directory *dir;
   nvm *nvm_api;
 
@@ -65,8 +64,7 @@ void w_test_1()
   NVM_DEBUG("TEST FINISHED!");
 }
 
-int main(int argc, char **argv)
-{
+int main(int argc, char **argv) {
   w_test_1();
 
   return 0;
@@ -74,8 +72,7 @@ int main(int argc, char **argv)
 
 #else // ROCKSDB_PLATFORM_NVM
 
-int main(void)
-{
+int main(void) {
   return 0;
 }
 
