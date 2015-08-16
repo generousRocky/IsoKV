@@ -194,6 +194,7 @@ extern ROCKSDB_LIBRARY_API void rocksdb_column_family_handle_destroy(
 
 extern ROCKSDB_LIBRARY_API void rocksdb_close(rocksdb_t* db);
 
+extern void *rocksdb_get_rep(const rocksdb_t *db);
 extern void rocksdb_garbage_collect(rocksdb_t *db, char **errptr);
 extern void rocksdb_save_ftl_state(rocksdb_t *db, char **errptr);
 

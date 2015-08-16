@@ -47,6 +47,7 @@ class nvm_directory {
     int GetFileModificationTime(const char *filename, time_t *mtime);
     int LinkFile(const char *src, const char *target);
     int RenameFile(const char *crt_filename, const char *new_filename);
+    int RenameDirectory(const char *crt_filename, const char *new_filename);
     int DeleteFile(const char *filename);
     int GetChildren(const char *name, std::vector<std::string>* result);
 
@@ -56,6 +57,9 @@ class nvm_directory {
 
     void Remove(nvm_file *fd);
     void Add(nvm_file *fd);
+    void Remove(nvm_directory *fd);
+    void Add(nvm_directory *fd);
+    void ChangeName(const char *_name, const int n);
 
     void nvm_fclose(nvm_file *file, const char *mode);
 

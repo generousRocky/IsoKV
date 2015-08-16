@@ -307,13 +307,16 @@ class NVMEnv : public Env {
                                           const std::string& target) override {
     NVM_DEBUG("renaming %s to %s", src.c_str(), target.c_str());
 
-    if (root_dir->RenameFile(src.c_str(), target.c_str())) {
-      NVM_DEBUG("Failed to rename %s to %s", src.c_str(), target.c_str());
-
-      return Status::IOError("nvm rename file failed");
+    if(root_dir->RenameFile(src.c_str(), target.c_str()) == 0) {
+      return Status::OK();
     }
 
-    return Status::OK();
+    if(root_dir->RenameDirectory(src.c_str(), target.c_str()) == 0) {
+      Status::OK();
+    }
+
+    NVM_DEBUG("Failed to rename %s to %s", src.c_str(), target.c_str());
+    return Status::IOError("nvm rename file failed");
   }
 
   virtual Status LinkFile(const std::string& src,

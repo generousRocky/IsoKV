@@ -317,6 +317,7 @@ TOOLS = \
 	db_sanity_test \
 	db_stress \
 	db_durability \
+	db_crash_test \
 	ldb \
 	db_repl_stress \
 	rocksdb_dump \
@@ -641,6 +642,9 @@ db_stress: tools/db_stress.o $(LIBOBJECTS) $(TESTUTIL)
 	$(AM_LINK)
 
 db_durability: tools/db_durability.o $(LIBOBJECTS) $(TESTUTIL)
+	$(AM_LINK)
+
+db_crash_test: tools/db_crash_test.o $(LIBOBJECTS) $(TESTUTIL)
 	$(AM_LINK)
 
 db_sanity_test: tools/db_sanity_test.o $(LIBOBJECTS) $(TESTUTIL)

@@ -641,6 +641,11 @@ void rocksdb_put(
             db->rep->Put(options->rep, Slice(key, keylen), Slice(val, vallen)));
 }
 
+void *rocksdb_get_rep(const rocksdb_t *db)
+{
+    return db->rep;
+}
+
 void rocksdb_garbage_collect(rocksdb_t *db, char **errptr)
 {
     SaveError(errptr, db->rep->GarbageCollect());
