@@ -312,7 +312,7 @@ class NVMEnv : public Env {
     }
 
     if(root_dir->RenameDirectory(src.c_str(), target.c_str()) == 0) {
-      Status::OK();
+      return Status::OK();
     }
 
     NVM_DEBUG("Failed to rename %s to %s", src.c_str(), target.c_str());
