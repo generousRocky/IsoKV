@@ -1,6 +1,7 @@
 #ifdef ROCKSDB_PLATFORM_NVM
 
 #include "nvm/nvm.h"
+#include "malloc.h"
 
 namespace rocksdb {
 
@@ -463,10 +464,12 @@ bool nvm_file::ClearLastPage(nvm *nvm_api) {
   return true;
 }
 
-bool nvm_file::ClaimNewPage(nvm *nvm_api, const unsigned long lun_id, const unsigned long block_id, const unsigned long page_id) {
+bool nvm_file::ClaimNewPage(nvm *nvm_api, const unsigned long lun_id,
+                const unsigned long block_id, const unsigned long page_id) {
   struct nvm_page *new_page = RequestPage(nvm_api, lun_id, block_id, page_id);
 
-  NVM_DEBUG("File at %p claimed page %lu-%lu-%lu", this, new_page->lun_id, new_page->block_id, new_page->id);
+  NVM_DEBUG("File at %p claimed page %lu-%lu-%lu", this, new_page->lun_id,
+                                            new_page->block_id, new_page->id);
 
   if (new_page == nullptr) {
     return false;
@@ -792,7 +795,8 @@ struct nvm_page *nvm_file::GetNVMPage(const unsigned long idx) {
   return ret;
 }
 
-size_t nvm_file::ReadPage(const nvm_page *page, const unsigned long channel, struct nvm *nvm_api, void *data) {
+size_t nvm_file::ReadPage(const nvm_page *page, const unsigned long channel,
+                                              struct nvm *nvm_api, void *data) {
   unsigned long offset;
 
   unsigned long page_size = page->sizes[channel];
@@ -821,12 +825,13 @@ size_t nvm_file::WritePage(struct nvm_page *&page, const unsigned long channel,
        struct nvm *nvm_api, void *data, const unsigned long data_len,
        const unsigned long new_data_offset, const unsigned long new_data_len) {
   unsigned long offset;
+  void *data_aligned;
+  uint8_t allocate_aligned_buf = 0;
 
   unsigned long page_size = page->sizes[channel];
 
   struct nvm_page *param_page = page;
 
-  NVM_DEBUG("WritePage: data_len: %lu, page_size: %lu\n", data_len, page_size);
   if (data_len > page_size) {
     NVM_FATAL("out of page bounds");
   }
@@ -836,11 +841,28 @@ size_t nvm_file::WritePage(struct nvm_page *&page, const unsigned long channel,
 
   offset = page->lun_id * lun_size + page->block_id * block_size + page->id * page_size;
 
+  NVM_DEBUG("WritePage: page %p data_len: %lu, page_size: %lu in offset:%lu\n",
+                                          page, data_len, page_size, offset);
+
+  /* Verify that data is aligned although it should already be aligned */
+  if (UNLIKELY(((uintptr_t)data % 4096) != 0)) {
+    NVM_DEBUG("Aligning data\n");
+    data_aligned = memalign(4096, data_len);
+    if (!data_aligned) {
+      NVM_FATAL("Cannot allocate aligned memory\n");
+      return -1;
+    }
+
+    memcpy(data_aligned, data, data_len);
+    allocate_aligned_buf = 1;
+  } else {
+    data_aligned = data;
+  }
+
 retry:
-  if ((unsigned)pwrite(fd_, data, data_len, offset) != data_len) {
+  if ((unsigned)pwrite(fd_, data_aligned, data_len, offset) != data_len) {
     if (errno == EINTR) {
       //EINTR may cause a stale page -> replace page
-
       ReclaimPage(nvm_api, page);
 
       page = RequestPage(nvm_api);
@@ -855,6 +877,9 @@ retry:
     NVM_ERROR("- unable to write data");
     return -1;
   }
+
+  if (allocate_aligned_buf)
+    free(data_aligned);
 
   pthread_mutex_lock(&page_update_mtx);
 
@@ -948,9 +973,11 @@ Status NVMSequentialFile::Read(size_t n, Slice* result, char* scratch) {
   size_t scratch_offset = 0;
   size_t size_to_copy;
 
-  char *data;
-
-  SAFE_ALLOC(data, char[crt_page->sizes[channel]]);
+  char *data = (char*)memalign(4096, crt_page->sizes[channel]);
+  if (!data) {
+    NVM_FATAL("Cannot allocate aligned memory\n");
+    return Status::Corruption("Cannot allocate aligned memory''");
+  }
 
   while (len > 0) {
     l = file_->ReadPage(crt_page, channel, nvm_api, data);
@@ -973,7 +1000,7 @@ Status NVMSequentialFile::Read(size_t n, Slice* result, char* scratch) {
     NVM_DEBUG("page pointer becomes %lu and page is %p", page_pointer, crt_page);
   }
 
-  delete[] data;
+  free(data);
 
   file_pointer += n;
 
@@ -1038,7 +1065,8 @@ struct nvm_page *NVMRandomAccessFile::SeekPage(const unsigned long offset, unsig
   return crt_page;
 }
 
-Status NVMRandomAccessFile::Read(uint64_t offset, size_t n, Slice* result, char* scratch) const {
+Status NVMRandomAccessFile::Read(uint64_t offset, size_t n, Slice* result,
+                                                        char* scratch) const {
   unsigned long page_pointer;
 
   if (offset >= file_->GetSize()) {
@@ -1075,7 +1103,11 @@ Status NVMRandomAccessFile::Read(uint64_t offset, size_t n, Slice* result, char*
     return Status::OK();
   }
 
-  SAFE_ALLOC(data, char[crt_page->sizes[channel]]);
+  data = (char*)memalign(4096, crt_page->sizes[channel]);
+  if (!data) {
+    NVM_FATAL("Cannot allocate aligned memory\n");
+    return Status::Corruption("Cannot allocate aligned memory''");
+  }
 
   while (len > 0) {
     if (crt_page == nullptr) {
@@ -1100,7 +1132,7 @@ Status NVMRandomAccessFile::Read(uint64_t offset, size_t n, Slice* result, char*
     page_pointer = 0;
   }
 
-  delete[] data;
+  free(data);
 
   NVM_DEBUG("read %lu bytes", n);
 
@@ -1147,7 +1179,7 @@ NVMWritableFile::~NVMWritableFile() {
   NVMWritableFile::Close();
 
   if (buf_) {
-    delete[] buf_;
+    free(buf_);
   }
 
   buf_ = nullptr;
@@ -1185,7 +1217,11 @@ bool NVMWritableFile::UpdateLastPage() {
 
     cursize_ = fd_->GetSize() % last_page->sizes[channel];
 
-    SAFE_ALLOC(buf_, char[bytes_per_sync_]);
+    buf_ = (char*)memalign(4096, bytes_per_sync_);
+    if (!buf_) {
+      NVM_DEBUG("Could not allocate aligned memoru\n");
+      return false;
+    }
 
     if (cursize_ > 0) {
       //swap last page to be ready for page write
@@ -1218,13 +1254,15 @@ bool NVMWritableFile::Flush(const bool closing) {
   NVM_DEBUG("cursize: %lu, bytes_per_sync: %lu\n", cursize_, bytes_per_sync_);
 
   if (last_page == nullptr) {
-    NVM_FATAL("last page is null, cursize is %lu, byte_per_sync is %lu", cursize_, bytes_per_sync_);
+    NVM_FATAL("last page is null, cursize is %lu, byte_per_sync is %lu",
+                                                    cursize_, bytes_per_sync_);
   }
 
   if (cursize_ == bytes_per_sync_ || closing) {
     struct nvm_page *wrote_pg = last_page;
 
-    if (fd_->WritePage(wrote_pg, channel, dir_->GetNVMApi(), buf_, wrote_pg->sizes[channel], 0, cursize_) != wrote_pg->sizes[channel]) {
+    if (fd_->WritePage(wrote_pg, channel, dir_->GetNVMApi(), buf_,
+          wrote_pg->sizes[channel], 0, cursize_) != wrote_pg->sizes[channel]) {
       NVM_DEBUG("unable to write data");
       return false;
     }
@@ -1270,6 +1308,8 @@ Status NVMWritableFile::Append(const Slice& data) {
 
     if (cursize_ + left <= bytes_per_sync_) {
       NVM_DEBUG("All in buffer from %lu to %p", cursize_, buf_);
+      NVM_DEBUG("cursize_: %lu, left: %lu, bytes_per_sync:%lu\n", cursize_, left,
+                                                              bytes_per_sync_);
 
       memcpy(buf_ + cursize_, src + offset, left);
 
@@ -1455,7 +1495,10 @@ Status NVMRandomRWFile::Write(uint64_t offset, const Slice& data) {
         page_just_claimed = true;
       }
 
-      SAFE_ALLOC(crt_data, char[crt_page->sizes[channel]]);
+      crt_data = (char*)memalign(4096, crt_page->sizes[channel]);
+      if (!crt_data) {
+        NVM_FATAL("Could not allocate aligned memory");
+      }
     } else {
       crt_page = fd_->GetNVMPage(++page_idx);
 
@@ -1494,7 +1537,7 @@ Status NVMRandomRWFile::Write(uint64_t offset, const Slice& data) {
       new_pg = fd_->RequestPage(nvm_api);
 
       if (new_pg == nullptr) {
-        delete[] crt_data;
+        free(crt_data);
 
         return Status::IOError("request new page returned");
       }
@@ -1504,7 +1547,8 @@ Status NVMRandomRWFile::Write(uint64_t offset, const Slice& data) {
 
     struct nvm_page *wrote_pg = new_pg;
 
-    if (fd_->WritePage(wrote_pg, channel, nvm_api, crt_data, wrote_pg->sizes[channel], page_pointer, i) != wrote_pg->sizes[channel]) {
+    if (fd_->WritePage(wrote_pg, channel, nvm_api, crt_data,
+        wrote_pg->sizes[channel], page_pointer, i) != wrote_pg->sizes[channel]) {
       NVM_FATAL("write error");
     }
 
@@ -1518,7 +1562,7 @@ Status NVMRandomRWFile::Write(uint64_t offset, const Slice& data) {
   }
 
   if (crt_data) {
-    delete[] crt_data;
+    free(crt_data);
   }
 
   return Status::OK();
@@ -1561,7 +1605,10 @@ Status NVMRandomRWFile::Read(uint64_t offset, size_t n, Slice* result, char* scr
     return Status::OK();
   }
 
-  SAFE_ALLOC(data, char[crt_page->sizes[channel]]);
+  data = (char*)memalign(4096, crt_page->sizes[channel]);
+  if (!data) {
+    return Status::Corruption("Could not allocate aligned memory");
+  }
 
   while (len > 0) {
     if (crt_page == nullptr) {
@@ -1586,7 +1633,7 @@ Status NVMRandomRWFile::Read(uint64_t offset, size_t n, Slice* result, char* scr
     page_pointer = 0;
   }
 
-  delete[] data;
+  free(data);
 
   NVM_DEBUG("read %lu bytes", n);
 

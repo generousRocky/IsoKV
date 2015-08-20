@@ -532,7 +532,7 @@ void nvm::ReclaimPage(struct nvm_page *page)
 int nvm::open_nvm_device(const char *file) {
   location = std::string("/dev/") + std::string(file);
 
-  fd = open(location.c_str(), O_RDWR);
+  fd = open(location.c_str(), O_RDWR | O_DIRECT);
   if (fd != -1) {
     return fd;
   }
@@ -544,7 +544,7 @@ int nvm::open_nvm_device(const char *file) {
     return -1;
   }
 
-  return open(location.c_str(), O_RDWR);
+  return open(location.c_str(), O_RDWR | O_DIRECT);
 }
 
 const char *nvm::GetLocation() {
