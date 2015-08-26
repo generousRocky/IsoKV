@@ -47,6 +47,7 @@ class WritableFileWriter {
   uint64_t filesize_;
   bool pending_sync_;
   bool pending_fsync_;
+  bool direct_io_;
   uint64_t last_sync_size_;
   uint64_t bytes_per_sync_;
   RateLimiter* rate_limiter_;
@@ -61,6 +62,7 @@ class WritableFileWriter {
         filesize_(0),
         pending_sync_(false),
         pending_fsync_(false),
+        direct_io_(writable_file_->SupportsDirectIO()),
         last_sync_size_(0),
         bytes_per_sync_(options.bytes_per_sync),
         rate_limiter_(options.rate_limiter) {}

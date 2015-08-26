@@ -542,6 +542,11 @@ class WritableFile {
     }
   }
 
+  // Indicates the upper layers if the current WritableFile implementation
+  // supports direct IO.
+  bool SupportsDirectIO() {
+    return false;
+  }
  protected:
   /*
    * Pre-allocate space for a file.
