@@ -647,11 +647,8 @@ unsigned long nvm_file::GetSize() {
   unsigned long ret;
 
   pthread_mutex_lock(&page_update_mtx);
-
   ret = size;
-
   pthread_mutex_unlock(&page_update_mtx);
-
   return ret;
 }
 
@@ -795,6 +792,50 @@ struct nvm_page *nvm_file::GetNVMPage(const unsigned long idx) {
   return ret;
 }
 
+// data must be aligned
+// TODO: do checks?
+size_t nvm_file::Read(struct nvm *nvm, size_t ppa_offset, char *data,
+                                                            size_t data_len) {
+  assert(ppa_offset % 4096 == 0);
+  assert(data_len % 4096 == 0);
+
+  size_t current_ppa = ppa_offset;
+  // size_t last_ppas = vblock_->nppas;
+  size_t nppas = nvm->GetNPagesBlock(0); //This is a momentary fix
+  size_t left = data_len;
+  uint8_t pages_per_read = nvm->max_pages_in_io;
+  unsigned long bytes_per_read = pages_per_read * 4096; //TODO: Generalize page size
+
+  assert(data_len <= nppas * 4096);
+
+  while (left > 0) {
+    if (left < bytes_per_read) {
+      pages_per_read = (left / 4096);
+      if (left % 4096 != 0) {
+        pages_per_read++;
+      }
+      bytes_per_read = pages_per_read * 4096;
+    }
+
+retry:
+    if ((unsigned)pread(fd_, data, bytes_per_read, ppa_offset) !=
+                                                              bytes_per_read) {
+      if (errno == EINTR) {
+        goto retry;
+      }
+      return -1;
+    }
+
+    data += bytes_per_read;
+    left -= bytes_per_read;
+    current_ppa += pages_per_read;
+
+    IOSTATS_ADD(bytes_read, bytes_per_read);
+  }
+
+  return data_len - left;
+}
+
 size_t nvm_file::ReadPage(const nvm_page *page, const unsigned long channel,
                                               struct nvm *nvm_api, void *data) {
   unsigned long offset;
@@ -821,33 +862,72 @@ retry:
   return page_size;
 }
 
-size_t nvm_file::WritePage(struct nvm_page *&page, const unsigned long channel,
-       struct nvm *nvm_api, void *data, const unsigned long data_len,
-       const unsigned long new_data_offset, const unsigned long new_data_len) {
-  unsigned long offset;
-  void *data_aligned;
-  uint8_t allocate_aligned_buf = 0;
-
-  unsigned long page_size = page->sizes[channel];
-
-  struct nvm_page *param_page = page;
-
-  if (data_len > page_size) {
-    NVM_FATAL("out of page bounds");
+//TODO: Javier: This allocation should happen in the background so that we do
+//not need to wait for it. This should probably be done when a new memtable is
+//allocated -> space in the disk is allocated (reserved) when a new potential
+//sstable is created.
+void nvm_file::GetBlock(struct nvm *nvm, unsigned int vlun_id) {
+  //TODO: Make this better: mmap memory into device??
+  assert(vblock_ == nullptr);
+  vblock_ = (struct vblock*)malloc(sizeof(struct vblock));
+  if (!vblock_) {
+    NVM_FATAL("Could not allocate memory\n");
   }
 
-  unsigned long block_size = nvm_api->luns[page->lun_id].nr_pages_per_blk * page_size;
-  unsigned long lun_size = nvm_api->luns[page->lun_id].nr_blocks * block_size;
+  if (!nvm->GetBlock(vlun_id, vblock_)) {
+    NVM_FATAL("could not get a new block - ssd out of space\n");
+  }
+}
 
-  offset = page->lun_id * lun_size + page->block_id * block_size + page->id * page_size;
+void nvm_file::PutBlock(struct nvm *nvm) {
+  assert(vblock_ != nullptr);
+  if (!nvm->PutBlock(vblock_)) {
+    //TODO: Can we recover from this?
+    NVM_FATAL("could not return block to BM\n");
+    return;
+  }
 
-  NVM_DEBUG("WritePage: page %p data_len: %lu, page_size: %lu in offset:%lu\n",
-                                          page, data_len, page_size, offset);
+  FreeBlock();
+}
+
+void nvm_file::FreeBlock() {
+  NVM_DEBUG("Freeing block\n");
+  if (vblock_ != nullptr) {
+    free(vblock_);
+  }
+
+  vblock_ = nullptr;
+}
+
+// For the moment we assume that all pages in a block are good pages. In the
+// future we would have to check ppa_bitmap and come back to the memtable to
+// move the KV pairs that do not fit in the block assigned to it to create the
+// sstable. This will require to send a ppa_list down to LightNVM to enable
+// multipage writes - at the moment multipage assumes sequential ppas
+size_t nvm_file::WriteBlock(struct nvm *nvm, void *data,
+                                              const unsigned long data_len) {
+  char *data_aligned;
+  size_t current_ppa = vblock_->bppa;
+  // size_t nppas = vblock_->nppas;
+  size_t nppas = nvm->GetNPagesBlock(0); //This is a momentary fix (FIXME)
+  unsigned long left = data_len;
+  unsigned long max_bytes_per_write = nvm->max_pages_in_io * 4096;
+  unsigned long bytes_per_write;
+  uint8_t pages_per_write;
+  uint8_t allocate_aligned_buf = 0;
+
+  //TODO: Generalize page size
+  assert(data_len <= nppas * 4096);
+  assert((data_len % 4096) == 0); //TODO: support data_len not % 4096? Padding?
+
+  if (data_len < nppas * 4096) {
+    NVM_DEBUG("Writing block. Not using %lu bytes\n", (nppas * 4096) - data_len);
+  }
 
   /* Verify that data is aligned although it should already be aligned */
   if (UNLIKELY(((uintptr_t)data % 4096) != 0)) {
     NVM_DEBUG("Aligning data\n");
-    data_aligned = memalign(4096, data_len);
+    data_aligned = (char*)memalign(4096, data_len);
     if (!data_aligned) {
       NVM_FATAL("Cannot allocate aligned memory\n");
       return -1;
@@ -856,80 +936,69 @@ size_t nvm_file::WritePage(struct nvm_page *&page, const unsigned long channel,
     memcpy(data_aligned, data, data_len);
     allocate_aligned_buf = 1;
   } else {
-    data_aligned = data;
+    data_aligned = (char*)data;
   }
 
-retry:
-  if ((unsigned)pwrite(fd_, data_aligned, data_len, offset) != data_len) {
-    if (errno == EINTR) {
-      //EINTR may cause a stale page -> replace page
-      ReclaimPage(nvm_api, page);
+  //TODO: Use libaio instead of pread/pwrite
+  while (left > 0) {
+    //data_len has been asserted to be multiple of PAGE_SIZE
+    bytes_per_write = (left > max_bytes_per_write) ? max_bytes_per_write : left;
+    pages_per_write = bytes_per_write / 4096;
 
-      page = RequestPage(nvm_api);
-
-      if (page == nullptr) {
-        return -1;
-      }
-
-      goto retry;
+    NVM_DEBUG("Writing %lu bytes in ppa:%lu\n", bytes_per_write, current_ppa);
+    if ((unsigned)pwrite(fd_, data_aligned, bytes_per_write,
+                                     current_ppa * 4096) != bytes_per_write) {
+      //TODO: See if we can recover. Use another ppa + mark bad page in bitmap?
+      NVM_ERROR("ERROR: Page no written\n");
+      return -1;
     }
 
-    NVM_ERROR("- unable to write data");
-    return -1;
+    data_aligned += bytes_per_write;
+    left -= bytes_per_write;
+    current_ppa += pages_per_write;
   }
 
   if (allocate_aligned_buf)
     free(data_aligned);
 
-  pthread_mutex_lock(&page_update_mtx);
-
-  if (param_page == pages[pages.size() - 1]) {
-    NVM_DEBUG("Wrote last page");
-
-    unsigned long crt_size_offset = 0;
-
-    crt_size_offset = size % page->sizes[channel];
-
-    if (new_data_len + new_data_offset > crt_size_offset) {
-      size += (new_data_len + new_data_offset - crt_size_offset);
-
-      NVM_DEBUG("File %p now has size %lu", this, size);
-    }
-  }
-
-  pthread_mutex_unlock(&page_update_mtx);
-
-  UpdateFileModificationTime();
-
-  IOSTATS_ADD(bytes_written, data_len);
-
-  return data_len;
+  return data_len - left;
 }
 
-NVMSequentialFile::NVMSequentialFile(const std::string& fname, nvm_file *f, nvm_directory *_dir) :
+// size_t nvm_file::ReadBlock() {
+
+// }
+
+NVMSequentialFile::NVMSequentialFile(const std::string& fname, nvm_file *fd,
+                                                        nvm_directory *dir) :
   filename_(fname) {
-  file_ = f;
+  fd_ = fd;
+  dir_ = dir;
 
-  dir = _dir;
+  struct nvm *nvm = dir_->GetNVMApi();
+  unsigned int vlun_id = 0;
+  fd_->GetBlock(nvm, vlun_id);
 
-  file_pointer = 0;
+  // TODO: Generalize page size
 
-  crt_page_idx = 0;
-  crt_page = file_->GetNVMPage(0);
-  page_pointer = 0;
+  //Javier: This will probably go
+  // file_pointer = 0;
 
-  channel = 0;
-
-  nvm_api = _dir->GetNVMApi();
+  // crt_page_idx = 0;
+  // crt_page = file_->GetNVMPage(0);
+  // page_pointer = 0;
+  // channel = 0;
 
   NVM_DEBUG("created %s", fname.c_str());
 }
 
 NVMSequentialFile::~NVMSequentialFile() {
-  dir->nvm_fclose(file_, "r");
+  NVM_DEBUG("Close sequential file\n");
+  dir_->nvm_fclose(fd_, "r");
 }
 
 void NVMSequentialFile::SeekPage(const unsigned long offset) {
+
+#if 0 //Old implementation
   if (crt_page == nullptr) {
     crt_page = file_->GetNVMPage(crt_page_idx);
 
@@ -937,19 +1006,35 @@ void NVMSequentialFile::SeekPage(const unsigned long offset) {
       return;
     }
   }
-
   page_pointer += offset;
-
   crt_page_idx += (unsigned long)(page_pointer / crt_page->sizes[channel]);
-
   crt_page = file_->GetNVMPage(crt_page_idx);
-
   page_pointer %= crt_page->sizes[channel];
+#endif
 }
 
 Status NVMSequentialFile::Read(size_t n, Slice* result, char* scratch) {
-  NVM_DEBUG("File pointer is %lu, n is %lu, file size is %lu", file_pointer, n, file_->GetSize())
+  // struct nvm *nvm = dir_->GetNVMApi();
+  //JAVIER: YOU ARE HERE!
+  // size_t data_len = (n + 4096 - ((n % 4096) * 4096));
 
+  NVM_DEBUG("File pointer is %lu, n is %lu, \n", file_pointer, n);
+
+  //TODO: Recover in upper layers when writing out of bounds of current block
+  // if (n > buf_limit_) {
+    // NVM_FATAL("TODO::: Writing more than block size - need to recover\n");
+  // }
+
+  // char *data = (char*)memalign(4096, );
+  // if (!data) {
+    // NVM_FATAL("Cannot allocate aligned memory\n");
+    // return Status::Corruption("Cannot allocate aligned memory''");
+  // }
+
+  // if (fd_->Read(nvm, 0, data));
+
+
+#if 0 //old implementation
   if (file_pointer + n > file_->GetSize()) {
     n = file_->GetSize() - file_pointer;
   }
@@ -1007,6 +1092,7 @@ Status NVMSequentialFile::Read(size_t n, Slice* result, char* scratch) {
   NVM_DEBUG("creating slice with %lu bytes", n);
 
   *result = Slice(scratch, n);
+#endif
 
   return Status::OK();
 }
@@ -1017,7 +1103,7 @@ Status NVMSequentialFile::Skip(uint64_t n) {
     return Status::OK();
   }
 
-  if (file_pointer + n > file_->GetSize()) {
+  if (file_pointer + n > fd_->GetSize()) {
     return Status::IOError(filename_, "EINVAL file pointer goes out of bounds");
   }
 
@@ -1155,20 +1241,36 @@ Status NVMRandomAccessFile::InvalidateCache(size_t offset, size_t length) {
   return Status::OK();
 }
 
-NVMWritableFile::NVMWritableFile(const std::string& fname, nvm_file *fd, nvm_directory *dir) :
+NVMWritableFile::NVMWritableFile(const std::string& fname, nvm_file *fd,
+                                                       nvm_directory *dir) :
   filename_(fname) {
   fd_ = fd;
   dir_ = dir;
 
-  channel = 0;
+  //TODO: Javier: get list of vluns at initialization and ask for a vblock from
+  //the right vlun at runtime. We still need to define how the BM and the FTL
+  //will agree on which vlun is going to be used. To start with we have a single
+  //vlun (vlun 0)
+  // Allocate a new flash block in LightNVM's block manager
+  struct nvm *nvm = dir_->GetNVMApi();
+  unsigned int vlun_id = 0;
+  fd_->GetBlock(nvm, vlun_id);
 
-  buf_ = nullptr;
+  // TODO: Generalize page size
+  // Allocate memory to buffer the contents of flash block in memory. Since we
+  // are using direct IO memory needs to be aligned to the OS page size
+  buf_limit_ = nvm->GetNPagesBlock(vlun_id) * 4096;
+  buf_ = (char*)memalign(4096, buf_limit_);
+  if (!buf_) {
+    NVM_FATAL("Could not allocate aligned memory\n");
+  }
+  dst_ = buf_;
+
+  //Javier: This will all go
+  channel = 0;
   last_page = nullptr;
   last_page_idx = 0;
-
   closed = false;
-
-  UpdateLastPage();
 
   NVM_DEBUG("created %s at %p", fname.c_str(), this);
 }
@@ -1177,158 +1279,51 @@ NVMWritableFile::~NVMWritableFile() {
   fd_->SetSeqWritableFile(nullptr);
 
   NVMWritableFile::Close();
-
-  if (buf_) {
-    free(buf_);
-  }
-
-  buf_ = nullptr;
 }
 
-bool NVMWritableFile::UpdateLastPage() {
-  if (last_page) {
-    if (fd_->ClaimNewPage(dir_->GetNVMApi()) == false) {
-      return false;
-    }
-
-    NVM_DEBUG("last page is not null, iterating");
-
-    last_page = fd_->GetLastPage(&last_page_idx);
-
-    bytes_per_sync_ = last_page->sizes[channel];
-
-    cursize_ = 0;
-  } else {
-    NVM_DEBUG("last page is null");
-
-    last_page = fd_->GetLastPage(&last_page_idx);
-
-    if (last_page == nullptr) {
-      NVM_DEBUG("need to claim page");
-
-      if (fd_->ClaimNewPage(dir_->GetNVMApi()) == false) {
-        return false;
-      }
-
-      last_page = fd_->GetLastPage(&last_page_idx);
-    }
-
-    bytes_per_sync_ = last_page->sizes[channel];
-
-    cursize_ = fd_->GetSize() % last_page->sizes[channel];
-
-    buf_ = (char*)memalign(4096, bytes_per_sync_);
-    if (!buf_) {
-      NVM_DEBUG("Could not allocate aligned memoru\n");
-      return false;
-    }
-
-    if (cursize_ > 0) {
-      //swap last page to be ready for page write
-
-      fd_->ReadPage(last_page, channel, dir_->GetNVMApi(), buf_);
-      fd_->ClearLastPage(dir_->GetNVMApi());
-
-      last_page = fd_->GetLastPage(&last_page_idx);
-    }
-  }
-
-  NVM_DEBUG("last page is at %p, bytes per sync is %lu, cursize_ is %lu", last_page, bytes_per_sync_, cursize_);
-
-  return true;
-}
-
+// WritableFile is mainly used to flush memtables and make them persistent
+// (sstables). We match them the size of the memtable to the size of the vblock,
+// thus we write one block at the time.
+// TODO: Return value to the upper layers informing if some data has not been
+// flushed and needs to be allocated in a different memtable.
 bool NVMWritableFile::Flush(const bool closing) {
-  if (cursize_ == 0) {
-    NVM_DEBUG("Nothing to flush");
+  struct nvm *nvm = dir_->GetNVMApi();
+  long written_bytes;
 
-    return true;
+  NVM_DEBUG("cursize: %lu, buf_limit_: %lu\n", cursize_, buf_limit_);
+
+  //TODO: This constrain needs to be relaxed and recover when it happens
+  assert(cursize_ <= buf_limit_);
+
+  written_bytes = fd_->WriteBlock(nvm, buf_, cursize_);
+  if (written_bytes < 0) {
+    NVM_DEBUG("unable to write data");
+    return false;
   }
 
-  if (bytes_per_sync_ == 0) {
-    NVM_DEBUG("Nothing to flush to");
-
-    return true;
-  }
-
-  NVM_DEBUG("cursize: %lu, bytes_per_sync: %lu\n", cursize_, bytes_per_sync_);
-
-  if (last_page == nullptr) {
-    NVM_FATAL("last page is null, cursize is %lu, byte_per_sync is %lu",
-                                                    cursize_, bytes_per_sync_);
-  }
-
-  if (cursize_ == bytes_per_sync_ || closing) {
-    struct nvm_page *wrote_pg = last_page;
-
-    if (fd_->WritePage(wrote_pg, channel, dir_->GetNVMApi(), buf_,
-          wrote_pg->sizes[channel], 0, cursize_) != wrote_pg->sizes[channel]) {
-      NVM_DEBUG("unable to write data");
-      return false;
-    }
-
-    if (last_page != wrote_pg) {
-      last_page = wrote_pg;
-
-      if (fd_->SetPage(last_page_idx, last_page) == false) {
-        NVM_FATAL("unable to update last page after EINTR");
-      }
-    }
-
-    if (cursize_ == bytes_per_sync_) {
-      if (UpdateLastPage() == false) {
-        return false;
-      }
-    }
-  }
-
+  cursize_ += written_bytes;
   return true;
 }
 
 Status NVMWritableFile::Append(const Slice& data) {
   const char* src = data.data();
-
   size_t left = data.size();
-  size_t offset = 0;
-
-  if (closed) {
-    return Status::IOError("file has been closed");
-  }
-
-  if (bytes_per_sync_ == 0) {
-    if (UpdateLastPage() == false) {
-      return Status::IOError("out of ssd space");
-    }
-  }
-
+  // size_t offset = 0;
   NVM_DEBUG("Appending slice %lu bytes to %p", left, this);
 
-  while (left > 0) {
-    NVM_DEBUG("Appending slice %lu bytes", left);
+  assert(buf_ <= dst_);
+  assert(dst_ <= buf_ + buf_limit_);
 
-    if (cursize_ + left <= bytes_per_sync_) {
-      NVM_DEBUG("All in buffer from %lu to %p", cursize_, buf_);
-      NVM_DEBUG("cursize_: %lu, left: %lu, bytes_per_sync:%lu\n", cursize_, left,
-                                                              bytes_per_sync_);
-
-      memcpy(buf_ + cursize_, src + offset, left);
-
-      cursize_ += left;
-
-      left = 0;
-    } else {
-      NVM_DEBUG("Buffer is at %lu out of %lu. Appending %lu", cursize_, bytes_per_sync_, bytes_per_sync_ - cursize_);
-
-      memcpy(buf_ + cursize_, src + offset, bytes_per_sync_ - cursize_);
-
-      left -= bytes_per_sync_ - cursize_;
-
-      offset += bytes_per_sync_ - cursize_;
-
-      cursize_ = bytes_per_sync_;
-    }
-
-    if (Flush(false) == false) {
+  memcpy(dst_, src, left);
+  dst_ += left;
+  cursize_ += left;
+  if (cursize_ > buf_limit_) {
+    //TODO: What is in the NVM_DEBUG message. This should not  happen, since the
+    //memtable will include a maximun size, which must alwast be <= buf_limit_
+    //(which at the same time represents the actual vblock size)
+    NVM_DEBUG("WE NEED TO INFORM THE UPPER LAYERS THAT THE BLOCK IS FULL!!\n");
+    NVM_DEBUG("cursize_: %lu, buf_limit_:%lu\n", cursize_, buf_limit_);
+    if (Flush(true) == false) {
       return Status::IOError("out of ssd space");
     }
   }
@@ -1343,13 +1338,16 @@ Status NVMWritableFile::Close() {
 
   closed = true;
 
-  NVM_DEBUG("closing %p", this);
+  Flush(true);
 
-  if (Flush(true) == false) {
-    return Status::IOError("out of ssd space");
-  }
-
+  struct nvm *nvm = dir_->GetNVMApi();
+  fd_->PutBlock(nvm);
   dir_->nvm_fclose(fd_, "a");
+
+  if (buf_) {
+    free(buf_);
+  }
+  buf_ = nullptr;
 
   return Status::OK();
 }
@@ -1455,6 +1453,7 @@ struct nvm_page *NVMRandomRWFile::SeekPage(const unsigned long offset, unsigned 
   return crt_page;
 }
 
+//TODO: REIMPLEMENT
 Status NVMRandomRWFile::Write(uint64_t offset, const Slice& data) {
   unsigned long page_pointer;
   unsigned long page_idx;
@@ -1547,10 +1546,10 @@ Status NVMRandomRWFile::Write(uint64_t offset, const Slice& data) {
 
     struct nvm_page *wrote_pg = new_pg;
 
-    if (fd_->WritePage(wrote_pg, channel, nvm_api, crt_data,
-        wrote_pg->sizes[channel], page_pointer, i) != wrote_pg->sizes[channel]) {
-      NVM_FATAL("write error");
-    }
+    // if (fd_->WritePage(wrote_pg, channel, nvm_api, crt_data,
+        // wrote_pg->sizes[channel], page_pointer, i) != wrote_pg->sizes[channel]) {
+      // NVM_FATAL("write error");
+    // }
 
     if (wrote_pg != new_pg) {
       fd_->SetPage(page_idx, wrote_pg);

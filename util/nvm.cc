@@ -115,6 +115,7 @@ nvm::~nvm() {
   unsigned long i;
   unsigned long j;
 
+  close_nvm_device("rocksdb");
   close(fd);
 
   if (nr_luns > 0) {
@@ -169,6 +170,45 @@ void nvm::ReclaimBlock(const unsigned long lun_id,
   }
 
   luns[lun_id].blocks[block_id].allocated = false;
+}
+
+// The number of pages in a block is given by the lun to which the block belongs
+size_t nvm::GetNPagesBlock(unsigned int vlun_id) {
+  assert(vlun_id <= nr_luns);
+  return luns[vlun_id].nr_pages_per_blk;
+}
+
+bool nvm::PutBlock(struct vblock *vblock) {
+  long long ret;
+
+  NVM_DEBUG("Puting block: %lu\n", vblock->id);
+  ret = ioctl(fd, NVM_PUT_BLOCK, vblock);
+  if (ret == -1) {
+    NVM_DEBUG("could not put block from vlun %lu\n", vblock->vlun_id);
+    return false;
+  }
+
+  return true;
+}
+
+//TODO: Should we have a block id for rocksdb metadata?
+// Caller of nvm::GetBlock is in charge of allocating and freeing vblock.
+bool nvm::GetBlock(unsigned int vlun_id, struct vblock *vblock) {
+  long long ret;
+
+  vblock->vlun_id = vlun_id;
+  // vblock->flags = 0x0;  //flags reserved for future features
+
+  ret = ioctl(fd, NVM_GET_BLOCK, vblock);
+  if (ret == -1) {
+    NVM_DEBUG("could not get a new block from vlun %d\n", vlun_id);
+    return false;
+  }
+
+  NVM_DEBUG("Getting new block from lun: %lu - block_id:%lu\n",
+                                                vblock->vlun_id, vblock->id);
+
+  return true;
 }
 
 bool nvm::RequestBlock(std::vector<struct nvm_page *> *block_pages,
@@ -545,6 +585,20 @@ int nvm::open_nvm_device(const char *file) {
   }
 
   return open(location.c_str(), O_RDWR | O_DIRECT);
+}
+
+int nvm::close_nvm_device(const char *file) {
+  std::string cmd = std::string("echo \"d ") + std::string(file) +
+              std::string("\" > /sys/module/lnvm/parameters/configure_debug");
+
+  NVM_DEBUG("Closing lnvm device\n");
+  // NVM_DEBUG(cmd);
+
+  if (system(cmd.c_str())) {
+    return -1;
+  }
+
+  return 0;
 }
 
 const char *nvm::GetLocation() {

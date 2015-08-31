@@ -21,6 +21,24 @@ struct nba_block {
   void *internals;
 };
 
+//TODO: This is the structure I want to use
+// struct vblock {
+//   size_t id;
+//   size_t bppa;
+//   size_t nppas;
+//   size_t ppa_bitmap;
+//   unsigned int vlun_id;
+//   uint8_t flags;
+// };
+
+struct vblock {
+	unsigned long vlun_id;
+	sector_t bppa;
+	unsigned long id;
+	void *internals;
+
+};
+
 struct nvm_channel {
   unsigned int gran_write;
   unsigned int gran_read;
@@ -45,7 +63,7 @@ struct nvm_block {
   struct nvm_page *pages;
 
 #ifdef NVM_ALLOCATE_BLOCKS
-    bool allocated;
+  bool allocated;
 #else
   bool has_stale_pages;
   bool has_pages_allocated;
@@ -53,7 +71,9 @@ struct nvm_block {
 };
 
 struct nvm_lun {
-  unsigned long nr_blocks;
+  int id;
+
+ unsigned long nr_blocks;
   struct nvm_block *blocks;
   unsigned long nr_pages_per_blk;
 
@@ -113,6 +133,10 @@ class nvm {
 
     void GarbageCollection();
 
+    bool GetBlock(unsigned int vlun_id, struct vblock *vblock);
+    bool PutBlock(struct vblock *vblock);
+    size_t GetNPagesBlock(unsigned int vlun_id);
+
 #ifdef NVM_ALLOCATE_BLOCKS
     void ReclaimBlock(const unsigned long lun_id, const unsigned long block_id);
     bool RequestBlock(std::vector<struct nvm_page *> *block_pages);
@@ -138,6 +162,7 @@ class nvm {
     pthread_mutexattr_t allocate_page_mtx_attr;
 
     int open_nvm_device(const char *file);
+    int close_nvm_device(const char *file);
     int ioctl_initialize();
     int nvm_get_features();
 

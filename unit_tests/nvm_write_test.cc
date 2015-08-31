@@ -64,8 +64,38 @@ void w_test_1() {
   NVM_DEBUG("TEST FINISHED!");
 }
 
+void w_block_test_1() {
+  nvm_directory *dir;
+  nvm *nvm_api;
+
+  ALLOC_CLASS(nvm_api, nvm());
+  ALLOC_CLASS(dir, nvm_directory("root", 4, nvm_api, nullptr));
+
+  nvm_file *wfd = dir->nvm_fopen("test.c", "w");
+  if(wfd == nullptr) {
+    NVM_FATAL("");
+  }
+
+  NVMWritableFile *w_file;
+
+  char data[128 * 4096];
+  memset(data, 'a', 128 * 4096);
+
+  Slice s;
+
+  s = Slice(data, 128 * 4096);
+  ALLOC_CLASS(w_file, NVMWritableFile("test.c", wfd, dir));
+  w_file->Append(s);
+  w_file->Close();
+
+
+  delete w_file;
+  NVM_DEBUG("TEST FINISHED!");
+}
+
 int main(int argc, char **argv) {
-  w_test_1();
+  // w_test_1();
+  w_block_test_1();
 
   return 0;
 }

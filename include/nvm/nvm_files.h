@@ -17,6 +17,7 @@ class nvm_file {
     unsigned long size;
     int fd_;
 
+    struct vblock *vblock_;       // Virtual flash block
     std::vector<struct nvm_page *> pages;
 
 #ifdef NVM_ALLOCATE_BLOCKS
@@ -56,15 +57,22 @@ class nvm_file {
 
     int GetFD();
 
-    size_t ReadPage(const nvm_page *page, const unsigned long channel, struct nvm *nvm_api, void *data);
-    size_t WritePage(struct nvm_page *&page, const unsigned long channel, struct nvm *nvm_api, void *data, const unsigned long data_len, const unsigned long new_data_offset, const unsigned long new_data_len);
+    void GetBlock(struct nvm *nvm, unsigned int vlun_id);
+    void PutBlock(struct nvm *nvm);
+    void FreeBlock();
+    size_t WriteBlock(struct nvm *nvm, void *data, const unsigned long data_len);
+    size_t Read(struct nvm *nvm, size_t bppa, char *data, size_t data_len);
+
+    size_t ReadPage(const nvm_page *page, const unsigned long channel,
+                                              struct nvm *nvm_api, void *data);
 
     struct nvm_page *GetNVMPage(const unsigned long idx);
     struct nvm_page *GetLastPage(unsigned long *page_idx);
     bool SetPage(const unsigned long page_idx, nvm_page *page);
 
     struct nvm_page *RequestPage(nvm *nvm_api);
-    struct nvm_page *RequestPage(nvm *nvm_api, const unsigned long lun_id, const unsigned long block_id, const unsigned long page_id);
+    struct nvm_page *RequestPage(nvm *nvm_api, const unsigned long lun_id,
+                    const unsigned long block_id, const unsigned long page_id);
     void ReclaimPage(nvm *nvm_api, struct nvm_page *pg);
 
     nvm_directory *GetParent();
@@ -95,7 +103,8 @@ class NVMSequentialFile: public SequentialFile {
   private:
     std::string filename_;
 
-    nvm_file *file_;
+    nvm_file *fd_;
+    nvm_directory *dir_;
 
     unsigned long file_pointer;
     unsigned long channel;
@@ -103,9 +112,6 @@ class NVMSequentialFile: public SequentialFile {
 
     unsigned long crt_page_idx;
     struct nvm_page *crt_page;
-    struct nvm *nvm_api;
-
-    nvm_directory *dir;
 
     void SeekPage(const unsigned long offset);
 
@@ -155,11 +161,10 @@ class NVMWritableFile : public WritableFile {
     nvm_file *fd_;
     nvm_directory *dir_;
 
-    //Current buf_ length
-    size_t cursize_;
-
-    // Buffer to cache writes
-    char *buf_;
+    size_t cursize_;            // Current buf_ length
+    size_t buf_limit_;          // Limit of the allocated memory region
+    char *buf_;                 // Buffer to cache writes
+    char *dst_;                 // Where to write next in buf_
 
     uint64_t bytes_per_sync_;
 

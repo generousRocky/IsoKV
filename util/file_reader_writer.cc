@@ -114,9 +114,11 @@ Status WritableFileWriter::Flush() {
     left -= size;
     src += size;
   }
-  cursize_ = 0;
 
+  // If direct_io_ enabled Flush() in WritableFile implementation must guarantee
+  // that the OS cache is bypassed (e.g., through O_DIRECT).
   writable_file_->Flush();
+  cursize_ = 0;
 
   // sync OS cache to disk for every bytes_per_sync_
   // TODO: give log file and sst file different options (log
