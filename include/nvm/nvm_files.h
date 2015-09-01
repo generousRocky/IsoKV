@@ -111,8 +111,12 @@ class NVMSequentialFile: public SequentialFile {
     nvm_file *fd_;
     nvm_directory *dir_;
 
-    unsigned int ppa_offset_;                 //ppa offset from bppa;
+    unsigned int ppa_offset_;           //ppa offset from bppa;
     unsigned int page_offset_;          //byte offset in ppa;
+
+    //TODO: Implement this. Only cache the page that is left half read. We need
+    //to keep track of it when skiping too.
+    char *current_page_;                //Cached current page;
 
     unsigned long file_pointer;
     unsigned long channel;
@@ -136,10 +140,10 @@ class NVMRandomAccessFile: public RandomAccessFile {
     std::string filename_;
 
     unsigned long channel;
-    struct nvm *nvm_api;
 
-    nvm_file *file_;
-    nvm_directory *dir;
+    nvm_file *fd_;
+    nvm_directory *dir_;
+
     struct nvm_page *SeekPage(const unsigned long offset,
                   unsigned long *page_pointer, unsigned long *page_idx) const;
 

@@ -41,6 +41,7 @@ void w_test_1() {
 
   w_file->Close();
 
+  // Test SequentialFile::Read
   ALLOC_CLASS(sr_file, NVMSequentialFile("test2.c", srfd, dir));
   if (!sr_file->Read(100, &t, datax).ok()) {
     NVM_FATAL("");
@@ -61,7 +62,7 @@ void w_test_1() {
 
   delete sr_file;
 
-  //Test Skip
+  // Test SequentialFile::Skip
   ALLOC_CLASS(sr_file, NVMSequentialFile("test2.c", srfd, dir));
   if (!sr_file->Read(10, &t, datax).ok()) {
     NVM_FATAL("");
@@ -102,6 +103,30 @@ void w_test_1() {
   }
 
   delete sr_file;
+
+  //Test RandomAccessFile::Read
+  NVMRandomAccessFile *rr_file;
+  ALLOC_CLASS(rr_file, NVMRandomAccessFile("test2.c", srfd, dir));
+
+
+  for (int i = 0; i < 100; i++) {
+    if (!rr_file->Read(i, 1, &t, datax).ok()) {
+      NVM_FATAL("");
+    }
+
+    len = t.size();
+    data_read = t.data();
+
+    if (len != 1) {
+      NVM_FATAL("%lu", len);
+    }
+
+    if (data_read[0] != data[i]) {
+      NVM_FATAL("");
+    }
+  }
+
+  delete rr_file;
   delete w_file;
 
   NVM_DEBUG("TEST FINISHED!");

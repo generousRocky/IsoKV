@@ -1005,14 +1005,6 @@ NVMSequentialFile::NVMSequentialFile(const std::string& fname, nvm_file *fd,
   ppa_offset_ = 0;
   page_offset_ = 0;
 
-  //Javier: This will probably go
-  // file_pointer = 0;
-
-  // crt_page_idx = 0;
-  // crt_page = file_->GetNVMPage(0);
-  // page_pointer = 0;
-  // channel = 0;
-
   NVM_DEBUG("created %s", fname.c_str());
 }
 
@@ -1021,7 +1013,7 @@ NVMSequentialFile::~NVMSequentialFile() {
   dir_->nvm_fclose(fd_, "r");
 }
 
-//TODO: Cache last read page to avoid small reads submitting an IO
+//TODO: Important Cache last read page to avoid small reads submitting extra IOs
 Status NVMSequentialFile::Read(size_t n, Slice* result, char* scratch) {
   if (n <= 0) {
     *result = Slice(scratch, 0);
@@ -1081,116 +1073,72 @@ Status NVMSequentialFile::InvalidateCache(size_t offset, size_t length) {
   return Status::OK();
 }
 
-NVMRandomAccessFile::NVMRandomAccessFile(const std::string& fname, nvm_file *f, nvm_directory *_dir) :
-  filename_(fname) {
-  file_ = f;
-
-  dir = _dir;
-
-  channel = 0;
-
-  nvm_api = dir->GetNVMApi();
+/*
+ * RandomAccessFile implementation
+ */
+NVMRandomAccessFile::NVMRandomAccessFile(const std::string& fname, nvm_file *f,
+                                       nvm_directory *dir) : filename_(fname) {
+  fd_ = f;
+  dir_ = dir;
 
   NVM_DEBUG("created %s", fname.c_str());
 }
 
 NVMRandomAccessFile::~NVMRandomAccessFile() {
-  dir->nvm_fclose(file_, "r");
-}
-
-struct nvm_page *NVMRandomAccessFile::SeekPage(const unsigned long offset, unsigned long *page_pointer, unsigned long *page_idx) const {
-  struct nvm_page *crt_page = file_->GetNVMPage(0);
-
-  *page_pointer = offset;
-
-  *page_idx = (unsigned long)(*page_pointer / crt_page->sizes[channel]);
-
-  *page_pointer %= crt_page->sizes[channel];
-
-  crt_page = file_->GetNVMPage(*page_idx);
-
-  return crt_page;
+  dir_->nvm_fclose(fd_, "r");
 }
 
 Status NVMRandomAccessFile::Read(uint64_t offset, size_t n, Slice* result,
                                                         char* scratch) const {
-  unsigned long page_pointer;
+  //TODO: DO THIS CHECKS IN YOUR CONTEXT. ALSO FOR SEQUENTIALFILE
+  // if (offset >= file_->GetSize()) {
+    // NVM_DEBUG("offset is out of bounds");
 
-  if (offset >= file_->GetSize()) {
-    NVM_DEBUG("offset is out of bounds");
+    // *result = Slice(scratch, 0);
+    // return Status::OK();
+  // }
 
-    *result = Slice(scratch, 0);
-    return Status::OK();
-  }
+  // if (offset + n > file_->GetSize()) {
+    // n = file_->GetSize() - offset;
+  // }
 
-  if (offset + n > file_->GetSize()) {
-    n = file_->GetSize() - offset;
-  }
+  // if (n <= 0) {
+    // NVM_DEBUG("n is <= 0");
 
   if (n <= 0) {
-    NVM_DEBUG("n is <= 0");
-
     *result = Slice(scratch, 0);
     return Status::OK();
   }
 
-  size_t len = n;
-  size_t l;
-  size_t scratch_offset = 0;
-  size_t size_to_copy;
+  struct nvm *nvm = dir_->GetNVMApi();
 
-  char *data;
+  unsigned int ppa_offset = offset / 4096;
+  unsigned int page_offset = offset % 4096;
 
-  unsigned long page_idx;
+  size_t data_len = (((n / 4096) + 1) * 4096);
 
-  struct nvm_page *crt_page = SeekPage(offset, &page_pointer, &page_idx);
-
-  if (crt_page == nullptr) {
-    *result = Slice(scratch, 0);
-    return Status::OK();
-  }
-
-  data = (char*)memalign(4096, crt_page->sizes[channel]);
+  char *data = (char*)memalign(4096, data_len);
   if (!data) {
     NVM_FATAL("Cannot allocate aligned memory\n");
     return Status::Corruption("Cannot allocate aligned memory''");
   }
 
-  while (len > 0) {
-    if (crt_page == nullptr) {
-      n -= len;
-      break;
-    }
-
-    l = file_->ReadPage(crt_page, channel, nvm_api, data);
-
-    if (len > l - page_pointer) {
-      size_to_copy = l - page_pointer;
-    } else {
-      size_to_copy = len;
-    }
-
-    memcpy(scratch + scratch_offset, data + page_pointer, size_to_copy);
-
-    len -= size_to_copy;
-    scratch_offset += size_to_copy;
-
-    crt_page = file_->GetNVMPage(++page_idx);
-    page_pointer = 0;
+  if (fd_->Read(nvm, ppa_offset, data, data_len) != data_len) {
+    return Status::IOError("Unable to read\n");
   }
 
+  memcpy(scratch, data + page_offset, n);
   free(data);
 
   NVM_DEBUG("read %lu bytes", n);
 
   *result = Slice(scratch, n);
-
   return Status::OK();
 }
 
 #ifdef OS_LINUX
 size_t NVMRandomAccessFile::GetUniqueId(char* id, size_t max_size) const {
-  return GetUniqueIdFromFile(file_, id, max_size);
+  return GetUniqueIdFromFile(fd_, id, max_size);
 }
 #endif
 
@@ -1201,6 +1149,10 @@ void NVMRandomAccessFile::Hint(AccessPattern pattern) {
 Status NVMRandomAccessFile::InvalidateCache(size_t offset, size_t length) {
   return Status::OK();
 }
+
+/*
+ * WritableFile implementation
+ */
 
 NVMWritableFile::NVMWritableFile(const std::string& fname, nvm_file *fd,
                                                        nvm_directory *dir) :
@@ -1376,7 +1328,9 @@ size_t NVMWritableFile::GetUniqueId(char* id, size_t max_size) const {
 
 #endif
 
-
+/*
+ * RandomRWFile implementation
+ */
 NVMRandomRWFile::NVMRandomRWFile(const std::string& fname, nvm_file *_fd, nvm_directory *_dir) :
   filename_(fname) {
   fd_ = _fd;
