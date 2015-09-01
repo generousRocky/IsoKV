@@ -797,8 +797,11 @@ struct nvm_page *nvm_file::GetNVMPage(const unsigned long idx) {
   return ret;
 }
 
-// data must be aligned. Reads entire pages
-// TODO: do checks?
+//TODO: REFACTOR FROM HERE UP!!
+
+// The caller must ensure that data i aligned to PAGE_SIZE.
+// Note that this function reads entire pages. Thus the caller must take care of
+// in-page offsets to only return the requested bytes.
 size_t nvm_file::Read(struct nvm *nvm, size_t ppa_offset, char *data,
                                                             size_t data_len) {
   size_t current_ppa = vblock_->bppa + ppa_offset;
@@ -810,8 +813,8 @@ size_t nvm_file::Read(struct nvm *nvm, size_t ppa_offset, char *data,
   unsigned long bytes_per_read;
   uint8_t pages_per_read;
 
-  assert(data_len <= nppas * 4096); //TODO: Recover?
-  assert((data_len % 4096) == 0); //TODO: support data_len not % 4096? Padding?
+  assert(data_len <= nppas * 4096); //TODO: Recover? Who?
+  assert((data_len % 4096) == 0);
   assert(current_ppa <= vblock_->bppa + nppas);
 
   while (left > 0) {
@@ -834,34 +837,7 @@ retry:
   }
 
   IOSTATS_ADD(bytes_read, data_len);
-
   return data_len - left;
-}
-
-size_t nvm_file::ReadPage(const nvm_page *page, const unsigned long channel,
-                                              struct nvm *nvm_api, void *data) {
-  unsigned long offset;
-
-  unsigned long page_size = page->sizes[channel];
-  unsigned long block_size = nvm_api->luns[page->lun_id].nr_pages_per_blk * page_size;
-  unsigned long lun_size = nvm_api->luns[page->lun_id].nr_blocks * block_size;
-
-  offset = page->lun_id * lun_size + page->block_id * block_size + page->id * page_size;
-
-  NVM_DEBUG("reading %lu bytes at %lu", page_size, offset);
-
-retry:
-
-  if ((unsigned)pread(fd_, data, page_size, offset) != page_size) {
-    if (errno == EINTR) {
-      goto retry;
-    }
-    return -1;
-  }
-
-  IOSTATS_ADD(bytes_read, page_size);
-
-  return page_size;
 }
 
 //TODO: Javier: This allocation should happen in the background so that we do
@@ -916,14 +892,22 @@ void nvm_file::FreeBlock() {
 // multipage writes - at the moment multipage assumes sequential ppas
 //
 // TODO: Keep a pointer to write block to flash as it is being filled up. This
-// would allow to write in smaller chunks (e.g., 1MB).
+// would allow to write in smaller chunks (e.g., 1MB). This is what write_ppa_
+// is there for. At the moment we write in a block basis to avoid concurrency
+// issues.
+//
+// The caller must ensure that data is given in pages (i.e., data_len %
+// PAGE_SIZE == 0)
 size_t nvm_file::WriteBlock(struct nvm *nvm, void *data,
                                                       size_t data_len) {
-  char *data_aligned;
-  size_t current_ppa = write_ppa_;
-  // size_t current_ppa = vblock_->bppa;
   // size_t nppas = vblock_->nppas;
   size_t nppas = nvm->GetNPagesBlock(0); //This is a momentary fix (FIXME)
+  assert((data_len % 4096) == 0);
+  assert(data_len <= nppas * 4096);
+
+  char *data_aligned;
+  // size_t current_ppa = write_ppa_;
+  size_t current_ppa = vblock_->bppa;
   unsigned long left = data_len;
   unsigned long max_bytes_per_write = nvm->max_pages_in_io * 4096;
   unsigned long bytes_per_write;
@@ -932,8 +916,6 @@ size_t nvm_file::WriteBlock(struct nvm *nvm, void *data,
 
   NVM_DEBUG("writing %lu bytes - nppages : %lu\n", data_len, nppas);
   //TODO: Generalize page size
-  assert(data_len <= nppas * 4096);
-  assert((data_len % 4096) == 0); //TODO: support data_len not % 4096? Padding?
 
   if (data_len < nppas * 4096) {
     NVM_DEBUG("Writing block. Not using %lu bytes\n", (nppas * 4096) - data_len);
@@ -976,8 +958,7 @@ size_t nvm_file::WriteBlock(struct nvm *nvm, void *data,
   if (allocate_aligned_buf)
     free(data_aligned);
 
-  write_ppa_ = current_ppa;
-
+  // write_ppa_ = current_ppa;
 
   UpdateFileModificationTime();
   IOSTATS_ADD(bytes_written, data_len);
@@ -986,21 +967,22 @@ size_t nvm_file::WriteBlock(struct nvm *nvm, void *data,
   return data_len - left;
 }
 
-// size_t nvm_file::ReadBlock() {
+bool nvm_file::HasBlock() {
+  return (vblock_ == nullptr) ? false : true;
+}
 
-// }
-
+/*
+ * SequentialFile implementation
+ */
 NVMSequentialFile::NVMSequentialFile(const std::string& fname, nvm_file *fd,
                                                         nvm_directory *dir) :
   filename_(fname) {
   fd_ = fd;
   dir_ = dir;
 
-  //TODO: More checks to guarantee nvm_file integrity?
-  //TODO: Do the appropriate function to do this check
-  // if (fd_->vblock_ == nullptr) {
-    // NVM_ERROR("No block associated with file descriptor\n");
-  // }
+  if (!fd_->HasBlock()) {
+    NVM_ERROR("No block associated with file descriptor\n");
+  }
 
   ppa_offset_ = 0;
   page_offset_ = 0;
@@ -1038,7 +1020,6 @@ Status NVMSequentialFile::Read(size_t n, Slice* result, char* scratch) {
   memcpy(scratch, data + page_offset_, n);
   free(data);
 
-  //TODO: Do this differetly
   ppa_offset_ += n / 4096;
   page_offset_ = (page_offset_ + n) % 4096;
 
@@ -1048,20 +1029,21 @@ Status NVMSequentialFile::Read(size_t n, Slice* result, char* scratch) {
   return Status::OK();
 }
 
-//n is unsigned -> skip is only allowed forward
-//This implementation works at a page granurality
 Status NVMSequentialFile::Skip(uint64_t n) {
   if (n == 0) {
     return Status::OK();
   }
 
-  //Skip at a page level - stay in the page where the skipped bytes point to
-  unsigned long skip_pages = (n / 4096);
+  unsigned long skip_ppas = (n / 4096);
+  struct nvm *nvm = dir_->GetNVMApi();
+  size_t nppas = nvm->GetNPagesBlock(0); //This is a momentary fix until we use
+                                         //the right structure
 
-  //TODO: calculate that we do not go ot of bounds, if so return pointer to eof
-  //and return OK
+  if (ppa_offset_ + skip_ppas > nppas) {
+    return Status::IOError(filename_, "EINVAL file pointer goes out of bounds");
+  }
 
-  ppa_offset_ += skip_pages;
+  ppa_offset_ += skip_ppas;
   page_offset_ = (page_offset_ + n) % 4096;
 
   NVM_DEBUG("SEEKED %lu forward; ppa offset: %d, page offset: %d", n,
@@ -1102,9 +1084,6 @@ Status NVMRandomAccessFile::Read(uint64_t offset, size_t n, Slice* result,
     // n = file_->GetSize() - offset;
   // }
 
-  // if (n <= 0) {
-    // NVM_DEBUG("n is <= 0");
-
   if (n <= 0) {
     *result = Slice(scratch, 0);
     return Status::OK();
@@ -1127,6 +1106,7 @@ Status NVMRandomAccessFile::Read(uint64_t offset, size_t n, Slice* result,
     return Status::IOError("Unable to read\n");
   }
 
+  //TODO: Can we avoid this memory copy?
   memcpy(scratch, data + page_offset, n);
   free(data);
 
@@ -1160,18 +1140,15 @@ NVMWritableFile::NVMWritableFile(const std::string& fname, nvm_file *fd,
   fd_ = fd;
   dir_ = dir;
 
+  struct nvm *nvm = dir_->GetNVMApi();
+  unsigned int vlun_id = 0;
   //TODO: Javier: get list of vluns at initialization and ask for a vblock from
   //the right vlun at runtime. We still need to define how the BM and the FTL
   //will agree on which vlun is going to be used. To start with we have a single
   //vlun (vlun 0)
-  // Allocate a new flash block in LightNVM's block manager
-  struct nvm *nvm = dir_->GetNVMApi();
-  unsigned int vlun_id = 0;
   fd_->GetBlock(nvm, vlun_id);
 
   // TODO: Generalize page size
-  // Allocate memory to buffer the contents of flash block in memory. Since we
-  // are using direct IO memory needs to be aligned to the OS page size
   buf_limit_ = nvm->GetNPagesBlock(vlun_id) * 4096;
   buf_ = (char*)memalign(4096, buf_limit_);
   if (!buf_) {
@@ -1180,12 +1157,7 @@ NVMWritableFile::NVMWritableFile(const std::string& fname, nvm_file *fd,
   dst_ = buf_;
 
   cursize_ = 0;
-
-  //Javier: This will all go
-  channel = 0;
-  last_page = nullptr;
-  last_page_idx = 0;
-  closed = false;
+  closed_ = false;
 
   NVM_DEBUG("created %s at %p", fname.c_str(), this);
 }
@@ -1224,9 +1196,12 @@ bool NVMWritableFile::Flush(const bool closing) {
 }
 
 Status NVMWritableFile::Append(const Slice& data) {
+  if (closed_) {
+    return Status::IOError("file has been closed");
+  }
+
   const char* src = data.data();
   size_t left = data.size();
-  // size_t offset = 0;
   NVM_DEBUG("Appending slice %lu bytes to %p", left, this);
 
   assert(buf_ <= dst_);
@@ -1250,13 +1225,15 @@ Status NVMWritableFile::Append(const Slice& data) {
 }
 
 Status NVMWritableFile::Close() {
-  if (closed) {
+  if (closed_) {
     return Status::OK();
   }
 
-  closed = true;
+  closed_ = true;
 
-  Flush(true);
+  if (Flush(true) == false) {
+    return Status::IOError("out of ssd space");
+  }
 
   dir_->nvm_fclose(fd_, "a");
 
@@ -1269,7 +1246,7 @@ Status NVMWritableFile::Close() {
 }
 
 Status NVMWritableFile::Flush() {
-  if (closed) {
+  if (closed_) {
     return Status::IOError("file has been closed");
   }
 
@@ -1281,7 +1258,7 @@ Status NVMWritableFile::Flush() {
 }
 
 Status NVMWritableFile::Sync() {
-  if (closed) {
+  if (closed_) {
     return Status::IOError("file has been closed");
   }
 
@@ -1293,7 +1270,7 @@ Status NVMWritableFile::Sync() {
 }
 
 Status NVMWritableFile::Fsync() {
-  if (closed) {
+  if (closed_) {
     return Status::IOError("file has been closed");
   }
 
@@ -1439,7 +1416,7 @@ Status NVMRandomRWFile::Write(uint64_t offset, const Slice& data) {
     NVM_DEBUG("page pointer is %lu, page size is %u", page_pointer, crt_page->sizes[channel]);
 
     if (page_just_claimed == false) {
-      fd_->ReadPage(crt_page, channel, nvm_api, crt_data);
+      // fd_->ReadPage(crt_page, channel, nvm_api, crt_data);
     }
 
     for (i = 0; i < crt_page->sizes[channel] - page_pointer && i < left; ++i) {
@@ -1486,8 +1463,6 @@ Status NVMRandomRWFile::Write(uint64_t offset, const Slice& data) {
 }
 
 Status NVMRandomRWFile::Read(uint64_t offset, size_t n, Slice* result, char* scratch) const {
-  unsigned long page_pointer;
-
   if (offset > fd_->GetSize()) {
     NVM_DEBUG("offset is out of bounds");
 
@@ -1506,8 +1481,9 @@ Status NVMRandomRWFile::Read(uint64_t offset, size_t n, Slice* result, char* scr
     return Status::OK();
   }
 
+#if 0
   size_t len = n;
-  size_t l;
+  // size_t l;
   size_t scratch_offset = 0;
   size_t size_to_copy;
 
@@ -1533,13 +1509,13 @@ Status NVMRandomRWFile::Read(uint64_t offset, size_t n, Slice* result, char* scr
       break;
     }
 
-    l = fd_->ReadPage(crt_page, channel, nvm_api, data);
+    // l = fd_->ReadPage(crt_page, channel, nvm_api, data);
 
-    if (len > l - page_pointer) {
-      size_to_copy = l - page_pointer;
-    } else {
-      size_to_copy = len;
-    }
+    // if (len > l - page_pointer) {
+      // size_to_copy = l - page_pointer;
+    // } else {
+      // size_to_copy = len;
+    // }
 
     memcpy(scratch + scratch_offset, data + page_pointer, size_to_copy);
 
@@ -1555,7 +1531,7 @@ Status NVMRandomRWFile::Read(uint64_t offset, size_t n, Slice* result, char* scr
   NVM_DEBUG("read %lu bytes", n);
 
   *result = Slice(scratch, n);
-
+#endif
   return Status::OK();
 }
 

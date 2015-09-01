@@ -22,7 +22,6 @@ class nvm_file {
     std::vector<struct nvm_page *> pages;
 
     pthread_mutex_t write_lock;
-
     sector_t write_ppa_;
 
 #ifdef NVM_ALLOCATE_BLOCKS
@@ -46,6 +45,8 @@ class nvm_file {
     nvm_file(const char *_name, const int fd, nvm_directory *_parent);
     ~nvm_file();
 
+    bool HasBlock();
+
     bool CanOpen(const char *mode);
     bool ClaimNewPage(nvm *nvm_api);
     bool ClearLastPage(nvm *nvm_api);
@@ -67,9 +68,6 @@ class nvm_file {
     void FreeBlock();
     size_t WriteBlock(struct nvm *nvm, void *data, const size_t data_len);
     size_t Read(struct nvm *nvm, size_t bppa, char *data, size_t data_len);
-
-    size_t ReadPage(const nvm_page *page, const unsigned long channel,
-                                              struct nvm *nvm_api, void *data);
 
     struct nvm_page *GetNVMPage(const unsigned long idx);
     struct nvm_page *GetLastPage(unsigned long *page_idx);
@@ -184,7 +182,7 @@ class NVMWritableFile : public WritableFile {
     unsigned long last_page_idx;
     struct nvm_page *last_page;
 
-    bool closed;
+    bool closed_;
 
     bool Flush(const bool closing);
     bool UpdateLastPage();
