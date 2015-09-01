@@ -14,11 +14,16 @@ class nvm_file {
     pthread_mutexattr_t page_update_mtx_attr;
     pthread_mutex_t page_update_mtx;
 
-    unsigned long size;
+    unsigned long size_;
     int fd_;
 
+    // TODO: Should it be a list of blocks?
     struct vblock *vblock_;       // Virtual flash block
     std::vector<struct nvm_page *> pages;
+
+    pthread_mutex_t write_lock;
+
+    sector_t write_ppa_;
 
 #ifdef NVM_ALLOCATE_BLOCKS
     std::vector<struct nvm_page *> block_pages;
@@ -60,7 +65,7 @@ class nvm_file {
     void GetBlock(struct nvm *nvm, unsigned int vlun_id);
     void PutBlock(struct nvm *nvm);
     void FreeBlock();
-    size_t WriteBlock(struct nvm *nvm, void *data, const unsigned long data_len);
+    size_t WriteBlock(struct nvm *nvm, void *data, const size_t data_len);
     size_t Read(struct nvm *nvm, size_t bppa, char *data, size_t data_len);
 
     size_t ReadPage(const nvm_page *page, const unsigned long channel,
@@ -106,14 +111,15 @@ class NVMSequentialFile: public SequentialFile {
     nvm_file *fd_;
     nvm_directory *dir_;
 
+    unsigned int ppa_offset_;                 //ppa offset from bppa;
+    unsigned int page_offset_;          //byte offset in ppa;
+
     unsigned long file_pointer;
     unsigned long channel;
     unsigned long page_pointer;
 
     unsigned long crt_page_idx;
     struct nvm_page *crt_page;
-
-    void SeekPage(const unsigned long offset);
 
   public:
     NVMSequentialFile(const std::string& fname, nvm_file *f,
@@ -170,6 +176,7 @@ class NVMWritableFile : public WritableFile {
 
     unsigned long channel;
 
+    //JAVIER: This will go
     unsigned long last_page_idx;
     struct nvm_page *last_page;
 

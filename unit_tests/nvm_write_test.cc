@@ -26,7 +26,7 @@ void w_test_1() {
   NVMSequentialFile *sr_file;
 
   char data[100];
-  char datax[200];
+  char datax[100];
 
   Slice s, t;
 
@@ -59,6 +59,49 @@ void w_test_1() {
     }
   }
 
+  delete sr_file;
+
+  //Test Skip
+  ALLOC_CLASS(sr_file, NVMSequentialFile("test2.c", srfd, dir));
+  if (!sr_file->Read(10, &t, datax).ok()) {
+    NVM_FATAL("");
+  }
+
+  len = t.size();
+  data_read = t.data();
+
+  if (len != 10) {
+    NVM_FATAL("%lu", len);
+  }
+
+  for (int i = 0; i < 10; i++) {
+    if (data_read[i] != data[i]) {
+      NVM_FATAL("");
+    }
+  }
+
+  if (!sr_file->Skip(10).ok()) {
+    NVM_FATAL("");
+  }
+
+  if (!sr_file->Read(80, &t, datax).ok()) {
+    NVM_FATAL("");
+  }
+
+  len = t.size();
+  data_read = t.data();
+
+  if (len != 80) {
+    NVM_FATAL("%lu", len);
+  }
+
+  for (int i = 0; i < 80; i++) {
+    if (data_read[i] != data[i + 20]) {
+      NVM_FATAL("");
+    }
+  }
+
+  delete sr_file;
   delete w_file;
 
   NVM_DEBUG("TEST FINISHED!");
@@ -94,8 +137,8 @@ void w_block_test_1() {
 }
 
 int main(int argc, char **argv) {
-  // w_test_1();
-  w_block_test_1();
+  w_test_1();
+  // w_block_test_1();
 
   return 0;
 }
