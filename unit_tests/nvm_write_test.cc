@@ -144,26 +144,182 @@ void w_block_test_1() {
     NVM_FATAL("");
   }
 
+  nvm_file *srfd = dir->nvm_fopen("test.c", "r");
+  if(srfd == nullptr) {
+    NVM_FATAL("");
+  }
+
   NVMWritableFile *w_file;
+  NVMSequentialFile *sr_file;
 
-  char data[128 * 4096];
-  memset(data, 'a', 128 * 4096);
+  char data[10 * 4096];
+  char datax[10 * 4096];
 
-  Slice s;
+  for (long i = 0; i < 10 * 4096; i++) {
+    data[i] = i % 4096;
+  }
 
-  s = Slice(data, 128 * 4096);
+  Slice s, t;
+
+  s = Slice(data, 10 * 4096);
   ALLOC_CLASS(w_file, NVMWritableFile("test.c", wfd, dir));
   w_file->Append(s);
   w_file->Close();
 
+  ALLOC_CLASS(sr_file, NVMSequentialFile("test2.c", srfd, dir));
+  if (!sr_file->Read(10 * 4096, &t, datax).ok()) {
+    NVM_FATAL("");
+  }
 
+  size_t len = t.size();
+  const char *data_read = t.data();
+
+  if (len != 10 * 4096) {
+    NVM_FATAL("%lu", len);
+  }
+
+  for (long i = 0; i < 10 * 4096; i++) {
+    if (data_read[i] != data[i]) {
+      NVM_FATAL("");
+    }
+  }
+
+  delete sr_file;
   delete w_file;
+
   NVM_DEBUG("TEST FINISHED!");
 }
 
+void w_block_test_2() {
+  nvm_directory *dir;
+  nvm *nvm_api;
+
+  ALLOC_CLASS(nvm_api, nvm());
+  ALLOC_CLASS(dir, nvm_directory("root", 4, nvm_api, nullptr));
+
+  nvm_file *wfd = dir->nvm_fopen("test.c", "w");
+  if(wfd == nullptr) {
+    NVM_FATAL("");
+  }
+
+  nvm_file *srfd = dir->nvm_fopen("test.c", "r");
+  if(srfd == nullptr) {
+    NVM_FATAL("");
+  }
+
+  NVMWritableFile *w_file;
+  NVMSequentialFile *sr_file;
+
+  char data[5 * 4096];
+  char datax[5 * 4096];
+
+  ALLOC_CLASS(w_file, NVMWritableFile("test.c", wfd, dir));
+  Slice s, t;
+
+  char input = 'a';
+  for (int i = 0; i < 5; i++) {
+    for (int j = 0; j < 4096; j++) {
+      data[(i * 4096) + j] = input + i;
+    }
+
+    s = Slice(data + (i * 4096), 4096);
+    w_file->Append(s);
+    NVM_DEBUG("Appended slice %d\n", i);
+  }
+  w_file->Close();
+
+  ALLOC_CLASS(sr_file, NVMSequentialFile("test2.c", srfd, dir));
+  if (!sr_file->Read(5 * 4096, &t, datax).ok()) {
+    NVM_FATAL("");
+  }
+
+  size_t len = t.size();
+  const char *data_read = t.data();
+
+  if (len != 5 * 4096) {
+    NVM_FATAL("%lu", len);
+  }
+
+  for (long i = 0; i < 5 * 4096; i++) {
+    if (data_read[i] != data[i]) {
+      NVM_FATAL("");
+    }
+  }
+
+  delete sr_file;
+  delete w_file;
+
+  NVM_DEBUG("TEST FINISHED!");
+}
+
+void w_block_test_3() {
+  nvm_directory *dir;
+  nvm *nvm_api;
+
+  ALLOC_CLASS(nvm_api, nvm());
+  ALLOC_CLASS(dir, nvm_directory("root", 4, nvm_api, nullptr));
+
+  nvm_file *wfd = dir->nvm_fopen("test.c", "w");
+  if(wfd == nullptr) {
+    NVM_FATAL("");
+  }
+
+  nvm_file *srfd = dir->nvm_fopen("test.c", "r");
+  if(srfd == nullptr) {
+    NVM_FATAL("");
+  }
+
+  NVMWritableFile *w_file;
+  NVMSequentialFile *sr_file;
+
+  char data[5 * 4096];
+  char datax[5 * 4096];
+
+  ALLOC_CLASS(w_file, NVMWritableFile("test.c", wfd, dir));
+  Slice s, t;
+
+  char input = 'a';
+  for (int i = 0; i < 10; i++) {
+    for (int j = 0; j < 2048; j++) {
+      data[(i * 2048) + j] = input + i;
+    }
+
+    s = Slice(data + (i * 2048), 2048);
+    w_file->Append(s);
+    NVM_DEBUG("Appended slice %d\n", i);
+  }
+  w_file->Close();
+
+  ALLOC_CLASS(sr_file, NVMSequentialFile("test2.c", srfd, dir));
+  if (!sr_file->Read(5 * 4096, &t, datax).ok()) {
+    NVM_FATAL("");
+  }
+
+  size_t len = t.size();
+  const char *data_read = t.data();
+
+  if (len != 5 * 4096) {
+    NVM_FATAL("%lu", len);
+  }
+
+  for (long i = 0; i < 5 * 4096; i++) {
+    if (data_read[i] != data[i]) {
+      NVM_FATAL("");
+    }
+  }
+
+  delete sr_file;
+  delete w_file;
+
+  NVM_DEBUG("TEST FINISHED!");
+}
+
+
 int main(int argc, char **argv) {
-  w_test_1();
+  // w_test_1();
   // w_block_test_1();
+  // w_block_test_2();
+  w_block_test_3();
 
   return 0;
 }

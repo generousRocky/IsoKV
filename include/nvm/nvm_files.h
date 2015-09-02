@@ -66,8 +66,8 @@ class nvm_file {
     void GetBlock(struct nvm *nvm, unsigned int vlun_id);
     void PutBlock(struct nvm *nvm);
     void FreeBlock();
-    size_t WriteBlock(struct nvm *nvm, void *data, const size_t data_len);
-    size_t Read(struct nvm *nvm, size_t bppa, char *data, size_t data_len);
+    size_t FlushBlock(struct nvm *nvm, void *data, const size_t data_len);
+    size_t ReadPage(struct nvm *nvm, size_t bppa, char *data, size_t data_len);
 
     struct nvm_page *GetNVMPage(const unsigned long idx);
     struct nvm_page *GetLastPage(unsigned long *page_idx);
@@ -109,14 +109,12 @@ class NVMSequentialFile: public SequentialFile {
     nvm_file *fd_;
     nvm_directory *dir_;
 
-    unsigned int ppa_offset_;           //ppa offset from bppa;
-    unsigned int page_offset_;          //byte offset in ppa;
+    size_t read_pointer_;
 
     //TODO: Implement this. Only cache the page that is left half read. We need
     //to keep track of it when skiping too.
     char *current_page_;                //Cached current page;
 
-    unsigned long file_pointer;
     unsigned long channel;
     unsigned long page_pointer;
 
@@ -141,6 +139,8 @@ class NVMRandomAccessFile: public RandomAccessFile {
 
     nvm_file *fd_;
     nvm_directory *dir_;
+
+    size_t read_pointer_;
 
     struct nvm_page *SeekPage(const unsigned long offset,
                   unsigned long *page_pointer, unsigned long *page_idx) const;
@@ -170,11 +170,12 @@ class NVMWritableFile : public WritableFile {
     nvm_directory *dir_;
 
     size_t cursize_;            // Current buf_ length
+    size_t flushsize_;          // Length of buf_ that has already been flushed
     size_t buf_limit_;          // Limit of the allocated memory region
     char *buf_;                 // Buffer to cache writes
-    char *dst_;                 // Where to write next in buf_
-
-    uint64_t bytes_per_sync_;
+    char *dst_;                 // Where to write next in buf_. Used by Append()
+    char *flush_;               // Points to place in buf_ until which data has
+                                //been flushed to the media
 
     unsigned long channel;
 
@@ -216,9 +217,13 @@ class NVMRandomRWFile : public RandomRWFile {
     unsigned long channel;
 
     nvm_file *fd_;
-    nvm_directory *dir;
+    nvm_directory *dir_;
 
-    nvm *nvm_api;
+    // TODO: Buffer PAGE_SIZE
+    // size_t cursize_;            // Current buf_ length
+    // size_t buf_limit_;          // Limit of the allocated memory region
+    // char *buf_;                 // Buffer to cache writes
+    // char *dst_;                 // Where to write next in buf_
 
     struct nvm_page *SeekPage(const unsigned long offset,
                   unsigned long *page_pointer, unsigned long *page_idx) const;
