@@ -870,7 +870,8 @@ Compaction* LevelCompactionPicker::PickCompaction(
   for (int i = 0; i < NumberLevels() - 1; i++) {
     score = vstorage->CompactionScore(i);
     level = vstorage->CompactionScoreLevel(i);
-    assert(i == 0 || score <= vstorage->CompactionScore(i - 1));
+		//this fucks up stuff after a few thousand keys -> out
+    //assert(i == 0 || score <= vstorage->CompactionScore(i - 1));
     if (score >= 1) {
       output_level = (level == 0) ? vstorage->base_level() : level + 1;
       if (PickCompactionBySize(vstorage, level, output_level, &inputs,

@@ -9,6 +9,7 @@
 
 #ifdef ROCKSDB_PLATFORM_POSIX
 
+#include <iostream>
 #include <deque>
 #include <set>
 #include <dirent.h>
@@ -355,6 +356,8 @@ class PosixMmapFile : public WritableFile {
 #ifdef ROCKSDB_FALLOCATE_PRESENT
   bool fallocate_with_keep_size_;
 #endif
+	int flushes;
+	int size_before_flush;
 
   // Roundup x to a multiple of y
   static size_t Roundup(size_t x, size_t y) {
@@ -458,6 +461,8 @@ class PosixMmapFile : public WritableFile {
 #endif
     assert((page_size & (page_size - 1)) == 0);
     assert(options.use_mmap_writes);
+		flushes = 0;
+		size_before_flush = 0;
   }
 
 
@@ -470,6 +475,11 @@ class PosixMmapFile : public WritableFile {
   virtual Status Append(const Slice& data) override {
     const char* src = data.data();
     size_t left = data.size();
+		
+		size_before_flush += left;
+		std::string sx = filename_ + std::string(":a:") + std::to_string(left) + std::string("\n");
+		std::cout << sx.c_str() << std::flush;
+		
     while (left > 0) {
       assert(base_ <= dst_);
       assert(dst_ <= limit_);
@@ -526,6 +536,9 @@ class PosixMmapFile : public WritableFile {
   }
 
   virtual Status Sync() override {
+		std::string s;
+		s = filename_ + std::string(":f:") + std::to_string(++flushes) + std::string(":") + std::to_string(size_before_flush) + std::string("\n");
+		std::cout << s.c_str() << std::flush; size_before_flush = 0;
     if (fdatasync(fd_) < 0) {
       return IOError(filename_, errno);
     }
@@ -536,7 +549,11 @@ class PosixMmapFile : public WritableFile {
   /**
    * Flush data as well as metadata to stable storage.
    */
-  virtual Status Fsync() override {
+	virtual Status Fsync() override {
+		std::string s;
+		s = filename_ + std::string(":f:") + std::to_string(++flushes) + std::string(":") + std::to_string(size_before_flush) + std::string("\n");
+		std::cout << s.c_str() << std::flush; size_before_flush = 0;
+		
     if (fsync(fd_) < 0) {
       return IOError(filename_, errno);
     }
@@ -586,6 +603,8 @@ class PosixWritableFile : public WritableFile {
  private:
   const std::string filename_;
   int fd_;
+	int flushes;
+	int size_before_flush;
   uint64_t filesize_;
 #ifdef ROCKSDB_FALLOCATE_PRESENT
   bool fallocate_with_keep_size_;
@@ -598,6 +617,8 @@ class PosixWritableFile : public WritableFile {
     fallocate_with_keep_size_ = options.fallocate_with_keep_size;
 #endif
     assert(!options.use_mmap_writes);
+		flushes = 0;
+		size_before_flush = 0;
   }
 
   ~PosixWritableFile() {
@@ -609,6 +630,11 @@ class PosixWritableFile : public WritableFile {
   virtual Status Append(const Slice& data) override {
     const char* src = data.data();
     size_t left = data.size();
+		
+		size_before_flush += left;
+		std::string sx = filename_ + std::string(":a:") + std::to_string(left) + std::string("\n");
+		std::cout << sx.c_str() << std::flush;
+		
     Status s;
       while (left != 0) {
         ssize_t done = write(fd_, src, left);
@@ -668,6 +694,10 @@ class PosixWritableFile : public WritableFile {
   }
 
   virtual Status Sync() override {
+		std::string s;
+		s = filename_ + std::string(":f:") + std::to_string(++flushes) + std::string(":") + std::to_string(size_before_flush) + std::string("\n");
+		std::cout << s.c_str() << std::flush; size_before_flush = 0;
+		
     if (fdatasync(fd_) < 0) {
       return IOError(filename_, errno);
     }
@@ -675,6 +705,10 @@ class PosixWritableFile : public WritableFile {
   }
 
   virtual Status Fsync() override {
+		std::string s;
+		s = filename_ + std::string(":f:") + std::to_string(++flushes) + std::string(":") + std::to_string(size_before_flush) + std::string("\n");
+		std::cout << s.c_str() << std::flush; size_before_flush = 0;
+		
     if (fsync(fd_) < 0) {
       return IOError(filename_, errno);
     }
@@ -711,6 +745,9 @@ class PosixWritableFile : public WritableFile {
   }
 
   virtual Status RangeSync(off_t offset, off_t nbytes) override {
+		std::string s;
+		s = filename_ + std::string(":f:") + std::to_string(++flushes) + std::string(":") + std::to_string(size_before_flush) + std::string("\n");
+		std::cout << s.c_str() << std::flush; size_before_flush = 0;
     if (sync_file_range(fd_, offset, nbytes, SYNC_FILE_RANGE_WRITE) == 0) {
       return Status::OK();
     } else {

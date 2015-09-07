@@ -13,6 +13,7 @@
 #define __STDC_FORMAT_MACROS
 #endif
 
+#include <iostream>
 #include <inttypes.h>
 #include <algorithm>
 #include <climits>
@@ -2037,6 +2038,9 @@ Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
 Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
                              const FlushOptions& flush_options) {
   Status s;
+	
+	std::cout << "Flush memtable called\n" << std::flush;
+	
   {
     WriteContext context;
     InstrumentedMutexLock guard_lock(&mutex_);

@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "db/column_family.h"
+#include <iostream>
 
 #ifndef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS
@@ -803,10 +804,17 @@ ColumnFamilyHandle* ColumnFamilyMemTablesImpl::GetColumnFamilyHandle() {
 }
 
 void ColumnFamilyMemTablesImpl::CheckMemtableFull() {
-  if (current_ != nullptr && current_->mem()->ShouldScheduleFlush()) {
+	static int i = 0;
+	
+	++i;
+  if (current_ != nullptr && current_->mem()->ShouldScheduleFlush()) {	
+		//never reached.. wtf
+		std::cout << "SCHEDULING FLUSH\n" << std::flush;
     flush_scheduler_->ScheduleFlush(current_);
     current_->mem()->MarkFlushScheduled();
-  }
+  } else {
+		
+	}
 }
 
 uint32_t GetColumnFamilyID(ColumnFamilyHandle* column_family) {
