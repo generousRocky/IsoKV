@@ -66,7 +66,8 @@ class nvm_file {
     void GetBlock(struct nvm *nvm, unsigned int vlun_id);
     void PutBlock(struct nvm *nvm);
     void FreeBlock();
-    size_t FlushBlock(struct nvm *nvm, void *data, const size_t data_len);
+    size_t FlushBlock(struct nvm *nvm, char *data, size_t ppa_offset,
+                                  const size_t data_len, bool page_aligned);
     size_t ReadPage(struct nvm *nvm, size_t bppa, char *data, size_t data_len);
 
     struct nvm_page *GetNVMPage(const unsigned long idx);
@@ -169,13 +170,20 @@ class NVMWritableFile : public WritableFile {
     nvm_file *fd_;
     nvm_directory *dir_;
 
-    size_t cursize_;            // Current buf_ length
-    size_t flushsize_;          // Length of buf_ that has already been flushed
+    size_t cursize_;            // Current buf_ length. It follows mem_
+    size_t ppa_flush_;          // Pages in buf_ that have already been flushed
     size_t buf_limit_;          // Limit of the allocated memory region
     char *buf_;                 // Buffer to cache writes
-    char *dst_;                 // Where to write next in buf_. Used by Append()
+    char *mem_;                 // Points to the place to append data in memory.
+                                // It defines the part of the buffer containing
+                                // valid data.
     char *flush_;               // Points to place in buf_ until which data has
-                                //been flushed to the media
+                                // been flushed to the media
+
+    bool l0_table;              // Signals if this file is being used to store a
+                                // level 0 sstable. This is used by the Flush
+                                // method to determine if the size of the file
+                                // can exceed the size of a block or not.
 
     unsigned long channel;
 

@@ -847,7 +847,7 @@ retry:
 //sstable is created.
 void nvm_file::GetBlock(struct nvm *nvm, unsigned int vlun_id) {
   if (vblock_ != nullptr) {
-    goto out;
+    return;
   }
 
   //TODO: Make this better: mmap memory into device??
@@ -861,9 +861,6 @@ void nvm_file::GetBlock(struct nvm *nvm, unsigned int vlun_id) {
   }
 
   NVM_DEBUG("Get block. id: %lu\n", vblock_->id);
-
-out:
-  write_ppa_ = vblock_->bppa;
 }
 
 void nvm_file::PutBlock(struct nvm *nvm) {
@@ -893,39 +890,50 @@ void nvm_file::FreeBlock() {
 // multipage writes - at the moment multipage assumes sequential ppas
 //
 // TODO: Keep a pointer to write block to flash as it is being filled up. This
-// would allow to write in smaller chunks (e.g., 1MB). This is what write_ppa_
-// is there for. At the moment we write in a block basis to avoid concurrency
-// issues.
+// would allow to write in smaller chunks (e.g., 1MB).
 //
 // Note that data_len is the real length of the data to be flushed to the flash
 // block. FlushBlock takes care of working on PAGE_SIZE chunks
 // TODO: Make a function to flush at a page level to allow partial writes but
 // still respect PAGE_SIZE as write granurality
-size_t nvm_file::FlushBlock(struct nvm *nvm, void *data,
-                                                      size_t data_len) {
+size_t nvm_file::FlushBlock(struct nvm *nvm, char *data, size_t ppa_offset,
+                                           size_t data_len, bool page_aligned) {
   // size_t nppas = vblock_->nppas;
   size_t nppas = nvm->GetNPagesBlock(0); //This is a momentary fix (FIXME)
-  // size_t current_ppa = write_ppa_;   //This will allow partial block writes
-  size_t current_ppa = vblock_->bppa;
+  size_t current_ppa = vblock_->bppa + ppa_offset;
   unsigned long max_bytes_per_write = nvm->max_pages_in_io * 4096;
   unsigned long bytes_per_write;
   uint8_t pages_per_write;
   uint8_t allocate_aligned_buf = 0;
 
   //Always write at a page granurality
-  uint8_t x = (data_len % 4096 == 0) ? 0 : 1;
-  size_t write_len = (((data_len / 4096) + x) * 4096);
-  unsigned long left = write_len;
+  size_t write_len;
   char *data_aligned;
+
+  //Flush has been forced by upper layers. The leftover space to complete the
+  //page will be padded with \0
+  //TODO: Save mem_ to point to valid data
+  if (!page_aligned) {
+    NVM_DEBUG("Forced flush\n");
+    size_t disaligned_data = data_len % 4096;
+    size_t aligned_data = data_len / 4096;
+    uint8_t x = (disaligned_data == 0) ? 0 : 1;
+    write_len = ((aligned_data + x) * 4096);
+
+    //TODO: Add padding
+    // for (size_t i = aligned_data + disaligned_data; i < write_len; i++) {
+      // data[i] = "\x00";
+    // }
+  } else {
+    write_len = data_len;
+  }
+
+  unsigned long left = write_len;
 
   assert(write_len <= nppas * 4096);
 
   NVM_DEBUG("writing %lu bytes - nppages : %lu\n", write_len, nppas);
   //TODO: Generalize page size
-
-  if (write_len < nppas * 4096) {
-    NVM_DEBUG("Writing block. Not using %lu bytes\n", (nppas * 4096) - write_len);
-  }
 
   /* Verify that data is aligned although it should already be aligned */
   if (UNLIKELY(((uintptr_t)data % 4096) != 0)) {
@@ -935,16 +943,15 @@ size_t nvm_file::FlushBlock(struct nvm *nvm, void *data,
       NVM_FATAL("Cannot allocate aligned memory\n");
       return 0;
     }
-
     memcpy(data_aligned, data, write_len);
     allocate_aligned_buf = 1;
   } else {
-    data_aligned = (char*)data;
+    data_aligned = data;
   }
 
   //TODO: Use libaio instead of pread/pwrite
   while (left > 0) {
-    //write_len is multiple of PAGE_SIZE
+    //write_len is guaranteed to be a multiple of PAGE_SIZE
     bytes_per_write = (left > max_bytes_per_write) ? max_bytes_per_write : left;
     pages_per_write = bytes_per_write / 4096;
 
@@ -965,8 +972,6 @@ size_t nvm_file::FlushBlock(struct nvm *nvm, void *data,
   if (allocate_aligned_buf)
     free(data_aligned);
 
-  // write_ppa_ = current_ppa;
-
   pthread_mutex_lock(&page_update_mtx);
   size_ += data_len - left;
   NVM_DEBUG("NEW SIZE: %lu\n", size_);
@@ -975,7 +980,7 @@ size_t nvm_file::FlushBlock(struct nvm *nvm, void *data,
   UpdateFileModificationTime();
   IOSTATS_ADD(bytes_written, write_len);
 
-  return data_len - left;
+  return write_len;
 }
 
 bool nvm_file::HasBlock() {
@@ -1166,11 +1171,11 @@ NVMWritableFile::NVMWritableFile(const std::string& fname, nvm_file *fd,
   if (!buf_) {
     NVM_FATAL("Could not allocate aligned memory\n");
   }
-  dst_ = buf_;
+  mem_ = buf_;
   flush_ = buf_;
 
   cursize_ = 0;
-  flushsize_ = 0;
+  ppa_flush_ = 0;
   closed_ = false;
 
   NVM_DEBUG("created %s at %p", fname.c_str(), this);
@@ -1183,31 +1188,47 @@ NVMWritableFile::~NVMWritableFile() {
 }
 
 // WritableFile is mainly used to flush memtables and make them persistent
-// (sstables). We match them the size of the memtable to the size of the vblock,
-// thus we write one block at the time.
+// (sstables). We match the size of the memtable to the size of the vblock. This
+// allows us to deal with flash blocks directly.
 // TODO: Return value to the upper layers informing if some data has not been
 // flushed and needs to be allocated in a different memtable.
-bool NVMWritableFile::Flush(const bool closing) {
+bool NVMWritableFile::Flush(const bool force_flush) {
   struct nvm *nvm = dir_->GetNVMApi();
-  size_t flush_len = cursize_ - flushsize_;
+  size_t flush_len = cursize_ - ppa_flush_ * 4096;
+  bool page_aligned = false;
+
+  //TODO: generalize page size
+  if (!force_flush && flush_len < 4096) {
+    return true;
+  }
 
   if (flush_len == 0) {
     return true;
   }
 
-  //TODO: This constrain needs to be relaxed and recover when it happens
-  assert(cursize_ <= buf_limit_);
+  // At this point, if a level 0 sstable exceeds block size something has gone
+  // wrong
+  if (l0_table) {
+    assert(cursize_ <= buf_limit_);
+  }
 
-  NVM_DEBUG("cursize: %lu, buf_limit_: %lu, flushsize_: %lu\n",
-                                                cursize_, buf_limit_, flushsize_);
+  if (!force_flush) {
+    size_t disaligned_data = flush_len % 4096;
+    flush_len -= disaligned_data;
+    page_aligned = true;
+  }
 
-  size_t written_bytes = fd_->FlushBlock(nvm, flush_, flush_len);
-  if (written_bytes != flush_len) {
+  NVM_DEBUG("cursize: %lu, buf_limit_: %lu, ppa_flush_: %lu, flush_len: %lu\n",
+                             cursize_, buf_limit_, ppa_flush_, flush_len);
+
+  size_t written_bytes = fd_->FlushBlock(nvm, flush_, ppa_flush_, flush_len,
+                                                                  page_aligned);
+  if (written_bytes < flush_len) {
     NVM_DEBUG("unable to write data");
     return false;
   }
 
-  flushsize_ += written_bytes;
+  ppa_flush_ += written_bytes / 4096;
   flush_ += written_bytes;
 
   return true;
@@ -1222,12 +1243,14 @@ Status NVMWritableFile::Append(const Slice& data) {
   size_t left = data.size();
   NVM_DEBUG("Appending slice %lu bytes to %p", left, this);
 
-  assert(buf_ <= dst_);
-  assert(dst_ <= buf_ + buf_limit_);
+  assert(buf_ <= mem_);
+  assert(mem_ <= buf_ + buf_limit_);
 
-  memcpy(dst_, src, left);
-  dst_ += left;
+  memcpy(mem_, src, left);
+  mem_ += left;
   cursize_ += left;
+
+  //TODO: Here you check l0_table too
   if (cursize_ > buf_limit_) {
     //TODO: What is in the NVM_DEBUG message. This should not  happen, since the
     //memtable will include a maximun size, which must alwast be <= buf_limit_
