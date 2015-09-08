@@ -45,6 +45,7 @@ nvm_file::nvm_file(const char *_name, const int fd, nvm_directory *_parent) {
   fd_ = fd;
 
   last_modified = time(nullptr);
+  vblocks_.clear();
   pages.clear();
 
   opened_for_write = false;
@@ -52,7 +53,7 @@ nvm_file::nvm_file(const char *_name, const int fd, nvm_directory *_parent) {
   parent = _parent;
 
   seq_writable_file = nullptr;
-  vblock_ = nullptr;
+  current_vblock_ = nullptr;
 
   pthread_mutexattr_init(&page_update_mtx_attr);
   pthread_mutexattr_settype(&page_update_mtx_attr, PTHREAD_MUTEX_RECURSIVE);
@@ -71,11 +72,7 @@ nvm_file::~nvm_file() {
     seq_writable_file = nullptr;
   }
 
-  //delete all nvm pages in the vector
-  pages.clear();
-
   list_node *temp = names;
-
   while (temp != nullptr) {
     list_node *temp1 = temp->GetNext();
 
@@ -86,7 +83,8 @@ nvm_file::~nvm_file() {
   }
 
   struct nvm *nvm = parent->GetNVMApi();
-  PutBlock(nvm);
+  PutAllBlocks(nvm);
+  vblocks_.clear();
 
   pthread_mutexattr_destroy(&page_update_mtx_attr);
   pthread_mutex_destroy(&page_update_mtx);
@@ -802,22 +800,18 @@ struct nvm_page *nvm_file::GetNVMPage(const unsigned long idx) {
 // The caller must ensure that data i aligned to PAGE_SIZE.
 // Note that this function reads entire pages. Thus the caller must take care of
 // in-page offsets to only return the requested bytes.
-size_t nvm_file::ReadPage(struct nvm *nvm, size_t ppa_offset, char *data,
-                                                            size_t data_len) {
-  size_t current_ppa = vblock_->bppa + ppa_offset;
-  // size_t last_ppas = vblock_->nppas;
-  size_t nppas = nvm->GetNPagesBlock(0); //This is a momentary fix until we use
-                                         //the right structure
+size_t nvm_file::ReadBlock(struct nvm *nvm, unsigned int block_offset,
+                              size_t ppa_offset, char *data, size_t data_len) {
+  size_t current_ppa = vblocks_[block_offset]->bppa + ppa_offset;
   size_t left = data_len;
   unsigned long max_bytes_per_read = nvm->max_pages_in_io * 4096;
-  // unsigned long max_bytes_per_read = 4096;
+  size_t nppas = nvm->GetNPagesBlock(0); //This is a momentary fix (FIXME)
   unsigned long bytes_per_read;
   uint8_t pages_per_read;
   char *read_iter = data;
 
-  assert(data_len <= nppas * 4096); //TODO: Recover? Who takes responsibility?
+  assert(data_len <= nppas * 4096);
   assert((data_len % 4096) == 0);
-  assert(current_ppa <= vblock_->bppa + nppas);
 
   while (left > 0) {
 retry:
@@ -841,46 +835,78 @@ retry:
   return data_len - left;
 }
 
-//TODO: Javier: This allocation should happen in the background so that we do
-//not need to wait for it. This should probably be done when a new memtable is
-//allocated -> space in the disk is allocated (reserved) when a new potential
-//sstable is created.
-void nvm_file::GetBlock(struct nvm *nvm, unsigned int vlun_id) {
-  if (vblock_ != nullptr) {
-    return;
+size_t nvm_file::Read(struct nvm *nvm, size_t read_pointer, char *data,
+                                                        size_t data_len) {
+  assert((data_len % 4096) == 0);
+
+  size_t nppas = nvm->GetNPagesBlock(0); //This is a momentary fix (FIXME)
+  unsigned int block_offset = read_pointer / (nppas * 4096);
+  size_t ppa_offset = (read_pointer / 4096) % (nppas * 4096);
+  size_t bytes_left_block;
+  size_t bytes_per_read;
+  size_t left = data_len;
+  size_t total_read = 0;
+
+  while (left > 0) {
+    bytes_left_block = (nppas - ppa_offset) * 4096;
+    bytes_per_read = (left > bytes_left_block) ? bytes_left_block : left;
+
+    total_read += ReadBlock(nvm, block_offset, ppa_offset, data + total_read,
+                                                                bytes_per_read);
+    if (total_read != bytes_per_read) {
+      return total_read;
+    }
+
+    block_offset++;
+    ppa_offset = 0;
+    left -= total_read;
   }
 
+  assert (total_read == data_len);
+  return total_read;
+}
+
+//TODO: Javier: get list of vluns at initialization and ask for a vblock from
+//the right vlun at runtime. We still need to define how the BM and the FTL
+//will agree on which vlun is going to be used. To start with we have a single
+//vlun (vlun 0).
+void nvm_file::GetBlock(struct nvm *nvm, unsigned int vlun_id) {
   //TODO: Make this better: mmap memory into device??
-  vblock_ = (struct vblock*)malloc(sizeof(struct vblock));
-  if (!vblock_) {
+  struct vblock *new_vblock= (struct vblock*)malloc(sizeof(struct vblock));
+  if (!new_vblock) {
     NVM_FATAL("Could not allocate memory\n");
   }
 
-  if (!nvm->GetBlock(vlun_id, vblock_)) {
+  if (!nvm->GetBlock(vlun_id, new_vblock)) {
     NVM_FATAL("could not get a new block - ssd out of space\n");
   }
 
-  NVM_DEBUG("Get block. id: %lu\n", vblock_->id);
+  pthread_mutex_lock(&page_update_mtx);
+  vblocks_.push_back(new_vblock);
+  current_vblock_ = new_vblock;
+  pthread_mutex_unlock(&page_update_mtx);
 }
 
-void nvm_file::PutBlock(struct nvm *nvm) {
-  assert(vblock_ != nullptr);
-  if (!nvm->PutBlock(vblock_)) {
+void nvm_file::PutBlock(struct nvm *nvm, struct vblock *vblock) {
+  assert(vblock != nullptr);
+  if (!nvm->PutBlock(vblock)) {
     //TODO: Can we recover from this?
     NVM_FATAL("could not return block to BM\n");
     return;
   }
 
-  FreeBlock();
+  free(vblock);
+  vblock = nullptr;
 }
 
-void nvm_file::FreeBlock() {
-  NVM_DEBUG("Freeing block\n");
-  if (vblock_ != nullptr) {
-    free(vblock_);
+void nvm_file::PutAllBlocks(struct nvm *nvm) {
+  std::vector<struct vblock *>::iterator it;
+
+  for (it = vblocks_.begin(); it != vblocks_.end(); it++) {
+    PutBlock(nvm, *it);
   }
 
-  vblock_ = nullptr;
+  current_vblock_ = nullptr;
 }
 
 // For the moment we assume that all pages in a block are good pages. In the
@@ -900,7 +926,7 @@ size_t nvm_file::FlushBlock(struct nvm *nvm, char *data, size_t ppa_offset,
                                            size_t data_len, bool page_aligned) {
   // size_t nppas = vblock_->nppas;
   size_t nppas = nvm->GetNPagesBlock(0); //This is a momentary fix (FIXME)
-  size_t current_ppa = vblock_->bppa + ppa_offset;
+  size_t current_ppa = current_vblock_->bppa + ppa_offset;
   unsigned long max_bytes_per_write = nvm->max_pages_in_io * 4096;
   unsigned long bytes_per_write;
   uint8_t pages_per_write;
@@ -912,9 +938,11 @@ size_t nvm_file::FlushBlock(struct nvm *nvm, char *data, size_t ppa_offset,
 
   //Flush has been forced by upper layers. The leftover space to complete the
   //page will be padded with \0
-  //TODO: Save mem_ to point to valid data
+  //TODO: We need to save some metadata where we store that we have forced an
+  //update and the that the page contains garbage. Another way of doing it is
+  //only flushing pages and leaving the rest of the data in the log...
   if (!page_aligned) {
-    NVM_DEBUG("Forced flush\n");
+    NVM_DEBUG("Forced flush!!!!\n");
     size_t disaligned_data = data_len % 4096;
     size_t aligned_data = data_len / 4096;
     uint8_t x = (disaligned_data == 0) ? 0 : 1;
@@ -936,6 +964,7 @@ size_t nvm_file::FlushBlock(struct nvm *nvm, char *data, size_t ppa_offset,
   //TODO: Generalize page size
 
   /* Verify that data is aligned although it should already be aligned */
+  //TODO: Can we ensure that we do not need this?
   if (UNLIKELY(((uintptr_t)data % 4096) != 0)) {
     NVM_DEBUG("Aligning data\n");
     data_aligned = (char*)memalign(4096, write_len);
@@ -974,7 +1003,7 @@ size_t nvm_file::FlushBlock(struct nvm *nvm, char *data, size_t ppa_offset,
 
   pthread_mutex_lock(&page_update_mtx);
   size_ += data_len - left;
-  NVM_DEBUG("NEW SIZE: %lu\n", size_);
+  NVM_DEBUG("NEW SIZE: %lu (dat_len: %lu, left: %lu)\n", size_, data_len, left);
   pthread_mutex_unlock(&page_update_mtx);
 
   UpdateFileModificationTime();
@@ -984,7 +1013,7 @@ size_t nvm_file::FlushBlock(struct nvm *nvm, char *data, size_t ppa_offset,
 }
 
 bool nvm_file::HasBlock() {
-  return (vblock_ == nullptr) ? false : true;
+  return (current_vblock_ == nullptr) ? false : true;
 }
 
 /*
@@ -1012,9 +1041,6 @@ NVMSequentialFile::~NVMSequentialFile() {
 
 //TODO: Important Cache last read page to avoid small reads submitting extra IOs
 Status NVMSequentialFile::Read(size_t n, Slice* result, char* scratch) {
-  unsigned int ppa_offset = read_pointer_ / 4096;
-  unsigned int page_offset = read_pointer_ % 4096;
-
   if (read_pointer_ >= fd_->GetSize()) {
     n = fd_->GetSize() - read_pointer_;
   }
@@ -1036,10 +1062,13 @@ Status NVMSequentialFile::Read(size_t n, Slice* result, char* scratch) {
     return Status::Corruption("Cannot allocate aligned memory''");
   }
 
-  if (fd_->ReadPage(nvm, ppa_offset, data, data_len) != data_len) {
+  if (fd_->Read(nvm, read_pointer_, data, data_len) != data_len) {
     return Status::IOError("Unable to read\n");
   }
 
+  unsigned int page_offset = read_pointer_ % 4096;
+
+  NVM_DEBUG("Read pointer: %lu, Page Offset: %d\n", read_pointer_, page_offset);
   //TODO: Can we avoid this memory copy?
   memcpy(scratch, data + page_offset, n);
   free(data);
@@ -1116,7 +1145,7 @@ Status NVMRandomAccessFile::Read(uint64_t offset, size_t n, Slice* result,
     return Status::Corruption("Cannot allocate aligned memory''");
   }
 
-  if (fd_->ReadPage(nvm, ppa_offset, data, data_len) != data_len) {
+  if (fd_->Read(nvm, ppa_offset, data, data_len) != data_len) {
     return Status::IOError("Unable to read\n");
   }
 
@@ -1159,14 +1188,11 @@ NVMWritableFile::NVMWritableFile(const std::string& fname, nvm_file *fd,
 
   struct nvm *nvm = dir_->GetNVMApi();
   unsigned int vlun_id = 0;
-  //TODO: Javier: get list of vluns at initialization and ask for a vblock from
-  //the right vlun at runtime. We still need to define how the BM and the FTL
-  //will agree on which vlun is going to be used. To start with we have a single
-  //vlun (vlun 0)
   fd_->GetBlock(nvm, vlun_id);
 
   // TODO: Generalize page size
   buf_limit_ = nvm->GetNPagesBlock(vlun_id) * 4096;
+  NVM_DEBUG("INIT: buf_limit_: %lu, pages: %lu\n", buf_limit_, nvm->GetNPagesBlock(vlun_id));
   buf_ = (char*)memalign(4096, buf_limit_);
   if (!buf_) {
     NVM_FATAL("Could not allocate aligned memory\n");
@@ -1175,16 +1201,28 @@ NVMWritableFile::NVMWritableFile(const std::string& fname, nvm_file *fd,
   flush_ = buf_;
 
   cursize_ = 0;
-  ppa_flush_ = 0;
+  curflush_ = 0;
   closed_ = false;
 
   NVM_DEBUG("created %s at %p", fname.c_str(), this);
 }
 
+//TODO: Get rid of this and move responsibility to NVMWritableFile
 NVMWritableFile::~NVMWritableFile() {
   fd_->SetSeqWritableFile(nullptr);
 
   NVMWritableFile::Close();
+}
+
+size_t NVMWritableFile::CalculatePpaOffset(size_t curflush) {
+  struct nvm *nvm = dir_->GetNVMApi();
+  size_t nppas = nvm->GetNPagesBlock(0); //This is a momentary fix (FIXME)
+
+  // For now we assume that all blocks have the same size. When this assumption
+  // no longer holds, we would need to iterate vblocks_ in nvm_file, or hold a
+  // ppa pointer for each WritableFile.
+  // We always flush one page at the time
+  return curflush % nppas * 4096;
 }
 
 // WritableFile is mainly used to flush memtables and make them persistent
@@ -1194,7 +1232,8 @@ NVMWritableFile::~NVMWritableFile() {
 // flushed and needs to be allocated in a different memtable.
 bool NVMWritableFile::Flush(const bool force_flush) {
   struct nvm *nvm = dir_->GetNVMApi();
-  size_t flush_len = cursize_ - ppa_flush_ * 4096;
+  size_t flush_len = cursize_ - curflush_;
+  size_t ppa_flush_offset = CalculatePpaOffset(curflush_);
   bool page_aligned = false;
 
   //TODO: generalize page size
@@ -1207,9 +1246,10 @@ bool NVMWritableFile::Flush(const bool force_flush) {
   }
 
   // At this point, if a level 0 sstable exceeds block size something has gone
-  // wrong
+  // wrong. In the normal path, when this happens data is flushed and the upper
+  // layer is informed that the leftover should be added to a new memtable.
   if (l0_table) {
-    assert(cursize_ <= buf_limit_);
+    assert(cursize_ + flush_len <= buf_limit_);
   }
 
   if (!force_flush) {
@@ -1218,18 +1258,54 @@ bool NVMWritableFile::Flush(const bool force_flush) {
     page_aligned = true;
   }
 
-  NVM_DEBUG("cursize: %lu, buf_limit_: %lu, ppa_flush_: %lu, flush_len: %lu\n",
-                             cursize_, buf_limit_, ppa_flush_, flush_len);
+  NVM_DEBUG("cursize: %lu, buf_limit_: %lu, ppa_flush_offset: %lu, flush_len: %lu\n",
+                             cursize_, buf_limit_, ppa_flush_offset, flush_len);
 
-  size_t written_bytes = fd_->FlushBlock(nvm, flush_, ppa_flush_, flush_len,
-                                                                  page_aligned);
+  size_t written_bytes = fd_->FlushBlock(nvm, flush_, ppa_flush_offset,
+                                                        flush_len, page_aligned);
   if (written_bytes < flush_len) {
     NVM_DEBUG("unable to write data");
     return false;
   }
 
-  ppa_flush_ += written_bytes / 4096;
+  curflush_ += written_bytes;
   flush_ += written_bytes;
+
+  return true;
+}
+
+// We preallocate a new block to store future flushes in flash memory. We also
+// reset all buffer pointers and sizes; there is no need to maintain old
+// buffered data in cache.
+bool NVMWritableFile::GetNewBlock() {
+  struct nvm *nvm = dir_->GetNVMApi();
+  unsigned int vlun_id = 0;
+  fd_->GetBlock(nvm, vlun_id);
+
+  //Preserve until we implement double buffering
+  assert(cursize_ == buf_limit_);
+  assert(curflush_ == buf_limit_);
+  assert(mem_ == flush_);
+
+  size_t new_buf_limit = nvm->GetNPagesBlock(vlun_id) * 4096;
+
+  // No need to reallocate memory and aligned. We reuse the same buffer. If this
+  // becomes a security issues, we can zeroized the buffer before reusing it.
+  if (new_buf_limit != buf_limit_) {
+    buf_limit_ = new_buf_limit;
+    free(buf_);
+
+    buf_ = (char*)memalign(4096, buf_limit_);
+    if (!buf_) {
+      NVM_FATAL("Could not allocate aligned memory\n");
+      return false;
+    }
+  }
+
+  mem_ = buf_;
+  flush_ = buf_;
+  cursize_ = 0;
+  curflush_ = 0;
 
   return true;
 }
@@ -1241,26 +1317,38 @@ Status NVMWritableFile::Append(const Slice& data) {
 
   const char* src = data.data();
   size_t left = data.size();
+  size_t offset = 0;
   NVM_DEBUG("Appending slice %lu bytes to %p", left, this);
 
-  assert(buf_ <= mem_);
-  assert(mem_ <= buf_ + buf_limit_);
-
-  memcpy(mem_, src, left);
-  mem_ += left;
-  cursize_ += left;
-
-  //TODO: Here you check l0_table too
-  if (cursize_ > buf_limit_) {
-    //TODO: What is in the NVM_DEBUG message. This should not  happen, since the
-    //memtable will include a maximun size, which must alwast be <= buf_limit_
-    //(which at the same time represents the actual vblock size)
-    NVM_DEBUG("WE NEED TO INFORM THE UPPER LAYERS THAT THE BLOCK IS FULL!!\n");
-    NVM_DEBUG("cursize_: %lu, buf_limit_:%lu\n", cursize_, buf_limit_);
+  // If the size of the appended data does not fit in one flash block, get a new
+  // block. However, if the file is being used to persist a memtable in level0,
+  // the size of the file must not be bigger than the size of the block
+  // associated with the file (buf_limit_). If this happens, we flush the block
+  // and inform the upper layers that new data must be placed in a new memtable.
+  if (cursize_ + left > buf_limit_) {
+    NVM_DEBUG("left: %lu, buf_limit_: %lu, cursize_: %lu\n", left, buf_limit_, cursize_);
+    size_t fits_in_buf = (buf_limit_ - cursize_);
+    memcpy(mem_, src, fits_in_buf);
+    mem_ += fits_in_buf;
+    cursize_ += fits_in_buf;
     if (Flush(true) == false) {
       return Status::IOError("out of ssd space");
     }
+
+    if (l0_table) {
+      NVM_DEBUG("This is not good: l0_table > block size\n");
+      // TODO: Inform the caller to move non-flushed data to a new memtable.
+    } else {
+      if (!GetNewBlock()) {
+        Status::IOError("Cannot allocate new block from flash media\n");
+      }
+      offset = fits_in_buf;
+    }
   }
+
+  memcpy(mem_, src + offset, left - offset);
+  mem_ += left - offset;
+  cursize_ += left - offset;
 
   return Status::OK();
 }

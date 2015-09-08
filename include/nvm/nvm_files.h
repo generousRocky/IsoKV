@@ -14,15 +14,16 @@ class nvm_file {
     pthread_mutexattr_t page_update_mtx_attr;
     pthread_mutex_t page_update_mtx;
 
+    //TODO: look with new vector
     unsigned long size_;
     int fd_;
 
-    // TODO: Should it be a list of blocks?
-    struct vblock *vblock_;       // Virtual flash block
+    // TODO: current_vblock_ is used to write, logic should move to WritableFile
+    struct vblock *current_vblock_;
+    std::vector<struct vblock *>vblocks_;       //Vector of virtual flash blocks
     std::vector<struct nvm_page *> pages;
 
     pthread_mutex_t write_lock;
-    sector_t write_ppa_;
 
 #ifdef NVM_ALLOCATE_BLOCKS
     std::vector<struct nvm_page *> block_pages;
@@ -64,12 +65,15 @@ class nvm_file {
     int GetFD();
 
     void GetBlock(struct nvm *nvm, unsigned int vlun_id);
-    void PutBlock(struct nvm *nvm);
-    void FreeBlock();
+    void PutBlock(struct nvm *nvm, struct vblock *vblock);
+    void PutAllBlocks(struct nvm *nvm);
     size_t FlushBlock(struct nvm *nvm, char *data, size_t ppa_offset,
                                   const size_t data_len, bool page_aligned);
-    size_t ReadPage(struct nvm *nvm, size_t bppa, char *data, size_t data_len);
+    size_t Read(struct nvm *nvm, size_t read_pointer, char *data,
+                                                              size_t data_len);
 
+    size_t ReadBlock(struct nvm *nvm, unsigned int block_offset,
+                              size_t ppa_offset, char *data, size_t data_len);
     struct nvm_page *GetNVMPage(const unsigned long idx);
     struct nvm_page *GetLastPage(unsigned long *page_idx);
     bool SetPage(const unsigned long page_idx, nvm_page *page);
@@ -171,7 +175,7 @@ class NVMWritableFile : public WritableFile {
     nvm_directory *dir_;
 
     size_t cursize_;            // Current buf_ length. It follows mem_
-    size_t ppa_flush_;          // Pages in buf_ that have already been flushed
+    size_t curflush_;           // Byte in buf_ that have already been flushed
     size_t buf_limit_;          // Limit of the allocated memory region
     char *buf_;                 // Buffer to cache writes
     char *mem_;                 // Points to the place to append data in memory.
@@ -193,7 +197,9 @@ class NVMWritableFile : public WritableFile {
 
     bool closed_;
 
+    size_t CalculatePpaOffset(size_t curflush);
     bool Flush(const bool closing);
+    bool GetNewBlock();
     bool UpdateLastPage();
 
   public:
