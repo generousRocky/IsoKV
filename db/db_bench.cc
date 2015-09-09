@@ -3878,6 +3878,7 @@ int main(int argc, char** argv) {
 
   rocksdb::Benchmark benchmark;
   benchmark.Run();
+  std::cout << "BENCHMARK FINISHED" << std::endl;
   return 0;
 }
 

@@ -948,6 +948,9 @@ size_t nvm_file::FlushBlock(struct nvm *nvm, char *data, size_t ppa_offset,
     uint8_t x = (disaligned_data == 0) ? 0 : 1;
     write_len = ((aligned_data + x) * 4096);
 
+    if (write_len != data_len) {
+      NVM_DEBUG("THIS WILL CAUSE PROBLEMS...\n");
+    }
     //TODO: Add padding
     // for (size_t i = aligned_data + disaligned_data; i < write_len; i++) {
       // data[i] = "\x00";
@@ -985,7 +988,6 @@ size_t nvm_file::FlushBlock(struct nvm *nvm, char *data, size_t ppa_offset,
     pages_per_write = bytes_per_write / 4096;
 
     NVM_DEBUG("Writing %lu bytes in ppa:%lu\n", bytes_per_write, current_ppa);
-    NVM_DEBUG("FIRST: %c\n", data_aligned[0]);
     if ((unsigned)pwrite(fd_, data_aligned, bytes_per_write,
                                      current_ppa * 4096) != bytes_per_write) {
       //TODO: See if we can recover. Use another ppa + mark bad page in bitmap?
@@ -1002,6 +1004,7 @@ size_t nvm_file::FlushBlock(struct nvm *nvm, char *data, size_t ppa_offset,
     free(data_aligned);
 
   pthread_mutex_lock(&page_update_mtx);
+  //TODO: See how this affects data placement...
   size_ += data_len - left;
   NVM_DEBUG("NEW SIZE: %lu (dat_len: %lu, left: %lu)\n", size_, data_len, left);
   pthread_mutex_unlock(&page_update_mtx);
@@ -1039,9 +1042,12 @@ NVMSequentialFile::~NVMSequentialFile() {
   dir_->nvm_fclose(fd_, "r");
 }
 
-//TODO: Important Cache last read page to avoid small reads submitting extra IOs
+//TODO: Cache last read page to avoid small reads submitting extra IOs. We
+//should only cache until file size
 Status NVMSequentialFile::Read(size_t n, Slice* result, char* scratch) {
-  if (read_pointer_ >= fd_->GetSize()) {
+  if (read_pointer_ + n >= fd_->GetSize()) {
+    // std::cout << "READING FILE: " << filename_ << std::endl;
+    NVM_DEBUG("Reading excess: n: %lu, read_pointer_: %lu, fdSize(): %lu\n", n, read_pointer_, fd_->GetSize());
     n = fd_->GetSize() - read_pointer_;
   }
 
@@ -1058,7 +1064,7 @@ Status NVMSequentialFile::Read(size_t n, Slice* result, char* scratch) {
 
   char *data = (char*)memalign(4096, data_len);
   if (!data) {
-    NVM_FATAL("Cannot allocate aligned memory\n");
+    NVM_FATAL("Cannot allocate aligned memory of length: %lu\n", data_len);
     return Status::Corruption("Cannot allocate aligned memory''");
   }
 
@@ -1068,7 +1074,6 @@ Status NVMSequentialFile::Read(size_t n, Slice* result, char* scratch) {
 
   unsigned int page_offset = read_pointer_ % 4096;
 
-  NVM_DEBUG("Read pointer: %lu, Page Offset: %d\n", read_pointer_, page_offset);
   //TODO: Can we avoid this memory copy?
   memcpy(scratch, data + page_offset, n);
   free(data);
@@ -1204,6 +1209,7 @@ NVMWritableFile::NVMWritableFile(const std::string& fname, nvm_file *fd,
   curflush_ = 0;
   closed_ = false;
 
+  l0_table = false;
   NVM_DEBUG("created %s at %p", fname.c_str(), this);
 }
 
@@ -1225,11 +1231,8 @@ size_t NVMWritableFile::CalculatePpaOffset(size_t curflush) {
   return curflush % nppas * 4096;
 }
 
-// WritableFile is mainly used to flush memtables and make them persistent
-// (sstables). We match the size of the memtable to the size of the vblock. This
-// allows us to deal with flash blocks directly.
-// TODO: Return value to the upper layers informing if some data has not been
-// flushed and needs to be allocated in a different memtable.
+// We try to flush at a page granurality. We need to see how this affects
+// writes.
 bool NVMWritableFile::Flush(const bool force_flush) {
   struct nvm *nvm = dir_->GetNVMApi();
   size_t flush_len = cursize_ - curflush_;
@@ -1248,6 +1251,7 @@ bool NVMWritableFile::Flush(const bool force_flush) {
   // At this point, if a level 0 sstable exceeds block size something has gone
   // wrong. In the normal path, when this happens data is flushed and the upper
   // layer is informed that the leftover should be added to a new memtable.
+  // This might not be needed either...
   if (l0_table) {
     assert(cursize_ + flush_len <= buf_limit_);
   }
@@ -1261,6 +1265,7 @@ bool NVMWritableFile::Flush(const bool force_flush) {
   NVM_DEBUG("cursize: %lu, buf_limit_: %lu, ppa_flush_offset: %lu, flush_len: %lu\n",
                              cursize_, buf_limit_, ppa_flush_offset, flush_len);
 
+  // std::cout << "FLUSHING FILE: " << filename_ << std::endl;
   size_t written_bytes = fd_->FlushBlock(nvm, flush_, ppa_flush_offset,
                                                         flush_len, page_aligned);
   if (written_bytes < flush_len) {
@@ -1379,7 +1384,7 @@ Status NVMWritableFile::Flush() {
     return Status::IOError("file has been closed");
   }
 
-  if (Flush(true) == false) {
+  if (Flush(false) == false) {
     return Status::IOError("out of ssd space");
   }
 

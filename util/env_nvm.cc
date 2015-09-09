@@ -123,7 +123,7 @@ class NVMEnv : public Env {
   }
 
   virtual Status SaveFTL() override {
-    NVM_DEBUG("saving ftl");
+    // NVM_DEBUG("saving ftl");
 
     int fd = open(ftl_save_location, O_RDWR | O_CREAT, S_IWUSR | S_IRUSR);
 
