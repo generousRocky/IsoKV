@@ -64,6 +64,7 @@ class nvm_file {
 
     int GetFD();
 
+    size_t GetNextPos() { return vblocks_.size() + 1; }
     void GetBlock(struct nvm *nvm, unsigned int vlun_id);
     void PutBlock(struct nvm *nvm, struct vblock *vblock);
     void PutAllBlocks(struct nvm *nvm);
@@ -144,8 +145,6 @@ class NVMRandomAccessFile: public RandomAccessFile {
 
     nvm_file *fd_;
     nvm_directory *dir_;
-
-    size_t read_pointer_;
 
     struct nvm_page *SeekPage(const unsigned long offset,
                   unsigned long *page_pointer, unsigned long *page_idx) const;

@@ -2,6 +2,7 @@
 
 #include "nvm/nvm.h"
 #include "malloc.h"
+#include <cstring>
 
 namespace rocksdb {
 
@@ -804,10 +805,11 @@ size_t nvm_file::ReadBlock(struct nvm *nvm, unsigned int block_offset,
                               size_t ppa_offset, char *data, size_t data_len) {
   size_t current_ppa = vblocks_[block_offset]->bppa + ppa_offset;
   size_t left = data_len;
-  unsigned long max_bytes_per_read = nvm->max_pages_in_io * 4096;
   size_t nppas = nvm->GetNPagesBlock(0); //This is a momentary fix (FIXME)
+  unsigned long max_bytes_per_read = nvm->max_pages_in_io * 4096;
   unsigned long bytes_per_read;
   uint8_t pages_per_read;
+
   char *read_iter = data;
 
   assert(data_len <= nppas * 4096);
@@ -840,13 +842,14 @@ size_t nvm_file::Read(struct nvm *nvm, size_t read_pointer, char *data,
   assert((data_len % 4096) == 0);
 
   size_t nppas = nvm->GetNPagesBlock(0); //This is a momentary fix (FIXME)
-  unsigned int block_offset = read_pointer / (nppas * 4096);
   size_t ppa_offset = (read_pointer / 4096) % (nppas * 4096);
   size_t bytes_left_block;
   size_t bytes_per_read;
   size_t left = data_len;
   size_t total_read = 0;
+  unsigned int block_offset = read_pointer / (nppas * 4096);
 
+  NVM_DEBUG("Reading %lu bytes. block_offset: %d, ppa_offset: %lu\n", data_len, block_offset, ppa_offset);
   while (left > 0) {
     bytes_left_block = (nppas - ppa_offset) * 4096;
     bytes_per_read = (left > bytes_left_block) ? bytes_left_block : left;
@@ -872,7 +875,7 @@ size_t nvm_file::Read(struct nvm *nvm, size_t read_pointer, char *data,
 //vlun (vlun 0).
 void nvm_file::GetBlock(struct nvm *nvm, unsigned int vlun_id) {
   //TODO: Make this better: mmap memory into device??
-  struct vblock *new_vblock= (struct vblock*)malloc(sizeof(struct vblock));
+  struct vblock *new_vblock = (struct vblock*)malloc(sizeof(struct vblock));
   if (!new_vblock) {
     NVM_FATAL("Could not allocate memory\n");
   }
@@ -885,6 +888,8 @@ void nvm_file::GetBlock(struct nvm *nvm, unsigned int vlun_id) {
   vblocks_.push_back(new_vblock);
   current_vblock_ = new_vblock;
   pthread_mutex_unlock(&page_update_mtx);
+
+  NVM_DEBUG("HERE!\n");
 }
 
 void nvm_file::PutBlock(struct nvm *nvm, struct vblock *vblock) {
@@ -1032,9 +1037,10 @@ NVMSequentialFile::NVMSequentialFile(const std::string& fname, nvm_file *fd,
     NVM_ERROR("No block associated with file descriptor\n");
   }
 
-  read_pointer_ = 0;
+  //Account for the metadata stored at the beginning of the virtual block.
+  read_pointer_ = sizeof(struct vblock_recov_meta);
 
-  NVM_DEBUG("created %s", fname.c_str());
+  NVM_DEBUG("created %s - read_pointer_ at %lu\n", fname.c_str(), read_pointer_);
 }
 
 NVMSequentialFile::~NVMSequentialFile() {
@@ -1045,9 +1051,10 @@ NVMSequentialFile::~NVMSequentialFile() {
 //TODO: Cache last read page to avoid small reads submitting extra IOs. We
 //should only cache until file size
 Status NVMSequentialFile::Read(size_t n, Slice* result, char* scratch) {
-  if (read_pointer_ + n >= fd_->GetSize()) {
+  if (read_pointer_ + n > fd_->GetSize()) {
     // std::cout << "READING FILE: " << filename_ << std::endl;
-    NVM_DEBUG("Reading excess: n: %lu, read_pointer_: %lu, fdSize(): %lu\n", n, read_pointer_, fd_->GetSize());
+    NVM_DEBUG("Reading excess: n: %lu, read_pointer_: %lu, fdSize(): %lu\n", n,
+                                                read_pointer_, fd_->GetSize());
     n = fd_->GetSize() - read_pointer_;
   }
 
@@ -1057,10 +1064,11 @@ Status NVMSequentialFile::Read(size_t n, Slice* result, char* scratch) {
   }
 
   struct nvm *nvm = dir_->GetNVMApi();
+  unsigned int page_offset = read_pointer_ % 4096;
 
   //Always read at a page granurality
-  uint8_t x = (n % 4096 == 0) ? 0 : 1;
-  size_t data_len = (((n / 4096) + x) * 4096);
+  uint8_t x = ((n + page_offset) % 4096 == 0) ? 0 : 1;
+  size_t data_len = ((((n + page_offset) / 4096) + x) * 4096);
 
   char *data = (char*)memalign(4096, data_len);
   if (!data) {
@@ -1072,8 +1080,7 @@ Status NVMSequentialFile::Read(size_t n, Slice* result, char* scratch) {
     return Status::IOError("Unable to read\n");
   }
 
-  unsigned int page_offset = read_pointer_ % 4096;
-
+  NVM_DEBUG("Actually reading: %lu bytes, in page_offset: %d\n", n, page_offset);
   //TODO: Can we avoid this memory copy?
   memcpy(scratch, data + page_offset, n);
   free(data);
@@ -1111,8 +1118,6 @@ NVMRandomAccessFile::NVMRandomAccessFile(const std::string& fname, nvm_file *f,
   fd_ = f;
   dir_ = dir;
 
-  read_pointer_ = 0;
-
   NVM_DEBUG("created %s", fname.c_str());
 }
 
@@ -1128,8 +1133,8 @@ Status NVMRandomAccessFile::Read(uint64_t offset, size_t n, Slice* result,
     return Status::OK();
   }
 
-  if (read_pointer_ >= fd_->GetSize()) {
-    n = fd_->GetSize() - read_pointer_;
+  if (offset >= fd_->GetSize()) {
+    n = fd_->GetSize() - offset;
   }
 
   if (n <= 0) {
@@ -1139,11 +1144,13 @@ Status NVMRandomAccessFile::Read(uint64_t offset, size_t n, Slice* result,
 
   struct nvm *nvm = dir_->GetNVMApi();
 
-  unsigned int ppa_offset = offset / 4096;
-  unsigned int page_offset = offset % 4096;
+  //Account for the metadata stored at the beginning of the virtual block.
+  uint64_t internal_offset = offset + sizeof(struct vblock_recov_meta);
+
+  unsigned int ppa_offset = internal_offset / 4096;
+  unsigned int page_offset = internal_offset % 4096;
 
   size_t data_len = (((n / 4096) + 1) * 4096);
-
   char *data = (char*)memalign(4096, data_len);
   if (!data) {
     NVM_FATAL("Cannot allocate aligned memory\n");
@@ -1157,9 +1164,6 @@ Status NVMRandomAccessFile::Read(uint64_t offset, size_t n, Slice* result,
   //TODO: Can we avoid this memory copy?
   memcpy(scratch, data + page_offset, n);
   free(data);
-
-  //TODO: JAVIER: Look into this
-  // read_pointer_ += n;
 
   NVM_DEBUG("read %lu bytes", n);
 
@@ -1192,12 +1196,13 @@ NVMWritableFile::NVMWritableFile(const std::string& fname, nvm_file *fd,
   dir_ = dir;
 
   struct nvm *nvm = dir_->GetNVMApi();
-  unsigned int vlun_id = 0;
-  fd_->GetBlock(nvm, vlun_id);
+  //TODO: Use the vlun type when this is available
+  unsigned int vlun_type = 0;
+  //Get block from block manager
+  fd_->GetBlock(nvm, vlun_type);
 
   // TODO: Generalize page size
-  buf_limit_ = nvm->GetNPagesBlock(vlun_id) * 4096;
-  NVM_DEBUG("INIT: buf_limit_: %lu, pages: %lu\n", buf_limit_, nvm->GetNPagesBlock(vlun_id));
+  buf_limit_ = nvm->GetNPagesBlock(vlun_type) * 4096;
   buf_ = (char*)memalign(4096, buf_limit_);
   if (!buf_) {
     NVM_FATAL("Could not allocate aligned memory\n");
@@ -1210,7 +1215,23 @@ NVMWritableFile::NVMWritableFile(const std::string& fname, nvm_file *fd,
   closed_ = false;
 
   l0_table = false;
-  NVM_DEBUG("created %s at %p", fname.c_str(), this);
+
+  NVM_DEBUG("INIT: buf_limit_: %lu, pages: %lu\n", buf_limit_,
+                                          nvm->GetNPagesBlock(vlun_type));
+
+  //Append metadata to the internal buffer to enable recovery before giving it
+  //to the upper layers. The responsibility of when to flush that buffer is left
+  //to the upper layers.
+  struct vblock_recov_meta vblock_meta;
+  std::strcpy(vblock_meta.filename, filename_.c_str());
+  vblock_meta.pos = fd_->GetNextPos();
+
+  unsigned int meta_size = sizeof(vblock_meta);
+  memcpy(mem_, &vblock_meta, meta_size);
+  mem_ += meta_size;
+  cursize_ += meta_size;
+
+  NVM_DEBUG("created %s at %p. Medatada size: %lu", fname.c_str(), this, cursize_);
 }
 
 //TODO: Get rid of this and move responsibility to NVMWritableFile

@@ -21,9 +21,11 @@ struct nba_block {
   void *internals;
 };
 
+
 //TODO: This is the structure I want to use
 // struct vblock {
 //   size_t id;
+//   size_t owner_id;
 //   size_t bppa;
 //   size_t nppas;
 //   size_t ppa_bitmap;
@@ -32,11 +34,35 @@ struct nba_block {
 // };
 
 struct vblock {
-	unsigned long vlun_id;
-	sector_t bppa;
-	unsigned long id;
-	void *internals;
+  unsigned long vlun_id;
+  sector_t bppa;
+  unsigned long id;
+  void *internals;
+};
 
+#define RDB_VBLOCK_FULL_BLOCK       0x00
+#define RDB_VBLOCK_HALF_BLOCK       0x01
+#define RDB_VBLOCK_LAST_BLOCK       0x03
+
+// Metadata that RocksDB keeps for each virtual block
+
+// Metadata describes the status of the last vblock in a nvm_file. It holds
+// information to continue writing before the database was closed. This metadata
+// is guaranteed to be stored when the database is closed gracefully.
+struct vblock_grace_meta {
+  size_t ppa_offset;            // Last ppa containing valid data
+  size_t page_offset;           // Page offset inside of ppa_offset
+  uint8_t flags;                // RDB_VBLOCK_* flags
+};
+
+// This metadata written in the first sizeof(struct vblock_recov_meta) bytes
+// of the block before it is given to upper layers in RocksDB. This metadata is
+// used to reconstruct the nvm_file in case of a crash.
+// TODO: Find a better approximation for filename size
+struct vblock_recov_meta {
+  char filename[100];           // Filename to which the vblock belongs to.
+                                // Filenames are used by RocksDB as GUIs
+  size_t pos;                   // Position of the block in the nvm_file;
 };
 
 struct nvm_channel {

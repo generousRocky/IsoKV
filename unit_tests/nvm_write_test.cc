@@ -180,7 +180,7 @@ void w_block_test_1() {
 
   for (long i = 0; i < 10 * 4096; i++) {
     if (data_read[i] != data[i]) {
-      NVM_FATAL("");
+      NVM_FATAL("i: %lu\n", i);
     }
   }
 
