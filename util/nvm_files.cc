@@ -803,6 +803,11 @@ struct nvm_page *nvm_file::GetNVMPage(const unsigned long idx) {
 // in-page offsets to only return the requested bytes.
 size_t nvm_file::ReadBlock(struct nvm *nvm, unsigned int block_offset,
                               size_t ppa_offset, char *data, size_t data_len) {
+	if(vblocks_.size() == 0) {
+		//attempt to read an empty file
+		return 0;
+	}
+	
   size_t current_ppa = vblocks_[block_offset]->bppa + ppa_offset;
   size_t left = data_len;
   size_t nppas = nvm->GetNPagesBlock(0); //This is a momentary fix (FIXME)
