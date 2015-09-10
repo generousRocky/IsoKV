@@ -95,11 +95,11 @@ class NVMEnv : public Env {
     ALLOC_CLASS(nvm_api, nvm());
     ALLOC_CLASS(root_dir, nvm_directory("root", 4, nvm_api, nullptr));
 
-    LoadFtl();
+    //LoadFtl();
   }
 
   virtual ~NVMEnv() {
-    SaveFTL();
+    //SaveFTL();
 
     for (const auto tid : threads_to_join_) {
       pthread_join(tid, nullptr);
@@ -123,6 +123,7 @@ class NVMEnv : public Env {
   }
 
   virtual Status SaveFTL() override {
+#if 0
     // NVM_DEBUG("saving ftl");
 
     int fd = open(ftl_save_location, O_RDWR | O_CREAT, S_IWUSR | S_IRUSR);
@@ -137,6 +138,7 @@ class NVMEnv : public Env {
     }
 
     close(fd);
+#endif
     return Status::OK();
   }
 
@@ -582,6 +584,7 @@ class NVMEnv : public Env {
   std::vector<pthread_t> threads_to_join_;
 
   void LoadFtl() {
+#if 0
     int fd = open(ftl_save_location, O_RDONLY);
 
     char temp;
@@ -616,6 +619,7 @@ class NVMEnv : public Env {
     }
 
     close(fd);
+#endif
   }
 };
 

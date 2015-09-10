@@ -211,6 +211,10 @@ bool nvm::GetBlock(unsigned int vlun_id, struct vblock *vblock) {
   return true;
 }
 
+void nvm::EraseBlock(struct vblock *vblock) {
+	ioctl(fd, NVMBLOCKERASE, vblock);
+}
+
 bool nvm::RequestBlock(std::vector<struct nvm_page *> *block_pages,
                     const unsigned long lun_id, const unsigned long block_id) {
   struct nvm_block *ret;

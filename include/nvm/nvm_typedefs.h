@@ -32,6 +32,7 @@ struct nba_block {
 //   unsigned int vlun_id;
 //   uint8_t flags;
 // };
+// Florin: size + number of pages maybe?
 
 struct vblock {
   unsigned long vlun_id;
@@ -161,6 +162,7 @@ class nvm {
 
     bool GetBlock(unsigned int vlun_id, struct vblock *vblock);
     bool PutBlock(struct vblock *vblock);
+    void EraseBlock(struct vblock *vblock);
     size_t GetNPagesBlock(unsigned int vlun_id);
 
 #ifdef NVM_ALLOCATE_BLOCKS

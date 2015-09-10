@@ -66,6 +66,8 @@ class nvm_file {
 
     size_t GetNextPos() { return vblocks_.size() + 1; }
     void GetBlock(struct nvm *nvm, unsigned int vlun_id);
+    void ReplaceBlock(struct nvm *nvm, unsigned int vlun_id,
+										unsigned int block_idx);
     void PutBlock(struct nvm *nvm, struct vblock *vblock);
     void PutAllBlocks(struct nvm *nvm);
     size_t FlushBlock(struct nvm *nvm, char *data, size_t ppa_offset,
