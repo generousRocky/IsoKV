@@ -1315,6 +1315,9 @@ bool NVMWritableFile::GetNewBlock() {
   return true;
 }
 
+// At this moment we buffer a whole block before syncing in normal operation.
+// TODO: We need to differentiate between the log and the memtable to use
+// different buffer sizes.
 Status NVMWritableFile::Append(const Slice& data) {
   if (closed_) {
     return Status::IOError("file has been closed");
@@ -1325,11 +1328,8 @@ Status NVMWritableFile::Append(const Slice& data) {
   size_t offset = 0;
   NVM_DEBUG("Appending slice %lu bytes to %p", left, this);
 
-  // If the size of the appended data does not fit in one flash block, get a new
-  // block. However, if the file is being used to persist a memtable in level0,
-  // the size of the file must not be bigger than the size of the block
-  // associated with the file (buf_limit_). If this happens, we flush the block
-  // and inform the upper layers that new data must be placed in a new memtable.
+  // If the size of the appended data does not fit in one flash block, fill out
+  // this block, get a new block and continue writing
   if (cursize_ + left > buf_limit_) {
     NVM_DEBUG("left: %lu, buf_limit_: %lu, cursize_: %lu\n", left, buf_limit_, cursize_);
     size_t fits_in_buf = (buf_limit_ - cursize_);
@@ -1340,6 +1340,7 @@ Status NVMWritableFile::Append(const Slice& data) {
       return Status::IOError("out of ssd space");
     }
 
+    //This might not be necessary
     if (l0_table) {
       NVM_DEBUG("This is not good: l0_table > block size\n");
       // TODO: Inform the caller to move non-flushed data to a new memtable.
@@ -1379,7 +1380,10 @@ Status NVMWritableFile::Close() {
   return Status::OK();
 }
 
+// We do the caching the backend and sync using direct I/O. Thus, we do not need
+// to flush cached data to OS cache.
 Status NVMWritableFile::Flush() {
+#if 0
   if (closed_) {
     return Status::IOError("file has been closed");
   }
@@ -1387,6 +1391,7 @@ Status NVMWritableFile::Flush() {
   if (Flush(false) == false) {
     return Status::IOError("out of ssd space");
   }
+#endif
 
   return Status::OK();
 }
@@ -1396,6 +1401,8 @@ Status NVMWritableFile::Sync() {
     return Status::IOError("file has been closed");
   }
 
+  // We do not force Sync in order to guarantee that we write at a page
+  // granurality. Force is reserved for emergency syncing
   if (Flush(false) == false) {
     return Status::IOError("out of ssd space");
   }

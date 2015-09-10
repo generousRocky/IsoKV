@@ -201,7 +201,7 @@ bool nvm::GetBlock(unsigned int vlun_id, struct vblock *vblock) {
 
   ret = ioctl(fd, NVM_GET_BLOCK, vblock);
   if (ret == -1) {
-    prinft("Could not get a new block from vlun %d\n!!", vlun_id);
+    printf("Could not get a new block from vlun %d\n!!", vlun_id);
     return false;
   }
 

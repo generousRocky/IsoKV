@@ -187,7 +187,7 @@ void w_block_test_1() {
   delete sr_file;
   delete w_file;
 
-  NVM_DEBUG("TEST FINISHED!");
+  NVM_DEBUG("TEST 1 FINISHED!");
 }
 
 void w_block_test_2() {
@@ -249,7 +249,7 @@ void w_block_test_2() {
   delete sr_file;
   delete w_file;
 
-  NVM_DEBUG("TEST FINISHED!");
+  NVM_DEBUG("TEST 2 FINISHED!");
 }
 
 void w_block_test_3() {
@@ -313,7 +313,7 @@ void w_block_test_3() {
   delete dir;
   delete nvm_api;
 
-  NVM_DEBUG("TEST FINISHED!");
+  NVM_DEBUG("TEST 3 FINISHED!");
 }
 
 void w_block_test_4() {
@@ -379,8 +379,76 @@ void w_block_test_4() {
   delete dir;
   delete nvm_api;
 
-  NVM_DEBUG("TEST FINISHED!");
+  NVM_DEBUG("TEST 4 FINISHED!");
 }
+
+void w_block_test_5() {
+  nvm_directory *dir;
+  nvm *nvm_api;
+
+  ALLOC_CLASS(nvm_api, nvm());
+  ALLOC_CLASS(dir, nvm_directory("root", 4, nvm_api, nullptr));
+
+  nvm_file *wfd = dir->nvm_fopen("test.c", "w");
+  if(wfd == nullptr) {
+    NVM_FATAL("");
+  }
+
+  nvm_file *srfd = dir->nvm_fopen("test.c", "r");
+  if(srfd == nullptr) {
+    NVM_FATAL("");
+  }
+
+  NVMWritableFile *w_file;
+  NVMSequentialFile *sr_file;
+
+  //Write enough data to trigger a new block creation
+  char data[200 * 4096];
+  char datax[200 * 4096];
+
+  ALLOC_CLASS(w_file, NVMWritableFile("test.c", wfd, dir));
+  Slice s, t;
+
+  //write in block disaligned chunks
+  char input = 'a';
+  for (int i = 0; i < 300; i++) {
+    for (int j = 0; j < 2060; j++) {
+      data[(i * 2060) + j] = (input + i);
+    }
+
+    s = Slice(data + (i * 2060), 2060);
+    w_file->Append(s);
+    NVM_DEBUG("Appended slice %d\n", i);
+  }
+  w_file->Close();
+
+  ALLOC_CLASS(sr_file, NVMSequentialFile("test2.c", srfd, dir));
+  if (!sr_file->Read(200 * 4096, &t, datax).ok()) {
+    NVM_FATAL("");
+  }
+
+  size_t len = t.size();
+  const char *data_read = t.data();
+
+  if (len != 300 * 2060) {
+    NVM_FATAL("%lu", len);
+  }
+
+  for (long i = 0; i < 300 * 2060; i++) {
+    if (data_read[i] != data[i]) {
+      NVM_DEBUG("i: %lu, data_read: %c, data: %c\n", i, data_read[i], data[i]);
+      NVM_FATAL("");
+    }
+  }
+
+  delete sr_file;
+  delete w_file;
+  delete dir;
+  delete nvm_api;
+
+  NVM_DEBUG("TEST 5 FINISHED!");
+}
+
 
 int main(int argc, char **argv) {
   w_test_1();
@@ -388,6 +456,7 @@ int main(int argc, char **argv) {
   w_block_test_2();
   w_block_test_3();
   w_block_test_4();
+  w_block_test_5();
 
   return 0;
 }
