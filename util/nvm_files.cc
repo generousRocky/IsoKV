@@ -810,21 +810,14 @@ size_t nvm_file::ReadBlock(struct nvm *nvm, unsigned int block_offset,
   unsigned int meta_beg_size = sizeof(struct vblock_recov_meta);
   uint8_t pages_per_read;
 
-  size_t meta_beg_offset = 0;
-
   // Attempting to read an empty file
   if(vblocks_.size() == 0) {
     return 0;
   }
 
-  //Account for crash recovery metadata at the beginning of the block
-  if (ppa_offset == 0) {
-    meta_beg_offset += meta_beg_size;
-  }
-
   //Always read at a page granurality
-  uint8_t x = ((data_len + page_offset + meta_beg_offset) % 4096 == 0) ? 0 : 1;
-  size_t left = ((((data_len + page_offset + meta_beg_offset) / 4096) + x) * 4096);
+  uint8_t x = ((data_len + page_offset + meta_beg_size) % 4096 == 0) ? 0 : 1;
+  size_t left = ((((data_len + page_offset + meta_beg_size) / 4096) + x) * 4096);
 
   assert(left <= (nppas * 4096));
   assert((left % 4096) == 0);
@@ -855,7 +848,9 @@ retry:
     left -= bytes_per_read;
   }
 
-  memcpy(data, page + page_offset + meta_beg_offset, data_len);
+  //Account for crash recovery metadata at the beginning of the block
+  size_t read_offset = page_offset + meta_beg_size;
+  memcpy(data, page + read_offset, data_len);
   free(page);
 
   IOSTATS_ADD(bytes_read, data_len);
@@ -1090,8 +1085,6 @@ NVMSequentialFile::NVMSequentialFile(const std::string& fname, nvm_file *fd,
   }
 
   read_pointer_ = 0;
-
-  NVM_DEBUG("created %s - read_pointer_ at %lu\n", fname.c_str(), read_pointer_);
 }
 
 NVMSequentialFile::~NVMSequentialFile() {
@@ -1112,6 +1105,8 @@ Status NVMSequentialFile::Read(size_t n, Slice* result, char* scratch) {
     *result = Slice(scratch, 0);
     return Status::OK();
   }
+
+  NVM_DEBUG("Reading: %lu bytes, read_pointer_: %lu\n", n, read_pointer_);
 
   if (fd_->Read(nvm, read_pointer_, scratch, n) != n) {
     return Status::IOError("Unable to read\n");
