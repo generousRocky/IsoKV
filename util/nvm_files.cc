@@ -873,7 +873,7 @@ size_t nvm_file::Read(struct nvm *nvm, size_t read_pointer, char *data,
   size_t bytes_per_read;
   size_t total_read = 0;
   size_t meta_size =
-            sizeof(struct vblock_recov_meta) - sizeof(struct vblock_close_meta);
+            sizeof(struct vblock_recov_meta) + sizeof(struct vblock_close_meta);
 
   while (left > 0) {
     //TODO: This has to be done better to hide metadata size
