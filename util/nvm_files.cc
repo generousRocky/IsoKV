@@ -1001,7 +1001,8 @@ size_t nvm_file::FlushBlock(struct nvm *nvm, char *data, size_t ppa_offset,
     write_len = ((aligned_data + x) * 4096);
 
     if (write_len != data_len) {
-      NVM_DEBUG("THIS WILL CAUSE PROBLEMS...\n");
+      //TODO: Add metadata on how much data is valid and add logic to skip the
+      //rest of this page in future operations
     }
     //TODO: Add padding
     // for (size_t i = aligned_data + disaligned_data; i < write_len; i++) {
@@ -1016,10 +1017,8 @@ size_t nvm_file::FlushBlock(struct nvm *nvm, char *data, size_t ppa_offset,
   assert(write_len <= nppas * 4096);
   NVM_DEBUG("writing %lu bytes - nppages : %lu\n", write_len, nppas);
 
-  //TODO: Generalize page size
-
-  /* Verify that data is aligned although it should already be aligned */
   //TODO: Can we ensure that we do not need this?
+  /* Verify that data is aligned although it should already be aligned */
   if (UNLIKELY(((uintptr_t)data % 4096) != 0)) {
     NVM_DEBUG("Aligning data\n");
     data_aligned = (char*)memalign(4096, write_len);
@@ -1090,8 +1089,6 @@ NVMSequentialFile::NVMSequentialFile(const std::string& fname, nvm_file *fd,
     NVM_ERROR("No block associated with file descriptor\n");
   }
 
-  //Account for the metadata stored at the beginning of the virtual block.
-  // read_pointer_ = sizeof(struct vblock_recov_meta);
   read_pointer_ = 0;
 
   NVM_DEBUG("created %s - read_pointer_ at %lu\n", fname.c_str(), read_pointer_);
@@ -1105,6 +1102,8 @@ NVMSequentialFile::~NVMSequentialFile() {
 //TODO: Cache last read page to avoid small reads submitting extra IOs. We
 //should only cache until file size
 Status NVMSequentialFile::Read(size_t n, Slice* result, char* scratch) {
+  struct nvm *nvm = dir_->GetNVMApi();
+
   if (read_pointer_ + n > fd_->GetSize()) {
     n = fd_->GetSize() - read_pointer_;
   }
@@ -1113,8 +1112,6 @@ Status NVMSequentialFile::Read(size_t n, Slice* result, char* scratch) {
     *result = Slice(scratch, 0);
     return Status::OK();
   }
-
-  struct nvm *nvm = dir_->GetNVMApi();
 
   if (fd_->Read(nvm, read_pointer_, scratch, n) != n) {
     return Status::IOError("Unable to read\n");
