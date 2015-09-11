@@ -18,8 +18,6 @@ void TestWrite(NVMWritableFile *w_file) {
 
   w_file->Append(s);
 
-  NVM_DEBUG("Appended first slice");
-
   for(int i = 0; i < 2048; ++i) {
     data[i] = 'y';
   }
@@ -28,7 +26,6 @@ void TestWrite(NVMWritableFile *w_file) {
 
   w_file->Append(s);
 
-  NVM_DEBUG("Appended second slice");
   for(int i = 0; i < 5000; ++i) {
     data[i] = 'z';
   }
@@ -36,8 +33,6 @@ void TestWrite(NVMWritableFile *w_file) {
   s = Slice(data, 5000);
 
   w_file->Append(s);
-
-  NVM_DEBUG("Appended third slice");
 
   w_file->Close();
 }
@@ -102,21 +97,16 @@ void TestSequentialRead(NVMSequentialFile *sr_file) {
   }
 
   for(size_t i = 0; i < 2048; ++i) {
-    // NVM_DEBUG("data[%lu]: %c\n", i, data[i]);
     if(data[i] != 'x') {
       NVM_FATAL("%lu %c", i, data[i]);
     }
   }
 
-  // NVM_DEBUG("YAY!!!!\n");
-
   for(size_t i = 2048; i < 4096; ++i) {
-    // NVM_DEBUG("data[%lu]: %c\n", i, data[i]);
     if(data[i] != 'y') {
       NVM_FATAL("%lu %c", i, data[i]);
     }
   }
-  // NVM_DEBUG("YAY!!!!\n");
 
   size_t cnt = 0;
   while(sr_file->Read(1, &s, sc).ok()) {
@@ -503,15 +493,11 @@ void test1() {
     NVM_FATAL("");
   }
 
-  NVM_DEBUG("write file open at %p", wfd);
-
   nvm_file *srfd = dir->nvm_fopen("test.c", "r");
 
   if(srfd == nullptr) {
     NVM_FATAL("");
   }
-
-  NVM_DEBUG("sequential read file open at %p", srfd);
 
 
   NVMWritableFile *w_file;
@@ -555,7 +541,7 @@ void test1() {
   delete dir;
   delete nvm_api;
 
-  NVM_DEBUG("TEST FINISHED!");
+  NVM_DEBUG("TEST 1 FINISHED!");
 }
 
 void test2() {
@@ -617,7 +603,7 @@ void test2() {
 
   delete ra_file;
 
-  NVM_DEBUG("TEST FINISHED!");
+  NVM_DEBUG("TEST 2 FINISHED!");
 }
 
 

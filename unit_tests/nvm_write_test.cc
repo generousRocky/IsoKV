@@ -224,7 +224,6 @@ void w_block_test_2() {
 
     s = Slice(data + (i * 4096), 4096);
     w_file->Append(s);
-    NVM_DEBUG("Appended slice %d\n", i);
   }
   w_file->Close();
 
@@ -286,7 +285,6 @@ void w_block_test_3() {
 
     s = Slice(data + (i * 2048), 2048);
     w_file->Append(s);
-    NVM_DEBUG("Appended slice %d\n", i);
   }
   w_file->Close();
 
@@ -351,7 +349,6 @@ void w_block_test_4() {
 
     s = Slice(data + (i * 2048), 2048);
     w_file->Append(s);
-    NVM_DEBUG("Appended slice %d\n", i);
   }
   w_file->Close();
 
@@ -369,7 +366,6 @@ void w_block_test_4() {
 
   for (long i = 0; i < 200 * 4096; i++) {
     if (data_read[i] != data[i]) {
-      NVM_DEBUG("i: %lu, data_read: %c, data: %c\n", i, data_read[i], data[i]);
       NVM_FATAL("");
     }
   }
@@ -418,7 +414,6 @@ void w_block_test_5() {
 
     s = Slice(data + (i * 2060), 2060);
     w_file->Append(s);
-    NVM_DEBUG("Appended slice %d\n", i);
   }
   w_file->Close();
 
@@ -436,7 +431,6 @@ void w_block_test_5() {
 
   for (long i = 0; i < 300 * 2060; i++) {
     if (data_read[i] != data[i]) {
-      NVM_DEBUG("i: %lu, data_read: %c, data: %c\n", i, data_read[i], data[i]);
       NVM_FATAL("");
     }
   }

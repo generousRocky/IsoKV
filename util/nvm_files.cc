@@ -930,7 +930,6 @@ void nvm_file::ReplaceBlock(struct nvm *nvm, unsigned int vlun_id,
 
   pthread_mutex_unlock(&page_update_mtx);
   nvm->EraseBlock(old_vblock);
-  NVM_DEBUG("HERE!\n");
 }
 
 void nvm_file::PutBlock(struct nvm *nvm, struct vblock *vblock) {
@@ -1010,12 +1009,10 @@ size_t nvm_file::FlushBlock(struct nvm *nvm, char *data, size_t ppa_offset,
   unsigned long left = write_len;
 
   assert(write_len <= nppas * 4096);
-  NVM_DEBUG("writing %lu bytes - nppages : %lu\n", write_len, nppas);
 
   //TODO: Can we ensure that we do not need this?
   /* Verify that data is aligned although it should already be aligned */
   if (UNLIKELY(((uintptr_t)data % 4096) != 0)) {
-    NVM_DEBUG("Aligning data\n");
     data_aligned = (char*)memalign(4096, write_len);
     if (!data_aligned) {
       NVM_FATAL("Cannot allocate aligned memory\n");
@@ -1088,7 +1085,6 @@ NVMSequentialFile::NVMSequentialFile(const std::string& fname, nvm_file *fd,
 }
 
 NVMSequentialFile::~NVMSequentialFile() {
-  NVM_DEBUG("Close sequential file\n");
   dir_->nvm_fclose(fd_, "r");
 }
 
@@ -1105,8 +1101,6 @@ Status NVMSequentialFile::Read(size_t n, Slice* result, char* scratch) {
     *result = Slice(scratch, 0);
     return Status::OK();
   }
-
-  NVM_DEBUG("Reading: %lu bytes, read_pointer_: %lu\n", n, read_pointer_);
 
   if (fd_->Read(nvm, read_pointer_, scratch, n) != n) {
     return Status::IOError("Unable to read\n");
@@ -1143,8 +1137,6 @@ NVMRandomAccessFile::NVMRandomAccessFile(const std::string& fname, nvm_file *f,
                                        nvm_directory *dir) : filename_(fname) {
   fd_ = f;
   dir_ = dir;
-
-  NVM_DEBUG("created %s", fname.c_str());
 }
 
 NVMRandomAccessFile::~NVMRandomAccessFile() {
@@ -1191,8 +1183,6 @@ Status NVMRandomAccessFile::Read(uint64_t offset, size_t n, Slice* result,
   //TODO: Can we avoid this memory copy?
   memcpy(scratch, data + page_offset, n);
   free(data);
-
-  NVM_DEBUG("read %lu bytes", n);
 
   *result = Slice(scratch, n);
   return Status::OK();
@@ -1246,9 +1236,6 @@ NVMWritableFile::NVMWritableFile(const std::string& fname, nvm_file *fd,
 
   l0_table = false;
 
-  NVM_DEBUG("INIT: buf_limit_: %lu, pages: %lu\n", buf_limit_,
-                                          nvm->GetNPagesBlock(vlun_type));
-
   //Write metadata to the internal buffer to enable recovery before giving it
   //to the upper layers. The responsibility of when to flush that buffer is left
   //to the upper layers.
@@ -1260,8 +1247,6 @@ NVMWritableFile::NVMWritableFile(const std::string& fname, nvm_file *fd,
   memcpy(mem_, &vblock_meta, meta_size);
   mem_ += meta_size;
   cursize_ += meta_size;
-
-  NVM_DEBUG("created %s at %p. Medatada size: %lu", fname.c_str(), this, cursize_);
 }
 
 //TODO: Get rid of this and move responsibility to NVMWritableFile
@@ -1303,8 +1288,6 @@ bool NVMWritableFile::Flush(const bool force_flush) {
   assert (curflush_ + flush_len <= buf_limit_);
 
   if (force_flush) {
-    NVM_DEBUG("Forced flush!!!!\n");
-    NVM_DEBUG("curflush_: %lu, flush_len: %lu, buf_limit: %lu\n", curflush_, flush_len, buf_limit_);
     // Append vblock medatada when closing a block.
     if (curflush_ + flush_len == buf_limit_) {
       unsigned int meta_size = sizeof(vblock_meta);
@@ -1314,7 +1297,6 @@ bool NVMWritableFile::Flush(const bool force_flush) {
       memcpy(mem_, &vblock_meta, meta_size);
       flush_len += meta_size;
       page_aligned = (flush_len % 4096 == 0) ? true : false;
-      NVM_DEBUG("Appending metadata in vblock about to be closed!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
     } else {
       //TODO: Pass on to upper layers to append metadata to RocksDB WAL
     }
@@ -1323,10 +1305,6 @@ bool NVMWritableFile::Flush(const bool force_flush) {
     flush_len -= disaligned_data;
     page_aligned = true;
   }
-
-  NVM_DEBUG("cursize: %lu, buf_limit_: %lu, ppa_flush_offset: %lu, flush_len: %lu\n",
-                             cursize_, buf_limit_, ppa_flush_offset, flush_len);
-  // std::cout << "FLUSHING FILE: " << filename_ << std::endl;
 
   size_t written_bytes = fd_->FlushBlock(nvm, flush_, ppa_flush_offset,
                                                         flush_len, page_aligned);
@@ -1400,12 +1378,10 @@ Status NVMWritableFile::Append(const Slice& data) {
   const char* src = data.data();
   size_t left = data.size();
   size_t offset = 0;
-  NVM_DEBUG("Appending slice %lu bytes to %p", left, this);
 
   // If the size of the appended data does not fit in one flash block, fill out
   // this block, get a new block and continue writing
   if (cursize_ + left > buf_limit_) {
-    NVM_DEBUG("left: %lu, buf_limit_: %lu, cursize_: %lu\n", left, buf_limit_, cursize_);
     size_t fits_in_buf = (buf_limit_ - cursize_);
     memcpy(mem_, src, fits_in_buf);
     mem_ += fits_in_buf;
@@ -1416,7 +1392,6 @@ Status NVMWritableFile::Append(const Slice& data) {
 
     //This might not be necessary
     if (l0_table) {
-      NVM_DEBUG("This is not good: l0_table > block size\n");
       // TODO: Inform the caller to move non-flushed data to a new memtable.
     } else {
       if (!GetNewBlock()) {
