@@ -1572,7 +1572,7 @@ Status NVMRandomRWFile::Write(uint64_t offset, const Slice& data) {
 
     crt_data = (char *)memalign(4096, size);
 
-    if(fd_->ReadBlock(nvm, start_block_id, 0, crt_data, size) != size) {
+    if(fd_->ReadBlock(nvm, start_block_id, 0, 0, crt_data, size) != size) {
       free(crt_data);
       return Status::IOError("could not read");
     }
