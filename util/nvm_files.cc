@@ -167,7 +167,8 @@ struct nvm_page *nvm_file::RequestPage(nvm *nvm_api) {
   return ret;
 }
 
-struct nvm_page *nvm_file::RequestPage(nvm *nvm_api, const unsigned long lun_id, const unsigned long block_id, const unsigned long page_id) {
+struct nvm_page *nvm_file::RequestPage(nvm *nvm_api, const unsigned long lun_id,
+                  const unsigned long block_id, const unsigned long page_id) {
 
 #ifdef NVM_ALLOCATE_BLOCKS
 
@@ -912,28 +913,29 @@ void nvm_file::GetBlock(struct nvm *nvm, unsigned int vlun_id) {
 }
 
 void nvm_file::ReplaceBlock(struct nvm *nvm, unsigned int vlun_id,
-																						unsigned int block_idx){
-	assert(block_idx < vblocks_.size());
-	
-	struct vblock *new_vblock = (struct vblock*)malloc(sizeof(struct vblock));
-	struct vblock *old_vblock;
-	if (!new_vblock) {
-		NVM_FATAL("Could not allocate memory\n");
-	}
+                                                    unsigned int block_idx) {
+  assert(block_idx < vblocks_.size());
 
-	if (!nvm->GetBlock(vlun_id, new_vblock)) {
-		NVM_FATAL("could not get a new block - ssd out of space\n");
-	}
-	
-	pthread_mutex_lock(&page_update_mtx);
-	old_vblock = vblocks_[block_idx];
-	vblocks_[block_idx] = new_vblock;
+  struct vblock *new_vblock = (struct vblock*)malloc(sizeof(struct vblock));
+  struct vblock *old_vblock;
 
-	current_vblock_ = new_vblock;
-	
-	pthread_mutex_unlock(&page_update_mtx);
-	nvm->EraseBlock(old_vblock);
-	NVM_DEBUG("HERE!\n");
+  if (!new_vblock) {
+    NVM_FATAL("Could not allocate memory\n");
+  }
+
+  if (!nvm->GetBlock(vlun_id, new_vblock)) {
+    NVM_FATAL("could not get a new block - ssd out of space\n");
+  }
+
+  pthread_mutex_lock(&page_update_mtx);
+  old_vblock = vblocks_[block_idx];
+  vblocks_[block_idx] = new_vblock;
+
+  current_vblock_ = new_vblock;
+
+  pthread_mutex_unlock(&page_update_mtx);
+  nvm->EraseBlock(old_vblock);
+  NVM_DEBUG("HERE!\n");
 }
 
 void nvm_file::PutBlock(struct nvm *nvm, struct vblock *vblock) {
@@ -1545,64 +1547,63 @@ NVMRandomRWFile::~NVMRandomRWFile() {
 }
 
 Status NVMRandomRWFile::Write(uint64_t offset, const Slice& data) {
-	unsigned int vlun_id = 0;
-	if (offset + data.size() > fd_->GetSize()) {
-		//this should not be used for sequential writes
-		return Status::IOError("Out of bounds");
-	}
-	struct nvm *nvm = dir_->GetNVMApi();
+  unsigned int vlun_id = 0;
+  if (offset + data.size() > fd_->GetSize()) {
+    //this should not be used for sequential writes
+    return Status::IOError("Out of bounds");
+  }
 
-	//Account for the metadata stored at the beginning of the virtual block.
-	uint64_t internal_offset = offset + sizeof(struct vblock_recov_meta);
-	
-	unsigned int start_block_id = internal_offset / 4096;
-	unsigned int end_block_id = (internal_offset + data.size()) / 4096;
-	unsigned int block_offset = internal_offset % 4096;
-	unsigned int crt_written = 0;
-	
-	while(start_block_id != end_block_id) {
-		char *crt_data;
-		//TODO get proper number of pages
-		size_t npages = 128;
-		size_t size = 4096 * npages;
-		size_t size_to_write;
-		
-		crt_data = (char *)memalign(4096, size);
-		
-		if(fd_->ReadBlock(nvm, start_block_id, 0, crt_data, size) != size)
-		{
-			free(crt_data);
-			return Status::IOError("could not read");
-		}
-		
-		fd_->ReplaceBlock(nvm, vlun_id, start_block_id);
-		
-		size_to_write = data.size() - crt_written;
-		
-		if(size_to_write > size - block_offset)
-		{
-			size_to_write = size - block_offset;
-		}
-		
-		memcpy(crt_data + block_offset, data.data() + crt_written, size_to_write);
-		block_offset = 0;
-		crt_written += size_to_write;
+  struct nvm *nvm = dir_->GetNVMApi();
 
-		if(fd_->FlushBlock(nvm, crt_data, 0, size, true) != size)
-		{
-			free(crt_data);
-			return Status::IOError("could not read");
-		}
-		free(crt_data);
-		++start_block_id;
-	}
-	
-	return Status::OK();
+  //Account for the metadata stored at the beginning of the virtual block.
+  uint64_t internal_offset = offset + sizeof(struct vblock_recov_meta);
+
+  unsigned int start_block_id = internal_offset / 4096;
+  unsigned int end_block_id = (internal_offset + data.size()) / 4096;
+  unsigned int block_offset = internal_offset % 4096;
+  unsigned int crt_written = 0;
+
+  while(start_block_id != end_block_id) {
+    char *crt_data;
+    //TODO get proper number of pages
+    size_t npages = 128;
+    size_t size = 4096 * npages;
+    size_t size_to_write;
+
+    crt_data = (char *)memalign(4096, size);
+
+    if(fd_->ReadBlock(nvm, start_block_id, 0, crt_data, size) != size) {
+      free(crt_data);
+      return Status::IOError("could not read");
+    }
+
+    fd_->ReplaceBlock(nvm, vlun_id, start_block_id);
+    size_to_write = data.size() - crt_written;
+
+    if(size_to_write > size - block_offset) {
+      size_to_write = size - block_offset;
+    }
+
+    memcpy(crt_data + block_offset, data.data() + crt_written, size_to_write);
+    block_offset = 0;
+    crt_written += size_to_write;
+
+    if(fd_->FlushBlock(nvm, crt_data, 0, size, true) != size) {
+      free(crt_data);
+      return Status::IOError("could not read");
+    }
+
+    free(crt_data);
+    ++start_block_id;
+}
+
+return Status::OK();
 }
 
 //keep synchronized with NVMRandomAccessFile::Read
-Status NVMRandomRWFile::Read(uint64_t offset, size_t n, Slice* result, char* scratch) const {
-	if (offset >= fd_->GetSize()) {
+Status NVMRandomRWFile::Read(uint64_t offset, size_t n, Slice* result,
+                                                          char* scratch) const {
+  if (offset >= fd_->GetSize()) {
     NVM_DEBUG("offset is out of bounds");
     *result = Slice(scratch, 0);
     return Status::OK();
