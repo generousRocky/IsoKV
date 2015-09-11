@@ -16,6 +16,7 @@ class nvm_file {
 
     //TODO: look with new vector
     unsigned long size_;
+    unsigned long meta_size_;
     int fd_;
 
     // TODO: current_vblock_ is used to write, logic should move to WritableFile
@@ -76,7 +77,8 @@ class nvm_file {
                                                               size_t data_len);
 
     size_t ReadBlock(struct nvm *nvm, unsigned int block_offset,
-                              size_t ppa_offset, char *data, size_t data_len);
+                                   size_t ppa_offset, unsigned int page_offset,
+                                                  char *data, size_t data_len);
     struct nvm_page *GetNVMPage(const unsigned long idx);
     struct nvm_page *GetLastPage(unsigned long *page_idx);
     bool SetPage(const unsigned long page_idx, nvm_page *page);

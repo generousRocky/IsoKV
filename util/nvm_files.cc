@@ -798,27 +798,43 @@ struct nvm_page *nvm_file::GetNVMPage(const unsigned long idx) {
 
 //TODO: REFACTOR FROM HERE UP!!
 
-// The caller must ensure that data i aligned to PAGE_SIZE.
-// Note that this function reads entire pages. Thus the caller must take care of
-// in-page offsets to only return the requested bytes.
 size_t nvm_file::ReadBlock(struct nvm *nvm, unsigned int block_offset,
-                              size_t ppa_offset, char *data, size_t data_len) {
-	if(vblocks_.size() == 0) {
-		//attempt to read an empty file
-		return 0;
-	}
-	
-  size_t current_ppa = vblocks_[block_offset]->bppa + ppa_offset;
-  size_t left = data_len;
+                              size_t ppa_offset, unsigned int page_offset,
+                                                char *data, size_t data_len) {
+  size_t base_ppa = vblocks_[block_offset]->bppa;
+  size_t current_ppa = base_ppa + ppa_offset;
   size_t nppas = nvm->GetNPagesBlock(0); //This is a momentary fix (FIXME)
   unsigned long max_bytes_per_read = nvm->max_pages_in_io * 4096;
   unsigned long bytes_per_read;
+  unsigned int meta_beg_size = sizeof(struct vblock_recov_meta);
   uint8_t pages_per_read;
 
-  char *read_iter = data;
+  size_t meta_beg_offset = 0;
 
-  assert(data_len <= nppas * 4096);
-  assert((data_len % 4096) == 0);
+  // Attempting to read an empty file
+  if(vblocks_.size() == 0) {
+    return 0;
+  }
+
+  //Account for crash recovery metadata at the beginning of the block
+  if (ppa_offset == 0) {
+    meta_beg_offset += meta_beg_size;
+  }
+
+  //Always read at a page granurality
+  uint8_t x = ((data_len + page_offset + meta_beg_offset) % 4096 == 0) ? 0 : 1;
+  size_t left = ((((data_len + page_offset + meta_beg_offset) / 4096) + x) * 4096);
+
+  assert(left <= (nppas * 4096));
+  assert((left % 4096) == 0);
+
+  char *page = (char*)memalign(4096, left * 4096);
+  if (!data) {
+    NVM_FATAL("Cannot allocate aligned memory of length: %lu\n", nppas * 4096);
+    return -1;
+  }
+
+  char *read_iter = page;
 
   while (left > 0) {
 retry:
@@ -833,10 +849,13 @@ retry:
       return -1;
     }
 
+    current_ppa += pages_per_read;
     read_iter += bytes_per_read;
     left -= bytes_per_read;
-    current_ppa += pages_per_read;
   }
+
+  memcpy(data, page + page_offset + meta_beg_offset, data_len);
+  free(page);
 
   IOSTATS_ADD(bytes_read, data_len);
   return data_len - left;
@@ -844,33 +863,30 @@ retry:
 
 size_t nvm_file::Read(struct nvm *nvm, size_t read_pointer, char *data,
                                                         size_t data_len) {
-  assert((data_len % 4096) == 0);
-
   size_t nppas = nvm->GetNPagesBlock(0); //This is a momentary fix (FIXME)
+  unsigned int block_offset = read_pointer / (nppas * 4096);
   size_t ppa_offset = (read_pointer / 4096) % (nppas * 4096);
+  unsigned int page_offset = read_pointer % 4096;
+  size_t left = data_len;
   size_t bytes_left_block;
   size_t bytes_per_read;
-  size_t left = data_len;
   size_t total_read = 0;
-  unsigned int block_offset = read_pointer / (nppas * 4096);
+  size_t meta_size =
+            sizeof(struct vblock_recov_meta) - sizeof(struct vblock_close_meta);
 
-  NVM_DEBUG("Reading %lu bytes. block_offset: %d, ppa_offset: %lu\n", data_len, block_offset, ppa_offset);
   while (left > 0) {
-    bytes_left_block = (nppas - ppa_offset) * 4096;
+    //TODO: This has to be done better to hide metadata size
+    bytes_left_block = ((nppas - ppa_offset) * 4096) - meta_size;
     bytes_per_read = (left > bytes_left_block) ? bytes_left_block : left;
+    size_t read = ReadBlock(nvm, block_offset, ppa_offset, page_offset,
+                                          data + total_read, bytes_per_read);
 
-    total_read += ReadBlock(nvm, block_offset, ppa_offset, data + total_read,
-                                                                bytes_per_read);
-    if (total_read != bytes_per_read) {
-      return total_read;
-    }
-
+    total_read += read;
     block_offset++;
     ppa_offset = 0;
-    left -= total_read;
+    left -= read;
   }
 
-  assert (total_read == data_len);
   return total_read;
 }
 
@@ -893,8 +909,6 @@ void nvm_file::GetBlock(struct nvm *nvm, unsigned int vlun_id) {
   vblocks_.push_back(new_vblock);
   current_vblock_ = new_vblock;
   pthread_mutex_unlock(&page_update_mtx);
-
-  NVM_DEBUG("HERE!\n");
 }
 
 void nvm_file::ReplaceBlock(struct nvm *nvm, unsigned int vlun_id,
@@ -958,14 +972,16 @@ void nvm_file::PutAllBlocks(struct nvm *nvm) {
 // TODO: Make a function to flush at a page level to allow partial writes but
 // still respect PAGE_SIZE as write granurality
 size_t nvm_file::FlushBlock(struct nvm *nvm, char *data, size_t ppa_offset,
-                                           size_t data_len, bool page_aligned) {
+                                        size_t data_len, bool page_aligned) {
   // size_t nppas = vblock_->nppas;
   size_t nppas = nvm->GetNPagesBlock(0); //This is a momentary fix (FIXME)
-  size_t current_ppa = current_vblock_->bppa + ppa_offset;
+  size_t base_ppa = current_vblock_->bppa;
+  size_t current_ppa = base_ppa + ppa_offset;
   unsigned long max_bytes_per_write = nvm->max_pages_in_io * 4096;
   unsigned long bytes_per_write;
   uint8_t pages_per_write;
   uint8_t allocate_aligned_buf = 0;
+  unsigned int meta_size = 0;
 
   //Always write at a page granurality
   size_t write_len;
@@ -977,7 +993,6 @@ size_t nvm_file::FlushBlock(struct nvm *nvm, char *data, size_t ppa_offset,
   //update and the that the page contains garbage. Another way of doing it is
   //only flushing pages and leaving the rest of the data in the log...
   if (!page_aligned) {
-    NVM_DEBUG("Forced flush!!!!\n");
     size_t disaligned_data = data_len % 4096;
     size_t aligned_data = data_len / 4096;
     uint8_t x = (disaligned_data == 0) ? 0 : 1;
@@ -997,8 +1012,8 @@ size_t nvm_file::FlushBlock(struct nvm *nvm, char *data, size_t ppa_offset,
   unsigned long left = write_len;
 
   assert(write_len <= nppas * 4096);
-
   NVM_DEBUG("writing %lu bytes - nppages : %lu\n", write_len, nppas);
+
   //TODO: Generalize page size
 
   /* Verify that data is aligned although it should already be aligned */
@@ -1017,12 +1032,12 @@ size_t nvm_file::FlushBlock(struct nvm *nvm, char *data, size_t ppa_offset,
   }
 
   //TODO: Use libaio instead of pread/pwrite
+  //TODO: Write in out of bound area when API is ready
   while (left > 0) {
     //write_len is guaranteed to be a multiple of PAGE_SIZE
     bytes_per_write = (left > max_bytes_per_write) ? max_bytes_per_write : left;
     pages_per_write = bytes_per_write / 4096;
 
-    NVM_DEBUG("Writing %lu bytes in ppa:%lu\n", bytes_per_write, current_ppa);
     if ((unsigned)pwrite(fd_, data_aligned, bytes_per_write,
                                      current_ppa * 4096) != bytes_per_write) {
       //TODO: See if we can recover. Use another ppa + mark bad page in bitmap?
@@ -1038,10 +1053,16 @@ size_t nvm_file::FlushBlock(struct nvm *nvm, char *data, size_t ppa_offset,
   if (allocate_aligned_buf)
     free(data_aligned);
 
+  if (current_ppa == base_ppa + nppas) {
+     meta_size += sizeof(struct vblock_close_meta);
+  }
+
+  if (ppa_offset == 0) {
+    meta_size += sizeof(struct vblock_recov_meta);
+  }
+
   pthread_mutex_lock(&page_update_mtx);
-  //TODO: See how this affects data placement...
-  size_ += data_len - left;
-  NVM_DEBUG("NEW SIZE: %lu (dat_len: %lu, left: %lu)\n", size_, data_len, left);
+  size_ += data_len - left - meta_size;
   pthread_mutex_unlock(&page_update_mtx);
 
   UpdateFileModificationTime();
@@ -1068,7 +1089,8 @@ NVMSequentialFile::NVMSequentialFile(const std::string& fname, nvm_file *fd,
   }
 
   //Account for the metadata stored at the beginning of the virtual block.
-  read_pointer_ = sizeof(struct vblock_recov_meta);
+  // read_pointer_ = sizeof(struct vblock_recov_meta);
+  read_pointer_ = 0;
 
   NVM_DEBUG("created %s - read_pointer_ at %lu\n", fname.c_str(), read_pointer_);
 }
@@ -1082,9 +1104,6 @@ NVMSequentialFile::~NVMSequentialFile() {
 //should only cache until file size
 Status NVMSequentialFile::Read(size_t n, Slice* result, char* scratch) {
   if (read_pointer_ + n > fd_->GetSize()) {
-    // std::cout << "READING FILE: " << filename_ << std::endl;
-    NVM_DEBUG("Reading excess: n: %lu, read_pointer_: %lu, fdSize(): %lu\n", n,
-                                                read_pointer_, fd_->GetSize());
     n = fd_->GetSize() - read_pointer_;
   }
 
@@ -1094,29 +1113,12 @@ Status NVMSequentialFile::Read(size_t n, Slice* result, char* scratch) {
   }
 
   struct nvm *nvm = dir_->GetNVMApi();
-  unsigned int page_offset = read_pointer_ % 4096;
 
-  //Always read at a page granurality
-  uint8_t x = ((n + page_offset) % 4096 == 0) ? 0 : 1;
-  size_t data_len = ((((n + page_offset) / 4096) + x) * 4096);
-
-  char *data = (char*)memalign(4096, data_len);
-  if (!data) {
-    NVM_FATAL("Cannot allocate aligned memory of length: %lu\n", data_len);
-    return Status::Corruption("Cannot allocate aligned memory''");
-  }
-
-  if (fd_->Read(nvm, read_pointer_, data, data_len) != data_len) {
+  if (fd_->Read(nvm, read_pointer_, scratch, n) != n) {
     return Status::IOError("Unable to read\n");
   }
 
-  NVM_DEBUG("Actually reading: %lu bytes, in page_offset: %d\n", n, page_offset);
-  //TODO: Can we avoid this memory copy?
-  memcpy(scratch, data + page_offset, n);
-  free(data);
-
   read_pointer_ += n;
-
   *result = Slice(scratch, n);
   return Status::OK();
 }
@@ -1175,7 +1177,8 @@ Status NVMRandomAccessFile::Read(uint64_t offset, size_t n, Slice* result,
   struct nvm *nvm = dir_->GetNVMApi();
 
   //Account for the metadata stored at the beginning of the virtual block.
-  uint64_t internal_offset = offset + sizeof(struct vblock_recov_meta);
+  // uint64_t internal_offset = offset + sizeof(struct vblock_recov_meta);
+  uint64_t internal_offset = offset;
 
   unsigned int ppa_offset = internal_offset / 4096;
   unsigned int page_offset = internal_offset % 4096;
@@ -1232,8 +1235,11 @@ NVMWritableFile::NVMWritableFile(const std::string& fname, nvm_file *fd,
   fd_->GetBlock(nvm, vlun_type);
 
   // TODO: Generalize page size
-  buf_limit_ = nvm->GetNPagesBlock(vlun_type) * 4096;
-  buf_ = (char*)memalign(4096, buf_limit_);
+  size_t real_buf_limit = nvm->GetNPagesBlock(vlun_type) * 4096;
+
+  // Account for the metadata to be stored at the end of the file
+  buf_limit_ = real_buf_limit - sizeof(struct vblock_close_meta);
+  buf_ = (char*)memalign(4096, real_buf_limit);
   if (!buf_) {
     NVM_FATAL("Could not allocate aligned memory\n");
   }
@@ -1249,7 +1255,7 @@ NVMWritableFile::NVMWritableFile(const std::string& fname, nvm_file *fd,
   NVM_DEBUG("INIT: buf_limit_: %lu, pages: %lu\n", buf_limit_,
                                           nvm->GetNPagesBlock(vlun_type));
 
-  //Append metadata to the internal buffer to enable recovery before giving it
+  //Write metadata to the internal buffer to enable recovery before giving it
   //to the upper layers. The responsibility of when to flush that buffer is left
   //to the upper layers.
   struct vblock_recov_meta vblock_meta;
@@ -1288,6 +1294,7 @@ bool NVMWritableFile::Flush(const bool force_flush) {
   struct nvm *nvm = dir_->GetNVMApi();
   size_t flush_len = cursize_ - curflush_;
   size_t ppa_flush_offset = CalculatePpaOffset(curflush_);
+  struct vblock_close_meta vblock_meta;
   bool page_aligned = false;
 
   //TODO: generalize page size
@@ -1299,15 +1306,25 @@ bool NVMWritableFile::Flush(const bool force_flush) {
     return true;
   }
 
-  // At this point, if a level 0 sstable exceeds block size something has gone
-  // wrong. In the normal path, when this happens data is flushed and the upper
-  // layer is informed that the leftover should be added to a new memtable.
-  // This might not be needed either...
-  if (l0_table) {
-    assert(cursize_ + flush_len <= buf_limit_);
-  }
+  assert (curflush_ + flush_len <= buf_limit_);
 
-  if (!force_flush) {
+  if (force_flush) {
+    NVM_DEBUG("Forced flush!!!!\n");
+    NVM_DEBUG("curflush_: %lu, flush_len: %lu, buf_limit: %lu\n", curflush_, flush_len, buf_limit_);
+    // Append vblock medatada when closing a block.
+    if (curflush_ + flush_len == buf_limit_) {
+      unsigned int meta_size = sizeof(vblock_meta);
+      vblock_meta.flags = VBLOCK_CLOSED;
+      vblock_meta.ppa_offset = ppa_flush_offset + flush_len / 4096;
+      vblock_meta.page_offset = flush_len % 4096;
+      memcpy(mem_, &vblock_meta, meta_size);
+      flush_len += meta_size;
+      page_aligned = (flush_len % 4096 == 0) ? true : false;
+      NVM_DEBUG("Appending metadata in vblock about to be closed!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
+    } else {
+      //TODO: Pass on to upper layers to append metadata to RocksDB WAL
+    }
+  } else {
     size_t disaligned_data = flush_len % 4096;
     flush_len -= disaligned_data;
     page_aligned = true;
@@ -1315,8 +1332,8 @@ bool NVMWritableFile::Flush(const bool force_flush) {
 
   NVM_DEBUG("cursize: %lu, buf_limit_: %lu, ppa_flush_offset: %lu, flush_len: %lu\n",
                              cursize_, buf_limit_, ppa_flush_offset, flush_len);
-
   // std::cout << "FLUSHING FILE: " << filename_ << std::endl;
+
   size_t written_bytes = fd_->FlushBlock(nvm, flush_, ppa_flush_offset,
                                                         flush_len, page_aligned);
   if (written_bytes < flush_len) {
@@ -1340,8 +1357,8 @@ bool NVMWritableFile::GetNewBlock() {
 
   //Preserve until we implement double buffering
   assert(cursize_ == buf_limit_);
-  assert(curflush_ == buf_limit_);
-  assert(mem_ == flush_);
+  assert(curflush_ == buf_limit_ + sizeof(struct vblock_close_meta));
+  assert(flush_ == mem_ + sizeof(struct vblock_close_meta));
 
   size_t new_buf_limit = nvm->GetNPagesBlock(vlun_id) * 4096;
 
@@ -1362,6 +1379,18 @@ bool NVMWritableFile::GetNewBlock() {
   flush_ = buf_;
   cursize_ = 0;
   curflush_ = 0;
+
+  //Write metadata to the internal buffer to enable recovery before giving it
+  //to the upper layers. The responsibility of when to flush that buffer is left
+  //to the upper layers.
+  struct vblock_recov_meta vblock_meta;
+  std::strcpy(vblock_meta.filename, filename_.c_str());
+  vblock_meta.pos = fd_->GetNextPos();
+
+  unsigned int meta_size = sizeof(vblock_meta);
+  memcpy(mem_, &vblock_meta, meta_size);
+  mem_ += meta_size;
+  cursize_ += meta_size;
 
   return true;
 }

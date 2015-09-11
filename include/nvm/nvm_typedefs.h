@@ -41,16 +41,13 @@ struct vblock {
   void *internals;
 };
 
-#define RDB_VBLOCK_FULL_BLOCK       0x00
-#define RDB_VBLOCK_HALF_BLOCK       0x01
-#define RDB_VBLOCK_LAST_BLOCK       0x03
-
 // Metadata that RocksDB keeps for each virtual block
 
-// Metadata describes the status of the last vblock in a nvm_file. It holds
-// information to continue writing before the database was closed. This metadata
-// is guaranteed to be stored when the database is closed gracefully.
-struct vblock_grace_meta {
+#define VBLOCK_OPEN         0x00
+#define VBLOCK_CLOSED       0x01
+
+// This metadata is appended to each vblock when it is properly closed.
+struct vblock_close_meta {
   size_t ppa_offset;            // Last ppa containing valid data
   size_t page_offset;           // Page offset inside of ppa_offset
   uint8_t flags;                // RDB_VBLOCK_* flags
