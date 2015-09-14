@@ -15,32 +15,28 @@ struct nba_channel {
 struct nba_block {
   unsigned long lun;
   sector_t phys_addr;
-
   unsigned long id;
-
   void *internals;
 };
-
-
-//TODO: This is the structure I want to use
-// struct vblock {
-//   size_t id;
-//   size_t owner_id;
-//   size_t bppa;
-//   size_t nppas;
-//   size_t ppa_bitmap;
-//   void *priv;
-//   unsigned int vlun_id;
-//   uint8_t flags;
-// };
-// Florin: size + number of pages maybe?
 
 struct vblock {
-  unsigned long vlun_id;
-  sector_t bppa;
   unsigned long id;
-  void *internals;
+  unsigned long owner_id;
+  unsigned long nppas;
+  unsigned long ppa_bitmap;
+  sector_t bppa;
+  void *priv;
+  unsigned int vlun_id;
+  uint8_t flags;
 };
+// Florin: size + number of pages maybe?
+
+// struct vblock {
+  // unsigned long vlun_id;
+  // sector_t bppa;
+  // unsigned long id;
+  // void *internals;
+// };
 
 // Metadata that RocksDB keeps for each virtual block
 

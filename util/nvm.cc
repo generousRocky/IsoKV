@@ -184,7 +184,7 @@ bool nvm::PutBlock(struct vblock *vblock) {
   NVM_DEBUG("Puting block: %lu\n", vblock->id);
   ret = ioctl(fd, NVM_PUT_BLOCK, vblock);
   if (ret == -1) {
-    NVM_DEBUG("could not put block from vlun %lu\n", vblock->vlun_id);
+    NVM_DEBUG("could not put block from vlun %d\n", vblock->vlun_id);
     return false;
   }
 
@@ -205,7 +205,7 @@ bool nvm::GetBlock(unsigned int vlun_id, struct vblock *vblock) {
     return false;
   }
 
-  NVM_DEBUG("Getting new block from lun: %lu - block_id:%lu\n",
+  NVM_DEBUG("Getting new block from lun: %d - block_id:%lu\n",
                                                 vblock->vlun_id, vblock->id);
 
   return true;
