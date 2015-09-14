@@ -1247,7 +1247,6 @@ NVMWritableFile::NVMWritableFile(const std::string& fname, nvm_file *fd,
   cursize_ += meta_size;
 }
 
-//TODO: Get rid of this and move responsibility to NVMWritableFile
 NVMWritableFile::~NVMWritableFile() {
   fd_->SetSeqWritableFile(nullptr);
 

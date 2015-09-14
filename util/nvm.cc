@@ -191,13 +191,12 @@ bool nvm::PutBlock(struct vblock *vblock) {
   return true;
 }
 
-//TODO: Should we have a block id for rocksdb metadata?
 // Caller of nvm::GetBlock is in charge of allocating and freeing vblock.
 bool nvm::GetBlock(unsigned int vlun_id, struct vblock *vblock) {
   long long ret;
 
   vblock->vlun_id = vlun_id;
-  // vblock->flags = 0x0;  //flags reserved for future features
+  vblock->flags = 0x0;
 
   ret = ioctl(fd, NVM_GET_BLOCK, vblock);
   if (ret == -1) {
