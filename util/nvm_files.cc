@@ -806,7 +806,7 @@ size_t nvm_file::ReadBlock(struct nvm *nvm, unsigned int block_offset,
   size_t base_ppa = current_vblock->bppa;
   size_t nppas = current_vblock->nppas;
   size_t current_ppa = base_ppa + ppa_offset;
-  unsigned long max_bytes_per_read = nvm->max_pages_in_io * 4096;
+  unsigned long max_bytes_per_read = nvm->max_pages_in_io * PAGE_SIZE;
   unsigned long bytes_per_read;
   unsigned int meta_beg_size = sizeof(struct vblock_recov_meta);
   uint8_t pages_per_read;
@@ -817,15 +817,18 @@ size_t nvm_file::ReadBlock(struct nvm *nvm, unsigned int block_offset,
   }
 
   //Always read at a page granurality
-  uint8_t x = ((data_len + page_offset + meta_beg_size) % 4096 == 0) ? 0 : 1;
-  size_t left = ((((data_len + page_offset + meta_beg_size) / 4096) + x) * 4096);
+  uint8_t x =
+            ((data_len + page_offset + meta_beg_size) % PAGE_SIZE == 0) ? 0 : 1;
+  size_t left =
+      ((((data_len + page_offset + meta_beg_size) / PAGE_SIZE) + x) * PAGE_SIZE);
 
-  assert(left <= (nppas * 4096));
-  assert((left % 4096) == 0);
+  assert(left <= (nppas * PAGE_SIZE));
+  assert((left % PAGE_SIZE) == 0);
 
-  char *page = (char*)memalign(4096, left * 4096);
+  char *page = (char*)memalign(PAGE_SIZE, left * PAGE_SIZE);
   if (!data) {
-    NVM_FATAL("Cannot allocate aligned memory of length: %lu\n", nppas * 4096);
+    NVM_FATAL("Cannot allocate aligned memory of length: %lu\n",
+                                                            nppas * PAGE_SIZE);
     return -1;
   }
 
@@ -834,9 +837,9 @@ size_t nvm_file::ReadBlock(struct nvm *nvm, unsigned int block_offset,
   while (left > 0) {
 retry:
     bytes_per_read = (left > max_bytes_per_read) ? max_bytes_per_read : left;
-    pages_per_read = bytes_per_read / 4096;
+    pages_per_read = bytes_per_read / PAGE_SIZE;
 
-    if ((unsigned)pread(fd_, read_iter, bytes_per_read, current_ppa * 4096)
+    if ((unsigned)pread(fd_, read_iter, bytes_per_read, current_ppa * PAGE_SIZE)
                                                           != bytes_per_read) {
       if (errno == EINTR) {
         goto retry;
@@ -861,9 +864,9 @@ retry:
 size_t nvm_file::Read(struct nvm *nvm, size_t read_pointer, char *data,
                                                         size_t data_len) {
   size_t nppas = nvm->GetNPagesBlock(0); //This is a momentary fix (FIXME)
-  unsigned int block_offset = read_pointer / (nppas * 4096);
-  size_t ppa_offset = (read_pointer / 4096) % (nppas * 4096);
-  unsigned int page_offset = read_pointer % 4096;
+  unsigned int block_offset = read_pointer / (nppas * PAGE_SIZE);
+  size_t ppa_offset = (read_pointer / PAGE_SIZE) % (nppas * PAGE_SIZE);
+  unsigned int page_offset = read_pointer % PAGE_SIZE;
   size_t left = data_len;
   size_t bytes_left_block;
   size_t bytes_per_read;
@@ -872,7 +875,7 @@ size_t nvm_file::Read(struct nvm *nvm, size_t read_pointer, char *data,
             sizeof(struct vblock_recov_meta) + sizeof(struct vblock_close_meta);
 
   while (left > 0) {
-    bytes_left_block = ((nppas - ppa_offset) * 4096) - meta_size;
+    bytes_left_block = ((nppas - ppa_offset) * PAGE_SIZE) - meta_size;
     bytes_per_read = (left > bytes_left_block) ? bytes_left_block : left;
     size_t read = ReadBlock(nvm, block_offset, ppa_offset, page_offset,
                                           data + total_read, bytes_per_read);
@@ -972,7 +975,7 @@ size_t nvm_file::FlushBlock(struct nvm *nvm, char *data, size_t ppa_offset,
   size_t base_ppa = current_vblock_->bppa;
   size_t nppas = current_vblock_->nppas;
   size_t current_ppa = base_ppa + ppa_offset;
-  unsigned long max_bytes_per_write = nvm->max_pages_in_io * 4096;
+  unsigned long max_bytes_per_write = nvm->max_pages_in_io * PAGE_SIZE;
   unsigned long bytes_per_write;
   uint8_t pages_per_write;
   uint8_t allocate_aligned_buf = 0;
@@ -988,10 +991,10 @@ size_t nvm_file::FlushBlock(struct nvm *nvm, char *data, size_t ppa_offset,
   //update and the that the page contains garbage. Another way of doing it is
   //only flushing pages and leaving the rest of the data in the log...
   if (!page_aligned) {
-    size_t disaligned_data = data_len % 4096;
-    size_t aligned_data = data_len / 4096;
+    size_t disaligned_data = data_len % PAGE_SIZE;
+    size_t aligned_data = data_len / PAGE_SIZE;
     uint8_t x = (disaligned_data == 0) ? 0 : 1;
-    write_len = ((aligned_data + x) * 4096);
+    write_len = ((aligned_data + x) * PAGE_SIZE);
 
     if (write_len != data_len) {
       //TODO: Add metadata on how much data is valid and add logic to skip the
@@ -1007,12 +1010,12 @@ size_t nvm_file::FlushBlock(struct nvm *nvm, char *data, size_t ppa_offset,
 
   unsigned long left = write_len;
 
-  assert(write_len <= nppas * 4096);
+  assert(write_len <= nppas * PAGE_SIZE);
 
   //TODO: Can we ensure that we do not need this?
   /* Verify that data is aligned although it should already be aligned */
-  if (UNLIKELY(((uintptr_t)data % 4096) != 0)) {
-    data_aligned = (char*)memalign(4096, write_len);
+  if (UNLIKELY(((uintptr_t)data % PAGE_SIZE) != 0)) {
+    data_aligned = (char*)memalign(PAGE_SIZE, write_len);
     if (!data_aligned) {
       NVM_FATAL("Cannot allocate aligned memory\n");
       return 0;
@@ -1028,10 +1031,10 @@ size_t nvm_file::FlushBlock(struct nvm *nvm, char *data, size_t ppa_offset,
   while (left > 0) {
     //write_len is guaranteed to be a multiple of PAGE_SIZE
     bytes_per_write = (left > max_bytes_per_write) ? max_bytes_per_write : left;
-    pages_per_write = bytes_per_write / 4096;
+    pages_per_write = bytes_per_write / PAGE_SIZE;
 
     if ((unsigned)pwrite(fd_, data_aligned, bytes_per_write,
-                                     current_ppa * 4096) != bytes_per_write) {
+                                     current_ppa * PAGE_SIZE) != bytes_per_write) {
       //TODO: See if we can recover. Use another ppa + mark bad page in bitmap?
       NVM_ERROR("ERROR: Page no written\n");
       return 0;
@@ -1165,11 +1168,11 @@ Status NVMRandomAccessFile::Read(uint64_t offset, size_t n, Slice* result,
   // uint64_t internal_offset = offset + sizeof(struct vblock_recov_meta);
   uint64_t internal_offset = offset;
 
-  unsigned int ppa_offset = internal_offset / 4096;
-  unsigned int page_offset = internal_offset % 4096;
+  unsigned int ppa_offset = internal_offset / PAGE_SIZE;
+  unsigned int page_offset = internal_offset % PAGE_SIZE;
 
-  size_t data_len = (((n / 4096) + 1) * 4096);
-  char *data = (char*)memalign(4096, data_len);
+  size_t data_len = (((n / PAGE_SIZE) + 1) * PAGE_SIZE);
+  char *data = (char*)memalign(PAGE_SIZE, data_len);
   if (!data) {
     NVM_FATAL("Cannot allocate aligned memory\n");
     return Status::Corruption("Cannot allocate aligned memory''");
@@ -1217,12 +1220,11 @@ NVMWritableFile::NVMWritableFile(const std::string& fname, nvm_file *fd,
   //Get block from block manager
   fd_->GetBlock(nvm, vlun_type);
 
-  // TODO: Generalize page size
-  size_t real_buf_limit = nvm->GetNPagesBlock(vlun_type) * 4096;
+  size_t real_buf_limit = nvm->GetNPagesBlock(vlun_type) * PAGE_SIZE;
 
   // Account for the metadata to be stored at the end of the file
   buf_limit_ = real_buf_limit - sizeof(struct vblock_close_meta);
-  buf_ = (char*)memalign(4096, real_buf_limit);
+  buf_ = (char*)memalign(PAGE_SIZE, real_buf_limit);
   if (!buf_) {
     NVM_FATAL("Could not allocate aligned memory\n");
   }
@@ -1263,7 +1265,7 @@ size_t NVMWritableFile::CalculatePpaOffset(size_t curflush) {
   // no longer holds, we would need to iterate vblocks_ in nvm_file, or hold a
   // ppa pointer for each WritableFile.
   // We always flush one page at the time
-  return curflush % nppas * 4096;
+  return curflush % nppas * PAGE_SIZE;
 }
 
 // We try to flush at a page granurality. We need to see how this affects
@@ -1275,8 +1277,7 @@ bool NVMWritableFile::Flush(const bool force_flush) {
   struct vblock_close_meta vblock_meta;
   bool page_aligned = false;
 
-  //TODO: generalize page size
-  if (!force_flush && flush_len < 4096) {
+  if (!force_flush && flush_len < PAGE_SIZE) {
     return true;
   }
 
@@ -1295,16 +1296,16 @@ bool NVMWritableFile::Flush(const bool force_flush) {
       vblock_meta.ppa_bitmap = 0x0; //Use real bad page information
       memcpy(mem_, &vblock_meta, meta_size);
       flush_len += meta_size;
-      page_aligned = (flush_len % 4096 == 0) ? true : false;
+      page_aligned = (flush_len % PAGE_SIZE == 0) ? true : false;
     } else {
       //TODO: Pass on to upper layers to append metadata to RocksDB WAL
       // TODO: This should be stored in the partial write structure and saved to
       // the metadata file
-      // vblock_meta.ppa_offset = ppa_flush_offset + flush_len / 4096;
-      // vblock_meta.page_offset = flush_len % 4096;
+      // vblock_meta.ppa_offset = ppa_flush_offset + flush_len / PAGE_SIZE;
+      // vblock_meta.page_offset = flush_len % PAGE_SIZE;
     }
   } else {
-    size_t disaligned_data = flush_len % 4096;
+    size_t disaligned_data = flush_len % PAGE_SIZE;
     flush_len -= disaligned_data;
     page_aligned = true;
   }
@@ -1335,7 +1336,7 @@ bool NVMWritableFile::GetNewBlock() {
   assert(curflush_ == buf_limit_ + sizeof(struct vblock_close_meta));
   assert(flush_ == mem_ + sizeof(struct vblock_close_meta));
 
-  size_t new_buf_limit = nvm->GetNPagesBlock(vlun_id) * 4096;
+  size_t new_buf_limit = nvm->GetNPagesBlock(vlun_id) * PAGE_SIZE;
 
   // No need to reallocate memory and aligned. We reuse the same buffer. If this
   // becomes a security issues, we can zeroized the buffer before reusing it.
@@ -1343,7 +1344,7 @@ bool NVMWritableFile::GetNewBlock() {
     buf_limit_ = new_buf_limit;
     free(buf_);
 
-    buf_ = (char*)memalign(4096, buf_limit_);
+    buf_ = (char*)memalign(PAGE_SIZE, buf_limit_);
     if (!buf_) {
       NVM_FATAL("Could not allocate aligned memory\n");
       return false;
@@ -1528,19 +1529,19 @@ Status NVMRandomRWFile::Write(uint64_t offset, const Slice& data) {
   //Account for the metadata stored at the beginning of the virtual block.
   uint64_t internal_offset = offset + sizeof(struct vblock_recov_meta);
 
-  unsigned int start_block_id = internal_offset / 4096;
-  unsigned int end_block_id = (internal_offset + data.size()) / 4096;
-  unsigned int block_offset = internal_offset % 4096;
+  unsigned int start_block_id = internal_offset / PAGE_SIZE;
+  unsigned int end_block_id = (internal_offset + data.size()) / PAGE_SIZE;
+  unsigned int block_offset = internal_offset % PAGE_SIZE;
   unsigned int crt_written = 0;
 
   while(start_block_id != end_block_id) {
     char *crt_data;
     //TODO get proper number of pages
     size_t npages = 128;
-    size_t size = 4096 * npages;
+    size_t size = PAGE_SIZE * npages;
     size_t size_to_write;
 
-    crt_data = (char *)memalign(4096, size);
+    crt_data = (char *)memalign(PAGE_SIZE, size);
 
     if(fd_->ReadBlock(nvm, start_block_id, 0, 0, crt_data, size) != size) {
       free(crt_data);
@@ -1593,11 +1594,11 @@ Status NVMRandomRWFile::Read(uint64_t offset, size_t n, Slice* result,
   //Account for the metadata stored at the beginning of the virtual block.
   uint64_t internal_offset = offset + sizeof(struct vblock_recov_meta);
 
-  unsigned int ppa_offset = internal_offset / 4096;
-  unsigned int page_offset = internal_offset % 4096;
+  unsigned int ppa_offset = internal_offset / PAGE_SIZE;
+  unsigned int page_offset = internal_offset % PAGE_SIZE;
 
-  size_t data_len = (((n / 4096) + 1) * 4096);
-  char *data = (char*)memalign(4096, data_len);
+  size_t data_len = (((n / PAGE_SIZE) + 1) * PAGE_SIZE);
+  char *data = (char*)memalign(PAGE_SIZE, data_len);
   if (!data) {
     NVM_FATAL("Cannot allocate aligned memory\n");
     return Status::Corruption("Cannot allocate aligned memory''");

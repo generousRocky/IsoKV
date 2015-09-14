@@ -1,6 +1,10 @@
 #ifndef _NVM_TYPEDEFS_H_
 #define _NVM_TYPEDEFS_H_
 
+// TODO: We should get this using and ioctl that tells us gran_read, gran_write,
+// and gran_erase for each lun.
+#define PAGE_SIZE 4096
+
 typedef unsigned long long sector_t;
 
 struct nba_channel {
