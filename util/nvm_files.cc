@@ -802,9 +802,10 @@ struct nvm_page *nvm_file::GetNVMPage(const unsigned long idx) {
 size_t nvm_file::ReadBlock(struct nvm *nvm, unsigned int block_offset,
                               size_t ppa_offset, unsigned int page_offset,
                                                 char *data, size_t data_len) {
-  size_t base_ppa = vblocks_[block_offset]->bppa;
+  struct vblock *current_vblock = vblocks_[block_offset];
+  size_t base_ppa = current_vblock->bppa;
+  size_t nppas = current_vblock->nppas;
   size_t current_ppa = base_ppa + ppa_offset;
-  size_t nppas = nvm->GetNPagesBlock(0); //This is a momentary fix (FIXME)
   unsigned long max_bytes_per_read = nvm->max_pages_in_io * 4096;
   unsigned long bytes_per_read;
   unsigned int meta_beg_size = sizeof(struct vblock_recov_meta);
@@ -871,7 +872,6 @@ size_t nvm_file::Read(struct nvm *nvm, size_t read_pointer, char *data,
             sizeof(struct vblock_recov_meta) + sizeof(struct vblock_close_meta);
 
   while (left > 0) {
-    //TODO: This has to be done better to hide metadata size
     bytes_left_block = ((nppas - ppa_offset) * 4096) - meta_size;
     bytes_per_read = (left > bytes_left_block) ? bytes_left_block : left;
     size_t read = ReadBlock(nvm, block_offset, ppa_offset, page_offset,
@@ -969,9 +969,8 @@ void nvm_file::PutAllBlocks(struct nvm *nvm) {
 // still respect PAGE_SIZE as write granurality
 size_t nvm_file::FlushBlock(struct nvm *nvm, char *data, size_t ppa_offset,
                                         size_t data_len, bool page_aligned) {
-  // size_t nppas = vblock_->nppas;
-  size_t nppas = nvm->GetNPagesBlock(0); //This is a momentary fix (FIXME)
   size_t base_ppa = current_vblock_->bppa;
+  size_t nppas = current_vblock_->nppas;
   size_t current_ppa = base_ppa + ppa_offset;
   unsigned long max_bytes_per_write = nvm->max_pages_in_io * 4096;
   unsigned long bytes_per_write;
