@@ -192,6 +192,9 @@ class NVMWritableFile : public WritableFile {
                                 // method to determine if the size of the file
                                 // can exceed the size of a block or not.
 
+    // write
+    struct vblock_partial_meta write_pointer_;
+
     unsigned long channel;
 
     //JAVIER: This will go

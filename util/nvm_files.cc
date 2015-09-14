@@ -963,13 +963,8 @@ void nvm_file::PutAllBlocks(struct nvm *nvm) {
 // sstable. This will require to send a ppa_list down to LightNVM to enable
 // multipage writes - at the moment multipage assumes sequential ppas
 //
-// TODO: Keep a pointer to write block to flash as it is being filled up. This
-// would allow to write in smaller chunks (e.g., 1MB).
-//
 // Note that data_len is the real length of the data to be flushed to the flash
 // block. FlushBlock takes care of working on PAGE_SIZE chunks
-// TODO: Make a function to flush at a page level to allow partial writes but
-// still respect PAGE_SIZE as write granurality
 size_t nvm_file::FlushBlock(struct nvm *nvm, char *data, size_t ppa_offset,
                                         size_t data_len, bool page_aligned) {
   size_t base_ppa = current_vblock_->bppa;
@@ -981,15 +976,18 @@ size_t nvm_file::FlushBlock(struct nvm *nvm, char *data, size_t ppa_offset,
   uint8_t allocate_aligned_buf = 0;
   unsigned int meta_size = 0;
 
-  //Always write at a page granurality
+  // Always write at a page granurality
   size_t write_len;
   char *data_aligned;
 
-  //Flush has been forced by upper layers. The leftover space to complete the
-  //page will be padded with \0
-  //TODO: We need to save some metadata where we store that we have forced an
-  //update and the that the page contains garbage. Another way of doing it is
-  //only flushing pages and leaving the rest of the data in the log...
+  // Page metadata to be stored in out of bound area
+  struct vpage_meta per_page_meta = {
+    .valid_bytes = PAGE_SIZE,
+    .flags = VPAGE_VALID | VPAGE_FULL,
+  };
+  struct vpage_meta last_page_meta;
+
+  // Flush has been forced by upper layers and page is not aligned to PAGE_SIZE
   if (!page_aligned) {
     size_t disaligned_data = data_len % PAGE_SIZE;
     size_t aligned_data = data_len / PAGE_SIZE;
@@ -997,13 +995,12 @@ size_t nvm_file::FlushBlock(struct nvm *nvm, char *data, size_t ppa_offset,
     write_len = ((aligned_data + x) * PAGE_SIZE);
 
     if (write_len != data_len) {
-      //TODO: Add metadata on how much data is valid and add logic to skip the
-      //rest of this page in future operations
+      last_page_meta.valid_bytes = disaligned_data;
+      last_page_meta.flags = VPAGE_VALID;
+    } else {
+      // Last page is yet another complete page
+      last_page_meta = per_page_meta;
     }
-    //TODO: Add padding
-    // for (size_t i = aligned_data + disaligned_data; i < write_len; i++) {
-      // data[i] = "\x00";
-    // }
   } else {
     write_len = data_len;
   }
@@ -1012,8 +1009,7 @@ size_t nvm_file::FlushBlock(struct nvm *nvm, char *data, size_t ppa_offset,
 
   assert(write_len <= nppas * PAGE_SIZE);
 
-  //TODO: Can we ensure that we do not need this?
-  /* Verify that data is aligned although it should already be aligned */
+  /* Verify that data buffer is aligned, although it should already be aligned */
   if (UNLIKELY(((uintptr_t)data % PAGE_SIZE) != 0)) {
     data_aligned = (char*)memalign(PAGE_SIZE, write_len);
     if (!data_aligned) {
@@ -1027,9 +1023,10 @@ size_t nvm_file::FlushBlock(struct nvm *nvm, char *data, size_t ppa_offset,
   }
 
   //TODO: Use libaio instead of pread/pwrite
-  //TODO: Write in out of bound area when API is ready
+  //TODO: Write in out of bound area when API is ready (per_page_meta and
+  //last_page_meta
   while (left > 0) {
-    //write_len is guaranteed to be a multiple of PAGE_SIZE
+    // left is guaranteed to be a multiple of PAGE_SIZE
     bytes_per_write = (left > max_bytes_per_write) ? max_bytes_per_write : left;
     pages_per_write = bytes_per_write / PAGE_SIZE;
 
@@ -1299,10 +1296,9 @@ bool NVMWritableFile::Flush(const bool force_flush) {
       page_aligned = (flush_len % PAGE_SIZE == 0) ? true : false;
     } else {
       //TODO: Pass on to upper layers to append metadata to RocksDB WAL
-      // TODO: This should be stored in the partial write structure and saved to
-      // the metadata file
-      // vblock_meta.ppa_offset = ppa_flush_offset + flush_len / PAGE_SIZE;
-      // vblock_meta.page_offset = flush_len % PAGE_SIZE;
+      // TODO: Save this partial write structure to the metadata file
+      write_pointer_.ppa_offset = ppa_flush_offset + flush_len / PAGE_SIZE;
+      write_pointer_.page_offset = flush_len % PAGE_SIZE;
     }
   } else {
     size_t disaligned_data = flush_len % PAGE_SIZE;

@@ -35,13 +35,6 @@ struct vblock {
 };
 // Florin: size + number of pages maybe?
 
-// struct vblock {
-  // unsigned long vlun_id;
-  // sector_t bppa;
-  // unsigned long id;
-  // void *internals;
-// };
-
 // Metadata that RocksDB keeps for each virtual block
 
 #define VBLOCK_OPEN         0x00
@@ -70,6 +63,16 @@ struct vblock_close_meta {
 struct vblock_partial_meta {
   size_t ppa_offset;            // Last ppa containing valid data
   size_t page_offset;           // Page offset inside of ppa_offset
+};
+
+#define VPAGE_INVALID   0x0
+#define VPAGE_VALID     0x1
+#define VPAGE_FULL      0x03
+
+// This metadata is stored in the out of bound area of each page
+struct vpage_meta {
+  size_t valid_bytes;           // Valid bytes in page from its start
+  uint8_t flags;                // Flags to determine the state of the page
 };
 
 struct nvm_channel {
