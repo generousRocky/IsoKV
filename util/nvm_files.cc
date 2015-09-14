@@ -1292,13 +1292,17 @@ bool NVMWritableFile::Flush(const bool force_flush) {
     if (curflush_ + flush_len == buf_limit_) {
       unsigned int meta_size = sizeof(vblock_meta);
       vblock_meta.flags = VBLOCK_CLOSED;
-      vblock_meta.ppa_offset = ppa_flush_offset + flush_len / 4096;
-      vblock_meta.page_offset = flush_len % 4096;
+      vblock_meta.written_bytes = buf_limit_;
+      vblock_meta.ppa_bitmap = 0x0; //Use real bad page information
       memcpy(mem_, &vblock_meta, meta_size);
       flush_len += meta_size;
       page_aligned = (flush_len % 4096 == 0) ? true : false;
     } else {
       //TODO: Pass on to upper layers to append metadata to RocksDB WAL
+      // TODO: This should be stored in the partial write structure and saved to
+      // the metadata file
+      // vblock_meta.ppa_offset = ppa_flush_offset + flush_len / 4096;
+      // vblock_meta.page_offset = flush_len % 4096;
     }
   } else {
     size_t disaligned_data = flush_len % 4096;

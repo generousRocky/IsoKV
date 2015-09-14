@@ -29,6 +29,7 @@ struct nba_block {
 //   size_t bppa;
 //   size_t nppas;
 //   size_t ppa_bitmap;
+//   void *priv;
 //   unsigned int vlun_id;
 //   uint8_t flags;
 // };
@@ -46,13 +47,6 @@ struct vblock {
 #define VBLOCK_OPEN         0x00
 #define VBLOCK_CLOSED       0x01
 
-// This metadata is appended to each vblock when it is properly closed.
-struct vblock_close_meta {
-  size_t ppa_offset;            // Last ppa containing valid data
-  size_t page_offset;           // Page offset inside of ppa_offset
-  uint8_t flags;                // RDB_VBLOCK_* flags
-};
-
 // This metadata written in the first sizeof(struct vblock_recov_meta) bytes
 // of the block before it is given to upper layers in RocksDB. This metadata is
 // used to reconstruct the nvm_file in case of a crash.
@@ -61,6 +55,21 @@ struct vblock_recov_meta {
   char filename[100];           // Filename to which the vblock belongs to.
                                 // Filenames are used by RocksDB as GUIs
   size_t pos;                   // Position of the block in the nvm_file;
+};
+
+// This metadata is appended to each vblock when it is properly closed.
+struct vblock_close_meta {
+  size_t written_bytes;         // Number of valid bytes written in block
+  size_t ppa_bitmap;            // Updated bitmap of valid pages;
+  uint8_t flags;                // RDB_VBLOCK_* flags
+};
+
+// This metadata is used to keep track of where to write in a partially written
+// nvm_block. This metadata allows also to keep track of the write pointer when
+// a block is forced to flush and a page is partially written.
+struct vblock_partial_meta {
+  size_t ppa_offset;            // Last ppa containing valid data
+  size_t page_offset;           // Page offset inside of ppa_offset
 };
 
 struct nvm_channel {
