@@ -41,6 +41,7 @@ class SequentialFile;
 class Slice;
 class WritableFile;
 class Directory;
+class FilePrivateMetadata;
 struct DBOptions;
 class RateLimiter;
 class ThreadStatusUpdater;
@@ -574,6 +575,12 @@ class WritableFile {
     }
   }
 
+  // Returns a handle to the metadata used by the backend implementing
+  // WriteableFile
+  virtual FilePrivateMetadata* GetMetadataHandle() {
+    return nullptr;
+  }
+
  protected:
   /*
    * Pre-allocate space for a file.
@@ -908,6 +915,21 @@ class WritableFileWrapper : public WritableFile {
  private:
   WritableFile* target_;
 };
+
+class FilePrivateMetadata {
+ public:
+  FilePrivateMetadata() {}
+  virtual ~FilePrivateMetadata() {}
+
+  // Must return encoded metadata that can be appended to the MANIFEST. Look
+  // into VersionEdit::EncodeTo to see how the encoding should be performed.
+  virtual std::string GetEncodedMetadata() {
+    return "";
+  }
+
+  virtual void UpdateMetadata() {}
+};
+
 
 // Returns a new environment that stores its data in memory and delegates
 // all non-file-storage tasks to base_env. The caller must delete the result

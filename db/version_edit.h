@@ -13,6 +13,7 @@
 #include <utility>
 #include <vector>
 #include <string>
+#include "rocksdb/env.h"
 #include "rocksdb/cache.h"
 #include "db/dbformat.h"
 #include "util/arena.h"
@@ -72,6 +73,9 @@ struct FileMetaData {
   // Needs to be disposed when refs becomes 0.
   Cache::Handle* table_reader_handle;
 
+  // Private data belonging to the storage backend
+  FilePrivateMetadata* priv_meta_handle;
+
   // Stats for compensating deletion entries during compaction
 
   // File size compensated by deletion entry.
@@ -96,6 +100,7 @@ struct FileMetaData {
         smallest_seqno(kMaxSequenceNumber),
         largest_seqno(0),
         table_reader_handle(nullptr),
+        priv_meta_handle(nullptr),
         compensated_file_size(0),
         num_entries(0),
         num_deletions(0),
@@ -113,6 +118,10 @@ struct FileMetaData {
     largest.DecodeFrom(key);
     smallest_seqno = std::min(smallest_seqno, seqno);
     largest_seqno = std::max(largest_seqno, seqno);
+  }
+
+  void UpdatePrivateMetadataHandle(FilePrivateMetadata *handle) {
+    priv_meta_handle = handle;
   }
 };
 
