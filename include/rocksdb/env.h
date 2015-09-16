@@ -339,7 +339,7 @@ class Env {
   virtual uint64_t GetThreadID() const;
 
   // Encode metadata used by the storage backend implementing Env
-  static void EncodePrivateMetadata(void *metadata);
+  static void EncodePrivateMetadata(std::string *dst, void *metadata);
 
  protected:
   // The pointer to an internal structure that will update the

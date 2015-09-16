@@ -117,7 +117,7 @@ struct FileMetaData {
   }
 
   void EncodePrivateMetadata(std::string* dst) const {
-    Env::EncodePrivateMetadata(priv_meta);
+    Env::EncodePrivateMetadata(dst, priv_meta);
   }
 
   void FreePrivateMetadata() const {
