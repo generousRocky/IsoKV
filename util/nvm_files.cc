@@ -1068,6 +1068,24 @@ bool nvm_file::HasBlock() {
 }
 
 /*
+ * FilePrivateMetadata implementation
+ */
+NVMPrivateMetadata::NVMPrivateMetadata(nvm_file *file) {
+  file_ = file;
+}
+
+NVMPrivateMetadata::~NVMPrivateMetadata() {}
+
+std::string NVMPrivateMetadata::GetEncodedMetadata() {
+  return "";
+}
+
+//TODO: Can we maintain a friend reference to NVMWritableFile to simplify this?
+void NVMPrivateMetadata::UpdateMetadataHandle(nvm_file *file) {
+  file_ = file;
+}
+
+/*
  * SequentialFile implementation
  */
 NVMSequentialFile::NVMSequentialFile(const std::string& fname, nvm_file *fd,
@@ -1210,6 +1228,7 @@ NVMWritableFile::NVMWritableFile(const std::string& fname, nvm_file *fd,
   filename_(fname) {
   fd_ = fd;
   dir_ = dir;
+  metadata_handle = new NVMPrivateMetadata(fd_); //JAVIER: parameters?
 
   struct nvm *nvm = dir_->GetNVMApi();
   //TODO: Use the vlun type when this is available
@@ -1493,6 +1512,11 @@ size_t NVMWritableFile::GetUniqueId(char* id, size_t max_size) const {
 }
 
 #endif
+
+FilePrivateMetadata* NVMWritableFile::GetMetadataHandle() {
+  metadata_handle->UpdateMetadataHandle(fd_);
+  return metadata_handle;
+}
 
 /*
  * RandomRWFile implementation

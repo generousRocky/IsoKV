@@ -112,6 +112,16 @@ class NVMFileLock : public FileLock {
     std::string filename;
 };
 
+class NVMPrivateMetadata: public FilePrivateMetadata {
+ private:
+  nvm_file *file_;
+ public:
+  NVMPrivateMetadata(nvm_file *file);
+  virtual ~NVMPrivateMetadata();
+  virtual std::string GetEncodedMetadata() override;
+  void UpdateMetadataHandle(nvm_file *file);
+};
+
 class NVMSequentialFile: public SequentialFile {
   private:
     std::string filename_;
@@ -195,6 +205,10 @@ class NVMWritableFile : public WritableFile {
     // write
     struct vblock_partial_meta write_pointer_;
 
+    // Private metadata
+    NVMPrivateMetadata* metadata_handle;
+
+
     unsigned long channel;
 
     //JAVIER: This will go
@@ -222,6 +236,7 @@ class NVMWritableFile : public WritableFile {
     virtual uint64_t GetFileSize() override;
 
     virtual Status InvalidateCache(size_t offset, size_t length) override;
+    virtual FilePrivateMetadata* GetMetadataHandle() override;
 
 #ifdef ROCKSDB_FALLOCATE_PRESENT
     virtual Status Allocate(off_t offset, off_t len) override;

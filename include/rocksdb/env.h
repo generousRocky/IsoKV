@@ -359,9 +359,6 @@ class FilePrivateMetadata {
    virtual std::string GetEncodedMetadata() {
     return "";
    }
-
-   virtual void SetMetadataHandle() {}
-   virtual void UpdateMetadata() {}
 };
 
 // The factory function to construct a ThreadStatusUpdater.  Any Env
