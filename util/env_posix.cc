@@ -92,13 +92,32 @@ void Env::EncodePrivateMetadata(std::string *dst, void *metadata) {
   }
 
   struct test_metadata *test = (struct test_metadata*)metadata;
-  printf("Made it!! test1: %lu, test2: %llu, test3: %d, test4:%d\n",
+  printf("Encoding: test1: %lu, test2: %llu, test3: %d, test4:%d\n",
       test->test1, test->test2, test->test3, test->test4);
 
   PutVarint64(dst, test->test1);
   PutVarint64(dst, test->test2);
   PutVarint32(dst, test->test3);
   PutVarint32(dst, test->test4);
+}
+
+bool Env::DecodePrivateMetadata(Slice *input) {
+  uint32_t tag;
+  uint32_t meta32;
+  uint64_t meta64;
+
+  GetVarint32(input, &tag);
+  printf("Tag: %d\n", tag);
+  GetVarint64(input, &meta64);
+  printf("Meta: %lu\n", meta64);
+  GetVarint64(input, &meta64);
+  printf("Meta: %lu\n", meta64);
+  GetVarint32(input, &meta32);
+  printf("Meta: %d\n", meta32);
+  GetVarint32(input, &meta32);
+  printf("Meta: %d\n", meta32);
+
+  return true;
 }
 
 namespace {
