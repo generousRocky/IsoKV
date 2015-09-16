@@ -356,9 +356,7 @@ class FilePrivateMetadata {
 
    // must return encoded metadata that can be appended to the MANIFEST. Look
    // into VersionEddit::EncodeTO to see how encoding should be performed.
-   virtual std::string GetEncodedMetadata() {
-    return "";
-   }
+   virtual void EncodeMetadata(std::string *dst) {}
 };
 
 // The factory function to construct a ThreadStatusUpdater.  Any Env

@@ -110,6 +110,10 @@ struct FileMetaData {
   void UpdatePrivateMetadataHandle(FilePrivateMetadata* handle) {
     priv_meta_handle = handle;
   }
+
+  void EncodePrivateMetadata(std::string* dst) const {
+    priv_meta_handle->EncodeMetadata(dst);
+  }
 };
 
 // A compressed copy of file meta data that just contain

@@ -28,6 +28,7 @@ enum Tag {
   kNewFile = 7,
   // 8 was used for large value refs
   kPrevLogNumber = 9,
+  kPrivMeta = 10,
 
   // these are new formats divergent from open source leveldb
   kNewFile2 = 100,
@@ -120,7 +121,11 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
     PutVarint64(dst, f.smallest_seqno);
     PutVarint64(dst, f.largest_seqno);
 
-    //TODO: Javier: Encode storage backend specific metadata here
+    // Encode storage backend private metadata if any
+    if (f.priv_meta_handle != nullptr) {
+      PutVarint32(dst, kPrivMeta);
+      f.EncodePrivateMetadata(dst);
+    }
   }
 
   // 0 is default and does not need to be explicitly written

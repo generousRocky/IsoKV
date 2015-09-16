@@ -2,6 +2,7 @@
 
 #include "nvm/nvm.h"
 #include "malloc.h"
+#include "util/coding.h"
 #include <cstring>
 
 namespace rocksdb {
@@ -1076,8 +1077,23 @@ NVMPrivateMetadata::NVMPrivateMetadata(nvm_file *file) {
 
 NVMPrivateMetadata::~NVMPrivateMetadata() {}
 
-std::string NVMPrivateMetadata::GetEncodedMetadata() {
-  return "";
+void NVMPrivateMetadata::EncodeMetadata(std::string *dst) {
+  std::vector<struct vblock *>::iterator it;
+  std::string metadata;
+
+  // For now store the whole vblock as metadata. When we can retrieve a vblock
+  // from its ID from the BM we can reduces the amount of metadata stored in
+  // MANIFEST
+  for (it = file_->vblocks_.begin(); it != file_->vblocks_.end(); it++) {
+    PutVarint32(dst, separator_);
+    PutVarint64(dst, (*it)->id);
+    PutVarint64(dst, (*it)->owner_id);
+    PutVarint64(dst, (*it)->nppas);
+    PutVarint64(dst, (*it)->ppa_bitmap);
+    PutVarint64(dst, (*it)->bppa);
+    PutVarint32(dst, (*it)->vlun_id);
+    PutVarint32(dst, (*it)->flags);
+  }
 }
 
 //TODO: Can we maintain a friend reference to NVMWritableFile to simplify this?
