@@ -711,7 +711,7 @@ Status CompactionJob::InstallCompactionResults(
     compaction->edit()->AddFile(compaction->output_level(), out.number,
                                 out.path_id, out.file_size, out.smallest,
                                 out.largest, out.smallest_seqno,
-                                out.largest_seqno, out.need_compaction);
+                                out.largest_seqno, nullptr, out.need_compaction);
   }
   return versions_->LogAndApply(compaction->column_family_data(),
                                 mutable_cf_options, compaction->edit(),

@@ -122,7 +122,7 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
     PutVarint64(dst, f.largest_seqno);
 
     // Encode storage backend private metadata if any
-    if (f.priv_meta_handle != nullptr) {
+    if (f.priv_meta != nullptr) {
       PutVarint32(dst, kPrivMeta);
       f.EncodePrivateMetadata(dst);
     }

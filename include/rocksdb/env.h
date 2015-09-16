@@ -338,6 +338,9 @@ class Env {
   // Returns the ID of the current thread.
   virtual uint64_t GetThreadID() const;
 
+  // Encode metadata used by the storage backend implementing Env
+  static void EncodePrivateMetadata(void *metadata);
+
  protected:
   // The pointer to an internal structure that will update the
   // status of each thread.
@@ -356,7 +359,7 @@ class FilePrivateMetadata {
 
    // must return encoded metadata that can be appended to the MANIFEST. Look
    // into VersionEddit::EncodeTO to see how encoding should be performed.
-   virtual void EncodeMetadata(std::string *dst) {}
+   virtual void* GetMetadata() { return nullptr; }
 };
 
 // The factory function to construct a ThreadStatusUpdater.  Any Env

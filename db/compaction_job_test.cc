@@ -143,7 +143,7 @@ class CompactionJobTest : public testing::Test {
 
       VersionEdit edit;
       edit.AddFile(0, file_number, 0, 10, smallest, largest, smallest_seqno,
-                   largest_seqno, false);
+                   largest_seqno, nullptr, false);
 
       mutex_.Lock();
       versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),

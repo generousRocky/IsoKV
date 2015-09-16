@@ -404,7 +404,7 @@ class Repairer {
       const TableInfo& t = tables_[i];
       edit_->AddFile(0, t.meta.fd.GetNumber(), t.meta.fd.GetPathId(),
                      t.meta.fd.GetFileSize(), t.meta.smallest, t.meta.largest,
-                     t.min_sequence, t.max_sequence,
+                     t.min_sequence, t.max_sequence, nullptr,
                      t.meta.marked_for_compaction);
     }
 
