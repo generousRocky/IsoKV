@@ -581,6 +581,22 @@ class PosixMmapFile : public WritableFile {
 #endif
 };
 
+class PosixPrivateMetadataTest: public FilePrivateMetadata {
+ public:
+  PosixPrivateMetadataTest(std::string filename) {
+    filename_ = filename;
+  }
+
+  virtual ~PosixPrivateMetadataTest() {}
+
+  virtual std::string GetEncodedMetadata() override {
+    printf("Getting encoded metadata from %s\n", filename_.c_str());
+    return "";
+  }
+ private:
+  std::string filename_;
+};
+
 // Use posix write to write data to a file.
 class PosixWritableFile : public WritableFile {
  private:
@@ -591,6 +607,8 @@ class PosixWritableFile : public WritableFile {
   bool fallocate_with_keep_size_;
 #endif
 
+  PosixPrivateMetadataTest* metadata_handle =
+                                        new PosixPrivateMetadataTest(filename_);
  public:
   PosixWritableFile(const std::string& fname, int fd, const EnvOptions& options)
       : filename_(fname), fd_(fd), filesize_(0) {
@@ -721,6 +739,10 @@ class PosixWritableFile : public WritableFile {
     return GetUniqueIdFromFile(fd_, id, max_size);
   }
 #endif
+
+  virtual FilePrivateMetadata* GetMetadataHandle() override {
+    return metadata_handle;
+  }
 };
 
 class PosixRandomRWFile : public RandomRWFile {

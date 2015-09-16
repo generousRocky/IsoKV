@@ -243,6 +243,10 @@ Status BuildTable(
       file_writer->Sync(ioptions.use_fsync);
     }
     if (s.ok()) {
+      FilePrivateMetadata *test = file_writer->GetPrivateMetadataHandle();
+      if (test != nullptr) {
+        test->GetEncodedMetadata();
+      }
       s = file_writer->Close();
     }
 

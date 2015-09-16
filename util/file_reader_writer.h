@@ -84,6 +84,10 @@ class WritableFileWriter {
 
   WritableFile* writable_file() const { return writable_file_.get(); }
 
+  FilePrivateMetadata* GetPrivateMetadataHandle() {
+    return writable_file_->GetMetadataHandle();
+  }
+
  private:
   Status RangeSync(off_t offset, off_t nbytes);
   size_t RequestToken(size_t bytes);

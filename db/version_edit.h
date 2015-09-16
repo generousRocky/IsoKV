@@ -13,6 +13,7 @@
 #include <utility>
 #include <vector>
 #include <string>
+#include "rocksdb/env.h"
 #include "rocksdb/cache.h"
 #include "db/dbformat.h"
 #include "util/arena.h"
@@ -72,6 +73,9 @@ struct FileMetaData {
   // Needs to be disposed when refs becomes 0.
   Cache::Handle* table_reader_handle;
 
+  // Private metadata belonging to the storage backend
+  FilePrivateMetadata* priv_meta_handle;
+
   // Stats for compensating deletion entries during compaction
 
   // File size compensated by deletion entry.
@@ -94,6 +98,7 @@ struct FileMetaData {
       : refs(0),
         being_compacted(false),
         table_reader_handle(nullptr),
+        priv_meta_handle(nullptr),
         compensated_file_size(0),
         num_entries(0),
         num_deletions(0),
@@ -101,6 +106,10 @@ struct FileMetaData {
         raw_value_size(0),
         init_stats_from_file(false),
         marked_for_compaction(false) {}
+
+  void UpdatePrivateMetadataHandle(FilePrivateMetadata* handle) {
+    priv_meta_handle = handle;
+  }
 };
 
 // A compressed copy of file meta data that just contain

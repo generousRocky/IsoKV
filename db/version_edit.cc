@@ -119,6 +119,8 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
     PutLengthPrefixedSlice(dst, f.largest.Encode());
     PutVarint64(dst, f.smallest_seqno);
     PutVarint64(dst, f.largest_seqno);
+
+    //TODO: Javier: Encode storage backend specific metadata here
   }
 
   // 0 is default and does not need to be explicitly written

@@ -42,6 +42,7 @@ class Slice;
 class WritableFile;
 class RandomRWFile;
 class Directory;
+class FilePrivateMetadata;
 struct DBOptions;
 class RateLimiter;
 class ThreadStatusUpdater;
@@ -348,6 +349,21 @@ class Env {
   void operator=(const Env&);
 };
 
+class FilePrivateMetadata {
+ public:
+   FilePrivateMetadata() {}
+   virtual ~FilePrivateMetadata() {}
+
+   // must return encoded metadata that can be appended to the MANIFEST. Look
+   // into VersionEddit::EncodeTO to see how encoding should be performed.
+   virtual std::string GetEncodedMetadata() {
+    return "";
+   }
+
+   virtual void SetMetadataHandle();
+   virtual void UpdateMetadata();
+};
+
 // The factory function to construct a ThreadStatusUpdater.  Any Env
 // that supports GetThreadList() feature should call this function in its
 // constructor to initialize thread_status_updater_.
@@ -546,6 +562,12 @@ class WritableFile {
   // supports direct IO.
   bool SupportsDirectIO() {
     return false;
+  }
+
+  // Returns a handle to the metadata used by the backend implementing
+  // WritableFile
+  virtual FilePrivateMetadata* GetMetadataHandle() {
+    return nullptr;
   }
  protected:
   /*
