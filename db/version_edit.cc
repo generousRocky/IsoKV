@@ -280,7 +280,19 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
             GetInternalKey(&input, &f.smallest) &&
             GetInternalKey(&input, &f.largest) &&
             GetVarint64(&input, &f.smallest_seqno) &&
-            GetVarint64(&input, &f.largest_seqno)) {
+            GetVarint64(&input, &f.largest_seqno) &&
+            f.DecodePrivateMetadata(&input)) {
+          if (PreviewLenghtPrefixedSlice(&input, &str)) {
+            printf("Trying to get private metadata\n");
+            uint32_t internal_tag;
+            if (PreviewVarint32(&str, &internal_tag) == kPrivMeta) {
+              f.DecodePrivateMetadata(&input);
+            } else {
+              printf("Nothing to decode\n");
+            }
+          } else {
+            printf("ups2...\n");
+          }
           f.fd = FileDescriptor(number, 0, file_size);
           new_files_.push_back(std::make_pair(level, f));
         } else {
@@ -300,7 +312,19 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
             GetInternalKey(&input, &f.smallest) &&
             GetInternalKey(&input, &f.largest) &&
             GetVarint64(&input, &f.smallest_seqno) &&
-            GetVarint64(&input, &f.largest_seqno)) {
+            GetVarint64(&input, &f.largest_seqno) &&
+            f.DecodePrivateMetadata(&input)) {
+          if (PreviewLenghtPrefixedSlice(&input, &str)) {
+            printf("Trying to get private metadata\n");
+            uint32_t internal_tag;
+            if (PreviewVarint32(&str, &internal_tag) == kPrivMeta) {
+              f.DecodePrivateMetadata(&input);
+            } else {
+              printf("Nothing to decode\n");
+            }
+          } else {
+            printf("Ups...\n");
+          }
           f.fd = FileDescriptor(number, path_id, file_size);
           new_files_.push_back(std::make_pair(level, f));
         } else {

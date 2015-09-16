@@ -341,6 +341,9 @@ class Env {
   // Encode metadata used by the storage backend implementing Env
   static void EncodePrivateMetadata(std::string *dst, void *metadata);
 
+  // Retrieve metadata
+  static bool DecodePrivateMetadata(Slice *input);
+
  protected:
   // The pointer to an internal structure that will update the
   // status of each thread.
