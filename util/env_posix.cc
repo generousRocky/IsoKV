@@ -86,7 +86,7 @@ struct test_metadata {
   uint8_t test4;
 };
 
-void Env::EncodePrivateMetadata(void *metadata) {
+void Env::EncodePrivateMetadata(std::string *dst, void *metadata) {
   if (metadata == nullptr) {
     return;
   }
@@ -95,10 +95,10 @@ void Env::EncodePrivateMetadata(void *metadata) {
   printf("Made it!! test1: %lu, test2: %llu, test3: %d, test4:%d\n",
       test->test1, test->test2, test->test3, test->test4);
 
-  // PutVarint64(dst, test1);
-  // PutVarint64(dst, test2);
-  // PutVarint32(dst, test3);
-  // PutVarint32(dst, test4);
+  PutVarint64(dst, test->test1);
+  PutVarint64(dst, test->test2);
+  PutVarint32(dst, test->test3);
+  PutVarint32(dst, test->test4);
 }
 
 namespace {
