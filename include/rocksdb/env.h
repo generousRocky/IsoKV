@@ -360,8 +360,8 @@ class FilePrivateMetadata {
     return "";
    }
 
-   virtual void SetMetadataHandle();
-   virtual void UpdateMetadata();
+   virtual void SetMetadataHandle() {}
+   virtual void UpdateMetadata() {}
 };
 
 // The factory function to construct a ThreadStatusUpdater.  Any Env
