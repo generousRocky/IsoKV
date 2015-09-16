@@ -79,6 +79,28 @@
 
 namespace rocksdb {
 
+struct test_metadata {
+  unsigned long test1;
+  unsigned long long test2;
+  unsigned int test3;
+  uint8_t test4;
+};
+
+void Env::EncodePrivateMetadata(void *metadata) {
+  if (metadata == nullptr) {
+    return;
+  }
+
+  struct test_metadata *test = (struct test_metadata*)metadata;
+  printf("Made it!! test1: %lu, test2: %llu, test3: %d, test4:%d\n",
+      test->test1, test->test2, test->test3, test->test4);
+
+  // PutVarint64(dst, test1);
+  // PutVarint64(dst, test2);
+  // PutVarint32(dst, test3);
+  // PutVarint32(dst, test4);
+}
+
 namespace {
 
 // A wrapper for fadvise, if the platform doesn't support fadvise,
@@ -589,10 +611,24 @@ class PosixPrivateMetadataTest: public FilePrivateMetadata {
 
   virtual ~PosixPrivateMetadataTest() {}
 
-  virtual std::string GetEncodedMetadata() override {
-    printf("Getting encoded metadata from %s\n", filename_.c_str());
-    return "";
+  virtual void* GetMetadata() override {
+    struct test_metadata *test =
+                    (struct test_metadata*)malloc(sizeof(struct test_metadata));
+    if (!test) {
+      printf("Cannot allocate memory\n");
+      return nullptr;
+    }
+
+    test->test1 = 1;
+    test->test2 = 2;
+    test->test3 = 3;
+    test->test4 = 4;
+
+    printf("Giving metadata to %s\n", filename_.c_str());
+
+    return (void*)test;
   }
+
  private:
   std::string filename_;
 };
