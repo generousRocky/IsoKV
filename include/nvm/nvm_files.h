@@ -120,7 +120,7 @@ class NVMPrivateMetadata: public FilePrivateMetadata {
  public:
   NVMPrivateMetadata(nvm_file *file);
   virtual ~NVMPrivateMetadata();
-  virtual void EncodeMetadata(std::string *dst) override;
+  void* GetMetadata() override;
   void UpdateMetadataHandle(nvm_file *file);
 };
 

@@ -7,6 +7,19 @@
 
 namespace rocksdb {
 
+// Static method encoding metadata for DFlash backend
+// See comment above NVM:PrivateMetadata::GetMetadata()
+void Env::EncodePrivateMetadata(std::string *dst, void *metadata) {
+  if (metadata == nullptr) {
+    return;
+  }
+
+  // metadata already contains the encoded data. See comment in
+  // NVMPrivateMetadata::GetMetadata()
+  struct vblock_meta *vblock_meta = (struct vblock_meta*)metadata;
+  dst->append((const char*)vblock_meta->encoded_vblocks, vblock_meta->len);
+}
+
 #if defined(OS_LINUX)
 
 static size_t GetUniqueIdFromFile(nvm_file *fd, char* id, size_t max_size) {
@@ -1077,28 +1090,57 @@ NVMPrivateMetadata::NVMPrivateMetadata(nvm_file *file) {
 
 NVMPrivateMetadata::~NVMPrivateMetadata() {}
 
-void NVMPrivateMetadata::EncodeMetadata(std::string *dst) {
-  std::vector<struct vblock *>::iterator it;
-  std::string metadata;
-
-  // For now store the whole vblock as metadata. When we can retrieve a vblock
-  // from its ID from the BM we can reduces the amount of metadata stored in
-  // MANIFEST
-  for (it = file_->vblocks_.begin(); it != file_->vblocks_.end(); it++) {
-    PutVarint32(dst, separator_);
-    PutVarint64(dst, (*it)->id);
-    PutVarint64(dst, (*it)->owner_id);
-    PutVarint64(dst, (*it)->nppas);
-    PutVarint64(dst, (*it)->ppa_bitmap);
-    PutVarint64(dst, (*it)->bppa);
-    PutVarint32(dst, (*it)->vlun_id);
-    PutVarint32(dst, (*it)->flags);
-  }
-}
-
 //TODO: Can we maintain a friend reference to NVMWritableFile to simplify this?
 void NVMPrivateMetadata::UpdateMetadataHandle(nvm_file *file) {
   file_ = file;
+}
+
+// For now store the whole vblock as metadata. When we can retrieve a vblock
+// from its ID from the BM we can reduces the amount of metadata stored in
+// MANIFEST
+void* NVMPrivateMetadata::GetMetadata() {
+// This is the full implementation. For now we will only send the encoded
+// metadata for optimization; since it is private, there is no need to send it
+// raw here to encode it later on.
+#if 0
+  unsigned int nvblocks = file_->vblocks_.size();
+  std::vector<struct vblock *>::iterator it;
+  struct vblock *vblock;
+  struct vblock_meta *vblock_meta =
+          (struct vblock_meta)malloc(sizeof(sizeof(vblock_meta)) +
+                                      (nvblocks * sizeof(struct vblock)) - 1);
+
+  vblock_meta->nblocks = nvblocks;
+  vblock = vblock_meta->vblocks;
+  for (it = file_->vblocks_.begin(); it != file_->vblocks_.end(); it++) {
+    memcpy(vblock, *it, sizeof(struct vblock));
+    vblock++;
+  }
+
+  return vblock_meta;
+#endif
+
+  std::vector<struct vblock *>::iterator it;
+  std::string metadata;
+
+  for (it = file_->vblocks_.begin(); it != file_->vblocks_.end(); it++) {
+    PutVarint32(&metadata, separator_);
+    PutVarint64(&metadata, (*it)->id);
+    PutVarint64(&metadata, (*it)->owner_id);
+    PutVarint64(&metadata, (*it)->nppas);
+    PutVarint64(&metadata, (*it)->ppa_bitmap);
+    PutVarint64(&metadata, (*it)->bppa);
+    PutVarint32(&metadata, (*it)->vlun_id);
+    PutVarint32(&metadata, (*it)->flags);
+  }
+
+  unsigned int metadata_size = metadata.length() + 1;
+  struct vblock_meta *vblock_meta =
+        (struct vblock_meta*)malloc(sizeof(struct vblock_meta) + metadata_size);
+  vblock_meta->len = metadata_size;
+  strcpy(vblock_meta->encoded_vblocks, metadata.c_str());
+
+  return (void*)vblock_meta;
 }
 
 /*
