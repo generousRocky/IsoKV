@@ -102,12 +102,9 @@ void Env::EncodePrivateMetadata(std::string *dst, void *metadata) {
 }
 
 bool Env::DecodePrivateMetadata(Slice *input) {
-  uint32_t tag;
   uint32_t meta32;
   uint64_t meta64;
 
-  GetVarint32(input, &tag);
-  printf("Tag: %d\n", tag);
   GetVarint64(input, &meta64);
   printf("Meta: %lu\n", meta64);
   GetVarint64(input, &meta64);
