@@ -1,6 +1,8 @@
 #ifndef _NVM_FILES_
 #define _NVM_FILES_
 
+#include "db/filename.h"
+
 namespace rocksdb {
 
 #include <vector>
@@ -18,6 +20,7 @@ class nvm_file {
     unsigned long size_;
     unsigned long meta_size_;
     int fd_;
+    FileType type_;
 
     // TODO: current_vblock_ is used to write, logic should move to WritableFile
     struct vblock *current_vblock_;
@@ -102,6 +105,20 @@ class nvm_file {
     void UnlockFile();
 
     void AddName(const char *name);
+
+    void SetType(std::string fname) {
+      uint64_t num;
+      size_t dir_pos;
+      std::string filename;
+
+      // Asume dbname/file as in filename filename.cc
+      dir_pos = fname.find_first_of("/") + 1; // Account for "/"
+      filename.append(fname.c_str() + dir_pos);
+
+      if (!ParseFileName(filename, &num, &type_)) {
+        NVM_ERROR("Cannot parse file %s\n", fname.c_str());
+      }
+    }
 
     Status Save(const int fd);
     Status Load(const int fd);

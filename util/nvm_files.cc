@@ -1179,10 +1179,11 @@ NVMSequentialFile::NVMSequentialFile(const std::string& fname, nvm_file *fd,
                                                         nvm_directory *dir) :
   filename_(fname) {
   fd_ = fd;
+  fd_->SetType(filename_);
   dir_ = dir;
 
   if (!fd_->HasBlock()) {
-    NVM_ERROR("No block associated with file descriptor\n");
+    NVM_ERROR("No block associated with file descriptor for file %s\n", fname.c_str());
   }
 
   read_pointer_ = 0;
@@ -1240,6 +1241,7 @@ Status NVMSequentialFile::InvalidateCache(size_t offset, size_t length) {
 NVMRandomAccessFile::NVMRandomAccessFile(const std::string& fname, nvm_file *f,
                                        nvm_directory *dir) : filename_(fname) {
   fd_ = f;
+  fd_->SetType(filename_);
   dir_ = dir;
 }
 
@@ -1315,7 +1317,9 @@ NVMWritableFile::NVMWritableFile(const std::string& fname, nvm_file *fd,
                                                        nvm_directory *dir) :
   filename_(fname) {
   fd_ = fd;
+  fd_->SetType(filename_);
   dir_ = dir;
+
   metadata_handle = new NVMPrivateMetadata(fd_); //JAVIER: parameters?
 
   struct nvm *nvm = dir_->GetNVMApi();
@@ -1613,7 +1617,9 @@ NVMRandomRWFile::NVMRandomRWFile(const std::string& fname, nvm_file *f,
                                                          nvm_directory *dir) :
   filename_(fname) {
   fd_ = f;
+  fd_->SetType(filename_);
   dir_ = dir;
+
 
   channel = 0;
 
