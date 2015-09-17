@@ -79,26 +79,33 @@
 
 namespace rocksdb {
 
-struct test_metadata {
-  unsigned long test1;
-  unsigned long long test2;
-  unsigned int test3;
-  uint8_t test4;
+typedef unsigned long long sector_t;
+struct vblock {
+  unsigned long id;
+  unsigned long owner_id;
+  unsigned long nppas;
+  unsigned long ppa_bitmap;
+  sector_t bppa;
+  void *priv;
+  unsigned int vlun_id;
+  uint8_t flags;
 };
+
+struct vblock_meta {
+  uint64_t len;
+  char* encoded_vblocks;
+};
+
+static uint32_t separator_ = 101;
+std::vector<struct vblock *>vblocks_;
 
 void Env::EncodePrivateMetadata(std::string *dst, void *metadata) {
   if (metadata == nullptr) {
     return;
   }
 
-  struct test_metadata *test = (struct test_metadata*)metadata;
-  printf("Encoding: test1: %lu, test2: %llu, test3: %d, test4:%d\n",
-      test->test1, test->test2, test->test3, test->test4);
-
-  PutVarint64(dst, test->test1);
-  PutVarint64(dst, test->test2);
-  PutVarint32(dst, test->test3);
-  PutVarint32(dst, test->test4);
+  struct vblock_meta *vblock_meta = (struct vblock_meta*)metadata;
+  dst->append((const char*)vblock_meta->encoded_vblocks, vblock_meta->len);
 }
 
 void Env::DecodePrivateMetadata(Slice *input) {
@@ -106,13 +113,28 @@ void Env::DecodePrivateMetadata(Slice *input) {
   uint64_t meta64;
 
   GetVarint64(input, &meta64);
-  printf("Meta: %lu\n", meta64);
-  GetVarint64(input, &meta64);
-  printf("Meta: %lu\n", meta64);
-  GetVarint32(input, &meta32);
-  printf("Meta: %d\n", meta32);
-  GetVarint32(input, &meta32);
-  printf("Meta: %d\n", meta32);
+  uint64_t left = meta64;
+
+  while (left > 0) {
+    GetVarint32(input, &meta32);
+    printf("separator: %d", meta32);
+    GetVarint64(input, &meta64);
+    printf("id: %lu", meta64);
+    GetVarint64(input, &meta64);
+    printf("owner id: %lu", meta64);
+    GetVarint64(input, &meta64);
+    printf("nppas: %lu", meta64);
+    GetVarint64(input, &meta64);
+    printf("bitmap: %lu", meta64);
+    GetVarint64(input, &meta64);
+    printf("bppa: %lu", meta64);
+    GetVarint32(input, &meta32);
+    printf("vlunid: %d", meta32);
+    GetVarint32(input, &meta32);
+    printf("flags: %d\n", meta32);
+
+    left--;
+  }
 }
 
 namespace {
@@ -626,26 +648,59 @@ class PosixPrivateMetadataTest: public FilePrivateMetadata {
   virtual ~PosixPrivateMetadataTest() {}
 
   virtual void* GetMetadata() override {
-    struct test_metadata *test =
-                    (struct test_metadata*)malloc(sizeof(struct test_metadata));
-    if (!test) {
-      printf("Cannot allocate memory\n");
-      return nullptr;
+    // Generate test metadata
+    std::vector<struct vblock *>::iterator it;
+    std::string metadata;
+
+    PutVarint32(&metadata, vblocks_.size());
+    for (it = vblocks_.begin(); it != vblocks_.end(); it++) {
+      printf("METADATA: Writing:\nsep:%d,id:%lu\noid:%lu\nnppas:%lu\nbitmap:%lu\nbppa:%llu\nvlunid:%d\nflags:%d\n",
+        separator_, (*it)->id, (*it)->owner_id, (*it)->nppas, (*it)->ppa_bitmap, (*it)->bppa,
+        (*it)->vlun_id, (*it)->flags);
+      PutVarint32(&metadata, separator_); //This might go away
+      PutVarint64(&metadata, (*it)->id);
+      PutVarint64(&metadata, (*it)->owner_id);
+      PutVarint64(&metadata, (*it)->nppas);
+      PutVarint64(&metadata, (*it)->ppa_bitmap);
+      PutVarint64(&metadata, (*it)->bppa);
+      PutVarint32(&metadata, (*it)->vlun_id);
+      PutVarint32(&metadata, (*it)->flags);
     }
 
-    test->test1 = 1;
-    test->test2 = 2;
-    test->test3 = 3;
-    test->test4 = 4;
+    uint64_t metadata_size = metadata.length();
+    struct vblock_meta *vblock_meta =
+                        (struct vblock_meta*)malloc(sizeof(struct vblock_meta));
+    vblock_meta->encoded_vblocks = (char*)malloc(metadata_size);
 
-    printf("Giving metadata to %s\n", filename_.c_str());
+    vblock_meta->len = metadata_size;
+    memcpy(vblock_meta->encoded_vblocks, metadata.c_str(), metadata_size);
 
-    return (void*)test;
-  }
+    return (void*)vblock_meta;
+}
 
  private:
   std::string filename_;
 };
+
+void generate_test_metadata() {
+  for (int i = 0; i < 10; i++) {
+    struct vblock *new_vblock = (struct vblock*)malloc(sizeof(struct vblock));
+    if (!new_vblock) {
+      printf("Error allocating memory\n");
+    }
+
+    new_vblock->id = i + 1;
+    new_vblock->owner_id = i + 2;
+    new_vblock->nppas = i + 3;
+    new_vblock->ppa_bitmap = i + 4;
+    new_vblock->bppa = i + 5;
+    new_vblock->priv = nullptr;
+    new_vblock->vlun_id = i + 6;
+    new_vblock->flags = i + 7;
+
+    vblocks_.push_back(new_vblock);
+  }
+}
 
 // Use posix write to write data to a file.
 class PosixWritableFile : public WritableFile {
@@ -666,6 +721,9 @@ class PosixWritableFile : public WritableFile {
     fallocate_with_keep_size_ = options.fallocate_with_keep_size;
 #endif
     assert(!options.use_mmap_writes);
+
+    // Generate metadata tets
+    generate_test_metadata();
   }
 
   ~PosixWritableFile() {
