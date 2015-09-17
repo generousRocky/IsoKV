@@ -35,17 +35,13 @@ struct vblock {
 };
 // Florin: size + number of pages maybe?
 
-// Metadata stored in MANIFEST
-// See comment above NVM:PrivateMetadata::GetMetadata()
+// Metadata stored in MANIFEST.See comment in NVM:PrivateMetadata::GetMetadata()
 struct vblock_meta {
-  unsigned int len;
+  uint64_t len;
   char* encoded_vblocks;
-  // unsigned int nvbloks;
-  // struct vblock vblocks*;
 };
 
 // Metadata that RocksDB keeps for each virtual block
-
 #define VBLOCK_OPEN         0x00
 #define VBLOCK_CLOSED       0x01
 

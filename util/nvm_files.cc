@@ -20,6 +20,35 @@ void Env::EncodePrivateMetadata(std::string *dst, void *metadata) {
   dst->append((const char*)vblock_meta->encoded_vblocks, vblock_meta->len);
 }
 
+void Env::DecodePrivateMetadata(Slice *input) {
+  uint32_t meta32;
+  uint64_t meta64;
+
+  GetVarint64(input, &meta64);
+  uint64_t left = meta64;
+
+  while (left > 0) {
+    GetVarint32(input, &meta32);
+    printf("separator: %d", meta32);
+    GetVarint64(input, &meta64);
+    printf("id: %lu", meta64);
+    GetVarint64(input, &meta64);
+    printf("owner id: %lu", meta64);
+    GetVarint64(input, &meta64);
+    printf("nppas: %lu", meta64);
+    GetVarint64(input, &meta64);
+    printf("bitmap: %lu", meta64);
+    GetVarint64(input, &meta64);
+    printf("bppa: %lu", meta64);
+    GetVarint32(input, &meta32);
+    printf("vlunid: %d", meta32);
+    GetVarint32(input, &meta32);
+    printf("flags: %d\n", meta32);
+
+    left--;
+  }
+}
+
 #if defined(OS_LINUX)
 
 static size_t GetUniqueIdFromFile(nvm_file *fd, char* id, size_t max_size) {
@@ -820,6 +849,8 @@ size_t nvm_file::ReadBlock(struct nvm *nvm, unsigned int block_offset,
   size_t base_ppa = current_vblock->bppa;
   size_t nppas = current_vblock->nppas;
   size_t current_ppa = base_ppa + ppa_offset;
+  size_t read_offset;
+  size_t ret;
   unsigned long max_bytes_per_read = nvm->max_pages_in_io * PAGE_SIZE;
   unsigned long bytes_per_read;
   unsigned int meta_beg_size = sizeof(struct vblock_recov_meta);
@@ -858,7 +889,8 @@ retry:
       if (errno == EINTR) {
         goto retry;
       }
-      return -1;
+      ret = -1;
+      goto out;
     }
 
     current_ppa += pages_per_read;
@@ -867,12 +899,15 @@ retry:
   }
 
   //Account for crash recovery metadata at the beginning of the block
-  size_t read_offset = page_offset + meta_beg_size;
+  read_offset = page_offset + meta_beg_size;
   memcpy(data, page + read_offset, data_len);
-  free(page);
 
   IOSTATS_ADD(bytes_read, data_len);
-  return data_len - left;
+  ret = data_len - left;
+
+out:
+  free(page);
+  return ret;
 }
 
 size_t nvm_file::Read(struct nvm *nvm, size_t read_pointer, char *data,
@@ -947,6 +982,7 @@ void nvm_file::ReplaceBlock(struct nvm *nvm, unsigned int vlun_id,
 
   pthread_mutex_unlock(&page_update_mtx);
   nvm->EraseBlock(old_vblock);
+  free(old_vblock);
 }
 
 void nvm_file::PutBlock(struct nvm *nvm, struct vblock *vblock) {
@@ -989,6 +1025,7 @@ size_t nvm_file::FlushBlock(struct nvm *nvm, char *data, size_t ppa_offset,
   uint8_t pages_per_write;
   uint8_t allocate_aligned_buf = 0;
   unsigned int meta_size = 0;
+  size_t ret;
 
   // Always write at a page granurality
   size_t write_len;
@@ -1021,7 +1058,10 @@ size_t nvm_file::FlushBlock(struct nvm *nvm, char *data, size_t ppa_offset,
 
   unsigned long left = write_len;
 
-  assert(write_len <= nppas * PAGE_SIZE);
+  if (write_len > nppas * PAGE_SIZE) {
+    NVM_DEBUG("writelen: %lu, nppas: %lu, total:%lu\n", write_len, nppas, nppas * PAGE_SIZE);
+  }
+  // assert(write_len <= nppas * PAGE_SIZE);
 
   /* Verify that data buffer is aligned, although it should already be aligned */
   if (UNLIKELY(((uintptr_t)data % PAGE_SIZE) != 0)) {
@@ -1048,16 +1088,14 @@ size_t nvm_file::FlushBlock(struct nvm *nvm, char *data, size_t ppa_offset,
                                      current_ppa * PAGE_SIZE) != bytes_per_write) {
       //TODO: See if we can recover. Use another ppa + mark bad page in bitmap?
       NVM_ERROR("ERROR: Page no written\n");
-      return 0;
+      ret = 0;
+      goto out;
     }
 
     data_aligned += bytes_per_write;
     left -= bytes_per_write;
     current_ppa += pages_per_write;
   }
-
-  if (allocate_aligned_buf)
-    free(data_aligned);
 
   if (current_ppa == base_ppa + nppas) {
      meta_size += sizeof(struct vblock_close_meta);
@@ -1074,7 +1112,13 @@ size_t nvm_file::FlushBlock(struct nvm *nvm, char *data, size_t ppa_offset,
   UpdateFileModificationTime();
   IOSTATS_ADD(bytes_written, write_len);
 
-  return write_len;
+  ret = write_len;
+
+out:
+  if (allocate_aligned_buf)
+    free(data_aligned);
+
+  return ret;
 }
 
 bool nvm_file::HasBlock() {
@@ -1099,32 +1143,15 @@ void NVMPrivateMetadata::UpdateMetadataHandle(nvm_file *file) {
 // from its ID from the BM we can reduces the amount of metadata stored in
 // MANIFEST
 void* NVMPrivateMetadata::GetMetadata() {
-// This is the full implementation. For now we will only send the encoded
-// metadata for optimization; since it is private, there is no need to send it
-// raw here to encode it later on.
-#if 0
-  unsigned int nvblocks = file_->vblocks_.size();
-  std::vector<struct vblock *>::iterator it;
-  struct vblock *vblock;
-  struct vblock_meta *vblock_meta =
-          (struct vblock_meta)malloc(sizeof(sizeof(vblock_meta)) +
-                                      (nvblocks * sizeof(struct vblock)) - 1);
-
-  vblock_meta->nblocks = nvblocks;
-  vblock = vblock_meta->vblocks;
-  for (it = file_->vblocks_.begin(); it != file_->vblocks_.end(); it++) {
-    memcpy(vblock, *it, sizeof(struct vblock));
-    vblock++;
-  }
-
-  return vblock_meta;
-#endif
-
   std::vector<struct vblock *>::iterator it;
   std::string metadata;
 
+  PutVarint32(&metadata, file_->vblocks_.size());
   for (it = file_->vblocks_.begin(); it != file_->vblocks_.end(); it++) {
-    PutVarint32(&metadata, separator_);
+    printf("METADATA: Writing:\nsep:%d,id:%lu\noid:%lu\nnppas:%lu\nbitmap:%lu\nbppa:%llu\nvlunid:%d\nflags:%d\n",
+      separator_, (*it)->id, (*it)->owner_id, (*it)->nppas, (*it)->ppa_bitmap, (*it)->bppa,
+      (*it)->vlun_id, (*it)->flags);
+    PutVarint32(&metadata, separator_); //This might go away
     PutVarint64(&metadata, (*it)->id);
     PutVarint64(&metadata, (*it)->owner_id);
     PutVarint64(&metadata, (*it)->nppas);
@@ -1134,11 +1161,13 @@ void* NVMPrivateMetadata::GetMetadata() {
     PutVarint32(&metadata, (*it)->flags);
   }
 
-  unsigned int metadata_size = metadata.length() + 1;
+  uint64_t metadata_size = metadata.length();
   struct vblock_meta *vblock_meta =
-        (struct vblock_meta*)malloc(sizeof(struct vblock_meta) + metadata_size);
+                        (struct vblock_meta*)malloc(sizeof(struct vblock_meta));
+  vblock_meta->encoded_vblocks = (char*)malloc(metadata_size);
+
   vblock_meta->len = metadata_size;
-  strcpy(vblock_meta->encoded_vblocks, metadata.c_str());
+  memcpy(vblock_meta->encoded_vblocks, metadata.c_str(), metadata_size);
 
   return (void*)vblock_meta;
 }
@@ -1252,6 +1281,7 @@ Status NVMRandomAccessFile::Read(uint64_t offset, size_t n, Slice* result,
   }
 
   if (fd_->Read(nvm, ppa_offset, data, data_len) != data_len) {
+    free(data);
     return Status::IOError("Unable to read\n");
   }
 
@@ -1619,6 +1649,10 @@ Status NVMRandomRWFile::Write(uint64_t offset, const Slice& data) {
     size_t size_to_write;
 
     crt_data = (char *)memalign(PAGE_SIZE, size);
+    if (!crt_data) {
+      NVM_FATAL("Could not allocate aligned memory\n");
+      return Status::IOError("could not allocate aligned memory");
+    }
 
     if(fd_->ReadBlock(nvm, start_block_id, 0, 0, crt_data, size) != size) {
       free(crt_data);
@@ -1682,6 +1716,7 @@ Status NVMRandomRWFile::Read(uint64_t offset, size_t n, Slice* result,
   }
 
   if (fd_->Read(nvm, ppa_offset, data, data_len) != data_len) {
+    free(data);
     return Status::IOError("Unable to read\n");
   }
 
