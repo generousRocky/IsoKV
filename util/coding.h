@@ -226,17 +226,18 @@ inline bool InspectVarint32(Slice* input, uint32_t* value, size_t* size) {
 }
 #endif
 
-inline bool PreviewVarint32(Slice* input, uint32_t* value) {
+// Check if the next 4 bytes match value. Move input pointer forward if true.
+inline bool LookupVarint32(Slice* input, uint32_t value) {
+  uint32_t read_value;
   const char* p = input->data();
   const char* limit = p + input->size();
-  const char* q = GetVarint32Ptr(p, limit, value);
-  if (q == nullptr) {
-    return false;
-  } else {
+  const char* q = GetVarint32Ptr(p, limit, &read_value);
+  if ((q != nullptr) && (value == read_value)) {
+    *input = Slice(q, static_cast<size_t>(limit - q));
     return true;
   }
+  return false;
 }
-
 
 inline bool GetVarint32(Slice* input, uint32_t* value) {
   const char* p = input->data();
@@ -261,18 +262,6 @@ inline bool GetVarint64(Slice* input, uint64_t* value) {
     return true;
   }
 }
-
-//TODO: Modify this to the lookup and check
-inline bool PreviewLenghtPrefixedSlice(Slice* input, Slice* result) {
-  uint32_t len = 0;
-  if (GetVarint32(input, &len) && input->size() >= len) {
-    *result = Slice(input->data(), len);
-    return true;
-  } else {
-    return false;
-  }
-}
-
 
 inline bool GetLengthPrefixedSlice(Slice* input, Slice* result) {
   uint32_t len = 0;
