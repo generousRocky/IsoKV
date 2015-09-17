@@ -101,7 +101,7 @@ void Env::EncodePrivateMetadata(std::string *dst, void *metadata) {
   PutVarint32(dst, test->test4);
 }
 
-bool Env::DecodePrivateMetadata(Slice *input) {
+void Env::DecodePrivateMetadata(Slice *input) {
   uint32_t meta32;
   uint64_t meta64;
 
@@ -113,8 +113,6 @@ bool Env::DecodePrivateMetadata(Slice *input) {
   printf("Meta: %d\n", meta32);
   GetVarint32(input, &meta32);
   printf("Meta: %d\n", meta32);
-
-  return true;
 }
 
 namespace {
