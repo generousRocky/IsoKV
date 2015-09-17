@@ -120,11 +120,11 @@ struct FileMetaData {
     Env::EncodePrivateMetadata(dst, priv_meta);
   }
 
-  bool DecodePrivateMetadata(Slice* input) {
-    printf("Decoding\n");
-    return Env::DecodePrivateMetadata(input);
+  void DecodePrivateMetadata(Slice* input) {
+    Env::DecodePrivateMetadata(input);
   }
 
+  // TODO: Free private metadata
   void FreePrivateMetadata() const {
     if (priv_meta) {
       printf("Freeing priv_meta\n");
