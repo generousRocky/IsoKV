@@ -6,7 +6,8 @@
 
 #elif defined (ROCKSDB_PLATFORM_NVM)
 
-#include "util/nvm_logger.h"
+#include "util/posix_logger.h"
+// #include "util/nvm_logger.h"
 
 #else
 
