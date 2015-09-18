@@ -553,6 +553,7 @@ class NVMEnv : public Env {
     return gettid(tid);
   }
 
+#if 0 //We want to log in a file present in the FS - posix
   virtual Status NewLogger(const std::string& fname,
                                         shared_ptr<Logger>* result) override {
     remove("./LOG");
@@ -563,6 +564,25 @@ class NVMEnv : public Env {
       return IOError(fname, errno);
     } else {
       result->reset(new NVMLogger(f, &NVMEnv::gettid, this));
+      return Status::OK();
+    }
+  }
+#endif
+
+  virtual Status NewLogger(const std::string& fname,
+                           shared_ptr<Logger>* result) override {
+    FILE* f;
+    {
+      IOSTATS_TIMER_GUARD(open_nanos);
+      f = fopen(fname.c_str(), "w");
+    }
+    if (f == nullptr) {
+      result->reset();
+      return IOError(fname, errno);
+    } else {
+      int fd = fileno(f);
+      SetFD_CLOEXEC(fd, nullptr);
+      result->reset(new PosixLogger(f, &NVMEnv::gettid, this));
       return Status::OK();
     }
   }
