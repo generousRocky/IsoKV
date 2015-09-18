@@ -9,6 +9,7 @@
 
 #ifdef ROCKSDB_PLATFORM_NVM
 
+#include "db/filename.h"
 #include "nvm/nvm.h"
 
 namespace rocksdb {
@@ -73,6 +74,18 @@ static void PthreadCall(const char* label, int result) {
     fprintf(stderr, "pthread %s: %s\n", label, strerror(result));
     abort();
   }
+}
+
+// Parses the filename and sets file type.
+bool ParseType(std::string fname, FileType* type) {
+  uint64_t num;
+  size_t dir_pos;
+  std::string filename;
+
+  // Asume dbname/file as in filename filename.cc
+  dir_pos = fname.find_first_of("/") + 1; // Account for "/"
+  filename.append(fname.c_str() + dir_pos);
+  return ParseFileName(filename, &num, type);
 }
 
 class NVMEnv : public Env {
@@ -140,86 +153,206 @@ class NVMEnv : public Env {
     return Status::OK();
   }
 
+  void SetFD_CLOEXEC(int fd, const EnvOptions* options) {
+    if ((options == nullptr || options->set_fd_cloexec) && fd > 0) {
+      fcntl(fd, F_SETFD, fcntl(fd, F_GETFD) | FD_CLOEXEC);
+    }
+  }
+
   virtual Status NewSequentialFile(const std::string& fname,
       unique_ptr<SequentialFile>* result, const EnvOptions& options) override {
     result->reset();
-    nvm_file *f;
-    f = root_dir->nvm_fopen(fname.c_str(), "r");
-
-    if (f == nullptr) {
-      *result = nullptr;
-
-      NVM_DEBUG("unable to open file for read %s", fname.c_str());
-
-      return Status::IOError("unable to open file for read");
+    FileType type;
+    if (!ParseType(fname, &type)) {
+      return Status::IOError("Cannot determine type for filename %s",
+                                                                fname.c_str());
     }
 
-    result->reset(new NVMSequentialFile(fname, f, root_dir));
-    return Status::OK();
+    if (type == kInfoLogFile || type == kCurrentFile ||
+                              type == kDBLockFile || type == kIdentityFile) {
+      FILE* f = nullptr;
+      do {
+        IOSTATS_TIMER_GUARD(open_nanos);
+        f = fopen(fname.c_str(), "r");
+      } while (f == nullptr && errno == EINTR);
+      if (f == nullptr) {
+        *result = nullptr;
+        return IOError(fname, errno);
+      } else {
+        int fd = fileno(f);
+        SetFD_CLOEXEC(fd, &options);
+        result->reset(new PosixSequentialFile(fname, f, options));
+        return Status::OK();
+      }
+    } else {
+      nvm_file *f = root_dir->nvm_fopen(fname.c_str(), "r");
+
+      if (f == nullptr) {
+        *result = nullptr;
+        NVM_DEBUG("unable to open file for read %s", fname.c_str());
+        return Status::IOError("unable to open file for read");
+      }
+
+      result->reset(new NVMSequentialFile(fname, f, root_dir));
+      return Status::OK();
+    }
   }
 
   virtual Status NewRandomAccessFile(const std::string& fname,
       unique_ptr<RandomAccessFile>* result, const EnvOptions& options) override {
     result->reset();
-
-    nvm_file *f;
-
-    f = root_dir->nvm_fopen(fname.c_str(), "r");
-
-    if (f == nullptr) {
-      *result = nullptr;
-
-      NVM_DEBUG("unable to open file for read %s", fname.c_str());
-
-      return Status::IOError("unable to open file for read");
+    FileType type;
+    if (!ParseType(fname, &type)) {
+      return Status::IOError("Cannot determine type for filename %s",
+                                                                fname.c_str());
     }
 
-    result->reset(new NVMRandomAccessFile(fname, f, root_dir));
-    return Status::OK();
+    if (type == kInfoLogFile || type == kCurrentFile ||
+                              type == kDBLockFile || type == kIdentityFile) {
+      Status s;
+      int fd;
+      {
+        IOSTATS_TIMER_GUARD(open_nanos);
+        fd = open(fname.c_str(), O_RDONLY);
+      }
+      SetFD_CLOEXEC(fd, &options);
+      if (fd < 0) {
+        s = IOError(fname, errno);
+      } else if (options.use_mmap_reads && sizeof(void*) >= 8) {
+        // Use of mmap for random reads has been removed because it
+        // kills performance when storage is fast.
+        // Use mmap when virtual address-space is plentiful.
+        uint64_t size;
+        s = GetFileSize(fname, &size);
+        if (s.ok()) {
+          void* base = mmap(nullptr, size, PROT_READ, MAP_SHARED, fd, 0);
+          if (base != MAP_FAILED) {
+            result->reset(new PosixMmapReadableFile(fd, fname, base,
+                                                  size, options));
+          } else {
+            s = IOError(fname, errno);
+          }
+        }
+        close(fd);
+      } else {
+        result->reset(new PosixRandomAccessFile(fname, fd, options));
+      }
+      return s;
+    } else {
+      nvm_file *f = root_dir->nvm_fopen(fname.c_str(), "r");
+      if (f == nullptr) {
+        *result = nullptr;
+        NVM_DEBUG("unable to open file for read %s", fname.c_str());
+        return Status::IOError("unable to open file for read");
+      }
+      result->reset(new NVMRandomAccessFile(fname, f, root_dir));
+      return Status::OK();
+    }
   }
 
   virtual Status NewWritableFile(const std::string& fname,
         unique_ptr<WritableFile>* result, const EnvOptions& options) override {
     result->reset();
-
-    nvm_file *fd = root_dir->nvm_fopen(fname.c_str(), "a");
-
-    if (fd == nullptr) {
-      *result = nullptr;
-
-      NVM_DEBUG("unable to open file for write %s", fname.c_str());
-
-      return Status::IOError("unable to open file for write");
+    FileType type;
+    if (!ParseType(fname, &type)) {
+      return Status::IOError("Cannot determine type for filename %s",
+                                                                fname.c_str());
     }
 
-    NVMWritableFile *writable_file;
+    // For LOG, CURRENT, LOCK, and IDENTITY use the filesystem partition where
+    // RocksDB code is code. Use normal posix for these.
+    // TODO: This copy is taken from env_posix.cc. Since it makes sense to
+    // combine posix with other storage backends, decouple this part of the code
+    // form the posix environment so that PosixXFile classes can be used
+    // simultaneously with a different storage backend.
+    if (type == kInfoLogFile || type == kCurrentFile ||
+                              type == kDBLockFile || type == kIdentityFile) {
+      Status s;
+      int fd = -1;
+      do {
+        IOSTATS_TIMER_GUARD(open_nanos);
+        fd = open(fname.c_str(), O_CREAT | O_RDWR | O_TRUNC, 0644);
+      } while (fd < 0 && errno == EINTR);
+      if (fd < 0) {
+        s = IOError(fname, errno);
+      } else {
+        // SetFD_CLOEXEC(fd, &options);
+        if (options.use_mmap_writes) {
+          if (!checkedDiskForMmap_) {
+            // this will be executed once in the program's lifetime.
+            // do not use mmapWrite on non ext-3/xfs/tmpfs systems.
+            if (!SupportsFastAllocate(fname)) {
+              forceMmapOff = true;
+            }
+            checkedDiskForMmap_ = true;
+          }
+        }
+        if (options.use_mmap_writes && !forceMmapOff) {
+          result->reset(new PosixMmapFile(fname, fd, page_size_, options));
+        } else {
+          // disable mmap writes
+          EnvOptions no_mmap_writes_options = options;
+          no_mmap_writes_options.use_mmap_writes = false;
 
-    ALLOC_CLASS(writable_file, NVMWritableFile(fname, fd, root_dir));
+          result->reset(new PosixWritableFile(fname, fd, no_mmap_writes_options));
+        }
+      }
+    // For data and metadata use DFlash backend interfacing an Open-Channel SSD
+    } else {
+      nvm_file *fd = root_dir->nvm_fopen(fname.c_str(), "a");
 
-    fd->SetSeqWritableFile(writable_file);
+      if (fd == nullptr) {
+        *result = nullptr;
+        NVM_DEBUG("unable to open file for write %s", fname.c_str());
+        return Status::IOError("unable to open file for write");
+      }
 
-    result->reset(writable_file);
-
+      NVMWritableFile *writable_file;
+      ALLOC_CLASS(writable_file, NVMWritableFile(fname, fd, root_dir));
+      fd->SetSeqWritableFile(writable_file);
+      result->reset(writable_file);
+    }
     return Status::OK();
   }
 
   virtual Status NewRandomRWFile(const std::string& fname,
         unique_ptr<RandomRWFile>* result, const EnvOptions& options) override {
     result->reset();
-
-    nvm_file *fd = root_dir->nvm_fopen(fname.c_str(), "w");
-
-    if (fd == nullptr) {
-      *result = nullptr;
-
-      NVM_DEBUG("unable to open file for write %s", fname.c_str());
-
-      return Status::IOError("unable to open file for write");
+    FileType type;
+    if (!ParseType(fname, &type)) {
+      return Status::IOError("Cannot determine type for filename %s",
+                                                                fname.c_str());
     }
 
-    result->reset(new NVMRandomRWFile(fname, fd, root_dir));
-
-    return Status::OK();
+    if (type == kInfoLogFile || type == kCurrentFile ||
+                              type == kDBLockFile || type == kIdentityFile) {
+      // no support for mmap yet
+      if (options.use_mmap_writes || options.use_mmap_reads) {
+        return Status::NotSupported("No support for mmap read/write yet");
+      }
+      Status s;
+      int fd;
+      {
+        IOSTATS_TIMER_GUARD(open_nanos);
+        fd = open(fname.c_str(), O_CREAT | O_RDWR, 0644);
+      }
+      if (fd < 0) {
+        s = IOError(fname, errno);
+      } else {
+        SetFD_CLOEXEC(fd, &options);
+        result->reset(new PosixRandomRWFile(fname, fd, options));
+      }
+      return s;
+    } else {
+      nvm_file *fd = root_dir->nvm_fopen(fname.c_str(), "w");
+      if (fd == nullptr) {
+        *result = nullptr;
+        NVM_DEBUG("unable to open file for write %s", fname.c_str());
+        return Status::IOError("unable to open file for write");
+      }
+      result->reset(new NVMRandomRWFile(fname, fd, root_dir));
+      return Status::OK();
+    }
   }
 
   virtual Status NewDirectory(const std::string& name,
