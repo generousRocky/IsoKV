@@ -11,6 +11,7 @@
 
 #include "db/filename.h"
 #include "nvm/nvm.h"
+#include "util/string_util.h"
 
 namespace rocksdb {
 
@@ -35,7 +36,45 @@ ThreadStatusUpdater* CreateThreadStatusUpdater() {
   return new ThreadStatusUpdater();
 }
 
-static int LockOrUnlock(const std::string& fname, nvm_file *fd, bool lock) {
+static int PosixLockOrUnlock(const std::string& fname, int fd, bool lock) {
+  mutex_lockedFiles.Lock();
+  if (lock) {
+    // If it already exists in the lockedFiles set, then it is already locked,
+    // and fail this lock attempt. Otherwise, insert it into lockedFiles.
+    // This check is needed because fcntl() does not detect lock conflict
+    // if the fcntl is issued by the same thread that earlier acquired
+    // this lock.
+    if (lockedFiles.insert(fname).second == false) {
+      mutex_lockedFiles.Unlock();
+      errno = ENOLCK;
+      return -1;
+    }
+  } else {
+    // If we are unlocking, then verify that we had locked it earlier,
+    // it should already exist in lockedFiles. Remove it from lockedFiles.
+    if (lockedFiles.erase(fname) != 1) {
+      mutex_lockedFiles.Unlock();
+      errno = ENOLCK;
+      return -1;
+    }
+  }
+  errno = 0;
+  struct flock f;
+  memset(&f, 0, sizeof(f));
+  f.l_type = (lock ? F_WRLCK : F_UNLCK);
+  f.l_whence = SEEK_SET;
+  f.l_start = 0;
+  f.l_len = 0;        // Lock/unlock entire file
+  int value = fcntl(fd, F_SETLK, &f);
+  if (value == -1 && lock) {
+    // if there is an error in locking, then remove the pathname from lockedfiles
+    lockedFiles.erase(fname);
+  }
+  mutex_lockedFiles.Unlock();
+  return value;
+}
+
+static int DFlashLockOrUnlock(const std::string& fname, nvm_file *fd, bool lock) {
   mutex_lockedFiles.Lock();
   if (lock) {
     // If it already exists in the lockedFiles set, then it is already locked,
@@ -67,6 +106,23 @@ static int LockOrUnlock(const std::string& fname, nvm_file *fd, bool lock) {
 
   mutex_lockedFiles.Unlock();
   return 0;
+}
+
+bool PosixFileLock::Unlock() {
+  if (PosixLockOrUnlock(filename, fd_, false) == -1) {
+    return false;
+  }
+  close(fd_);
+  return true;
+}
+
+bool NVMFileLock::Unlock() {
+  if (DFlashLockOrUnlock(filename, fd_, false) == -1) {
+    return false;
+  }
+
+  root_dir_->nvm_fclose(fd_, "l");
+  return true;
 }
 
 static void PthreadCall(const char* label, int result) {
@@ -355,10 +411,12 @@ class NVMEnv : public Env {
     }
   }
 
+  // For now, replicate the directory tree for bot posix and dflash.
   virtual Status NewDirectory(const std::string& name,
                                       unique_ptr<Directory>* result) override {
     result->reset();
 
+    // DFlash
     nvm_directory *fd = root_dir->OpenDirectory(name.c_str());
     if (fd == nullptr) {
       NVM_DEBUG("directory %s not found", name.c_str());
@@ -367,21 +425,64 @@ class NVMEnv : public Env {
 
     result->reset(new NVMDirectory(fd));
 
+    // Posix
+    int posix_fd;
+    {
+      IOSTATS_TIMER_GUARD(open_nanos);
+      posix_fd = open(name.c_str(), 0);
+    }
+    if (posix_fd < 0) {
+      return IOError(name, errno);
+    } else {
+      result->reset(new PosixDirectory(posix_fd));
+    }
+
     return Status::OK();
   }
 
   virtual Status FileExists(const std::string& fname) override {
     bool exists = root_dir->FileExists(fname.c_str());
+    FileType type;
+    if (!ParseType(fname, &type)) {
+      return Status::IOError("Cannot determine type for filename %s",
+                                                                fname.c_str());
+    }
 
-    NVM_DEBUG("%s exists: %d", fname.c_str(), exists ? 1 : 0);
+    //Posix
+    if (type == kInfoLogFile || type == kCurrentFile ||
+                              type == kDBLockFile || type == kIdentityFile) {
 
-    if (exists) {
-      return Status::OK();
+      int result = access(fname.c_str(), F_OK);
+      if (result == 0) {
+        return Status::OK();
+      }
+
+      switch (errno) {
+        case EACCES:
+        case ELOOP:
+        case ENAMETOOLONG:
+        case ENOENT:
+        case ENOTDIR:
+          return Status::NotFound();
+        default:
+          assert(result == EIO || result == ENOMEM);
+          return Status::IOError("Unexpected error(" + ToString(result) +
+                               ") accessing file `" + fname + "' ");
+      }
+    // Dflash
     } else {
-      return Status::NotFound();
+      if (exists) {
+        NVM_DEBUG("%s exists: %d", fname.c_str(), exists ? 1 : 0);
+        return Status::OK();
+      } else {
+        return Status::NotFound();
+      }
     }
   }
 
+  // Since we replicate the directory tree in both posix and dflash, they both
+  // would return the same. We use dflash, since it does not need to access the
+  // FS
   virtual Status GetChildren(const std::string& dir,
                                   std::vector<std::string>* result) override {
     if (root_dir->GetChildren(dir.c_str(), result) == 0) {
@@ -392,106 +493,221 @@ class NVMEnv : public Env {
   }
 
   virtual Status DeleteFile(const std::string& fname) override {
-    if (root_dir->DeleteFile(fname.c_str())) {
-      return Status::IOError("delete file failed");
+    FileType type;
+    if (!ParseType(fname, &type)) {
+      return Status::IOError("Cannot determine type for filename %s",
+                                                                fname.c_str());
     }
 
+    if (type == kInfoLogFile || type == kCurrentFile ||
+                              type == kDBLockFile || type == kIdentityFile) {
+      Status result;
+      if (unlink(fname.c_str()) != 0) {
+        result = IOError(fname, errno);
+      }
+      return result;
+    } else {
+      if (root_dir->DeleteFile(fname.c_str())) {
+        return Status::IOError("delete file failed");
+      }
+    }
     return Status::OK();
   }
 
+  // As in NewDir, replicate the directory tree bot posix and dflas
   virtual Status CreateDir(const std::string& name) override {
+    Status result;
+
+    // DFlash
     if (root_dir->CreateDirectory(name.c_str()) == 0) {
-      return Status::OK();
+      result = Status::OK();
+    } else {
+      return Status::IOError("createdir failed");
     }
 
-    return Status::IOError("createdir failed");
+    // Posix
+    if (mkdir(name.c_str(), 0755) != 0) {
+      result = IOError(name, errno);
+    }
+    return result;
   }
 
   virtual Status CreateDirIfMissing(const std::string& name) override {
+    // TODO: Javier: Look into this
     return CreateDir(name);
   }
 
+  // Delete in bloth trees
   virtual Status DeleteDir(const std::string& name) override {
+    Status result;
+
+    //  DFlash
     if (root_dir->DeleteDirectory(name.c_str()) == 0) {
-      return Status::OK();
+      result = Status::OK();
+    } else {
+      return Status::IOError("delete dir failed");
     }
 
-    return Status::IOError("delete dir failed");
+    if (rmdir(name.c_str()) != 0) {
+      result = IOError(name, errno);
+    }
+    return result;
   }
 
   virtual Status GetFileSize(const std::string& fname, uint64_t* size) override {
-    if (root_dir->GetFileSize(fname.c_str(), size)) {
-      return Status::IOError("get file size failed");
+    FileType type;
+    if (!ParseType(fname, &type)) {
+      return Status::IOError("Cannot determine type for filename %s",
+                                                                fname.c_str());
     }
 
-    return Status::OK();
+    if (type == kInfoLogFile || type == kCurrentFile ||
+                              type == kDBLockFile || type == kIdentityFile) {
+      Status s;
+      struct stat sbuf;
+      if (stat(fname.c_str(), &sbuf) != 0) {
+        *size = 0;
+        s = IOError(fname, errno);
+      } else {
+        *size = sbuf.st_size;
+      }
+       return s;
+    } else {
+      if (root_dir->GetFileSize(fname.c_str(), size)) {
+        return Status::IOError("get file size failed");
+      }
+      return Status::OK();
+    }
   }
 
   virtual Status GetFileModificationTime(const std::string& fname,
                                                uint64_t* file_mtime) override {
-    if (root_dir->GetFileModificationTime(fname.c_str(), (time_t *)file_mtime)) {
-      return Status::IOError("get file modification time failed");
+    FileType type;
+    if (!ParseType(fname, &type)) {
+      return Status::IOError("Cannot determine type for filename %s",
+                                                                fname.c_str());
     }
 
-    return Status::OK();
+    if (type == kInfoLogFile || type == kCurrentFile ||
+                              type == kDBLockFile || type == kIdentityFile) {
+      struct stat s;
+      if (stat(fname.c_str(), &s) !=0) {
+        return IOError(fname, errno);
+      }
+      *file_mtime = static_cast<uint64_t>(s.st_mtime);
+      return Status::OK();
+    } else {
+      if (root_dir->GetFileModificationTime(fname.c_str(), (time_t *)file_mtime)) {
+        return Status::IOError("get file modification time failed");
+      }
+      return Status::OK();
+    }
   }
 
   virtual Status RenameFile(const std::string& src,
                                           const std::string& target) override {
     NVM_DEBUG("renaming %s to %s", src.c_str(), target.c_str());
-
-    if(root_dir->RenameFile(src.c_str(), target.c_str()) == 0) {
-      return Status::OK();
+    FileType type;
+    if (!ParseType(target, &type)) {
+      return Status::IOError("Cannot determine type for filename %s",
+                                                                target.c_str());
     }
 
-    if(root_dir->RenameDirectory(src.c_str(), target.c_str()) == 0) {
-      return Status::OK();
-    }
+    if (type == kInfoLogFile || type == kCurrentFile ||
+                              type == kDBLockFile || type == kIdentityFile) {
+      Status result;
+      if (rename(src.c_str(), target.c_str()) != 0) {
+        result = IOError(src, errno);
+      }
+      return result;
+    } else {
+      if(root_dir->RenameFile(src.c_str(), target.c_str()) == 0) {
+        return Status::OK();
+      }
 
-    NVM_DEBUG("Failed to rename %s to %s", src.c_str(), target.c_str());
-    return Status::IOError("nvm rename file failed");
+      if(root_dir->RenameDirectory(src.c_str(), target.c_str()) == 0) {
+        return Status::OK();
+      }
+
+      NVM_DEBUG("Failed to rename %s to %s", src.c_str(), target.c_str());
+      return Status::IOError("nvm rename file failed");
+    }
   }
 
   virtual Status LinkFile(const std::string& src,
                                           const std::string& target) override {
-    if (root_dir->LinkFile(src.c_str(), target.c_str()) != 0) {
-      return Status::IOError("nvm link file failed");
+    FileType type;
+    if (!ParseType(target, &type)) {
+      return Status::IOError("Cannot determine type for filename %s",
+                                                                target.c_str());
     }
-    return Status::OK();
+
+    if (type == kInfoLogFile || type == kCurrentFile ||
+                              type == kDBLockFile || type == kIdentityFile) {
+      Status result;
+      if (link(src.c_str(), target.c_str()) != 0) {
+        if (errno == EXDEV) {
+          return Status::NotSupported("No cross FS links allowed");
+        }
+        result = IOError(src, errno);
+      }
+      return result;
+    } else {
+      if (root_dir->LinkFile(src.c_str(), target.c_str()) != 0) {
+        return Status::IOError("nvm link file failed");
+      }
+      return Status::OK();
+    }
   }
 
   virtual Status LockFile(const std::string& fname, FileLock** lock) override {
-    *lock = nullptr;
-
-    nvm_file *f = root_dir->nvm_fopen(fname.c_str(), "l");
-
-    if (LockOrUnlock(fname, f, true) == -1) {
-      root_dir->nvm_fclose(f, "l");
-
-      return Status::IOError("unable to lock file");
+    FileType type;
+    if (!ParseType(fname, &type)) {
+      return Status::IOError("Cannot determine type for filename %s",
+                                                                fname.c_str());
     }
 
-    NVMFileLock *my_lock = new NVMFileLock;
-    my_lock->fd_ = f;
-    my_lock->filename = fname;
-    *lock = my_lock;
+    *lock = nullptr;
+    if (type == kInfoLogFile || type == kCurrentFile ||
+                              type == kDBLockFile || type == kIdentityFile) {
+      Status result;
+      int fd;
+      {
+        IOSTATS_TIMER_GUARD(open_nanos);
+        fd = open(fname.c_str(), O_RDWR | O_CREAT, 0644);
+      }
+      if (fd < 0) {
+        result = IOError(fname, errno);
+      } else if (PosixLockOrUnlock(fname, fd, true) == -1) {
+        result = IOError("lock " + fname, errno);
+        close(fd);
+      } else {
+        SetFD_CLOEXEC(fd, nullptr);
+        PosixFileLock* my_lock = new PosixFileLock;
+        my_lock->fd_ = fd;
+        my_lock->filename = fname;
+        *lock = my_lock;
+      }
+      return result;
+    } else {
+      nvm_file *f = root_dir->nvm_fopen(fname.c_str(), "l");
+      if (DFlashLockOrUnlock(fname, f, true) == -1) {
+        root_dir->nvm_fclose(f, "l");
+        return Status::IOError("unable to lock file");
+      }
 
+      NVMFileLock *my_lock = new NVMFileLock;
+      my_lock->fd_ = f;
+      my_lock->filename = fname;
+      my_lock->root_dir_ = root_dir;
+      *lock = my_lock;
+    }
     return Status::OK();
   }
 
   virtual Status UnlockFile(FileLock* lock) override {
-    NVMFileLock* my_lock = reinterpret_cast<NVMFileLock*>(lock);
-
-    Status result;
-
-    if (LockOrUnlock(my_lock->filename, my_lock->fd_, false) == -1) {
-      result = IOError("unlock", errno);
-    }
-
-    root_dir->nvm_fclose(my_lock->fd_, "l");
-
-    delete my_lock;
-    return result;
+    return (lock->Unlock() ? Status::OK() : IOError("unlock", errno));
+    delete lock;
   }
 
   virtual void Schedule(void (*function)(void* arg1), void* arg,

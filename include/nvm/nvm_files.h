@@ -2,6 +2,7 @@
 #define _NVM_FILES_
 
 #include "db/filename.h"
+#include <errno.h>
 
 namespace rocksdb {
 
@@ -113,6 +114,9 @@ class NVMFileLock : public FileLock {
   public:
     nvm_file *fd_;
     std::string filename;
+    nvm_directory *root_dir_;
+
+    bool Unlock();
 };
 
 class NVMPrivateMetadata: public FilePrivateMetadata {
@@ -461,6 +465,32 @@ class PosixMmapReadableFile: public RandomAccessFile {
   virtual Status Read(uint64_t offset, size_t n, Slice* result,
                                                 char* scratch) const override;
   virtual Status InvalidateCache(size_t offset, size_t length) override;
+};
+
+class PosixDirectory : public Directory {
+ public:
+  explicit PosixDirectory(int fd) : fd_(fd) {}
+  ~PosixDirectory() {
+    close(fd_);
+  }
+
+  virtual Status Fsync() override {
+    if (fsync(fd_) == -1) {
+      return Status::IOError("directory", strerror(errno));
+    }
+    return Status::OK();
+  }
+
+ private:
+  int fd_;
+};
+
+class PosixFileLock : public FileLock {
+ public:
+  int fd_;
+  std::string filename;
+
+  bool Unlock();
 };
 
 } //rocksdb namespace
