@@ -697,6 +697,7 @@ class FileLock {
  public:
   FileLock() { }
   virtual ~FileLock();
+  virtual bool Unlock() { return true; }
  private:
   // No copying allowed
   FileLock(const FileLock&);
