@@ -20,7 +20,6 @@ class nvm_file {
     unsigned long size_;
     unsigned long meta_size_;
     int fd_;
-    FileType type_;
 
     // TODO: current_vblock_ is used to write, logic should move to WritableFile
     struct vblock *current_vblock_;
@@ -106,20 +105,6 @@ class nvm_file {
 
     void AddName(const char *name);
 
-    void SetType(std::string fname) {
-      uint64_t num;
-      size_t dir_pos;
-      std::string filename;
-
-      // Asume dbname/file as in filename filename.cc
-      dir_pos = fname.find_first_of("/") + 1; // Account for "/"
-      filename.append(fname.c_str() + dir_pos);
-
-      if (!ParseFileName(filename, &num, &type_)) {
-        NVM_ERROR("Cannot parse file %s\n", fname.c_str());
-      }
-    }
-
     Status Save(const int fd);
     Status Load(const int fd);
 };
@@ -145,9 +130,12 @@ class NVMSequentialFile: public SequentialFile {
   private:
     std::string filename_;
 
-    nvm_file *fd_;
-    nvm_directory *dir_;
+    union {
+      nvm_file *fd_;
+      int posix_fd_;
+    };
 
+    nvm_directory *dir_;
     size_t read_pointer_;
 
     //TODO: Implement this. Only cache the page that is left half read. We need
@@ -174,10 +162,13 @@ class NVMRandomAccessFile: public RandomAccessFile {
   private:
     std::string filename_;
 
-    unsigned long channel;
+    union {
+      nvm_file *fd_;
+      int posix_fd_;
+    };
 
-    nvm_file *fd_;
     nvm_directory *dir_;
+    unsigned long channel;
 
     struct nvm_page *SeekPage(const unsigned long offset,
                   unsigned long *page_pointer, unsigned long *page_idx) const;
@@ -202,8 +193,20 @@ class NVMRandomAccessFile: public RandomAccessFile {
 class NVMWritableFile : public WritableFile {
   private:
     const std::string filename_;
+    // 0:Posix, 1:DFlash
 
-    nvm_file *fd_;
+    union {
+      nvm_file *fd_;
+      int posix_fd_;
+    };
+
+    // Only used by posix for CURRENT, LOG, LOCK, and IDENTITY
+    uint64_t filesize_;
+#ifdef ROCKSDB_FALLOCATE_PRESENT
+    bool fallocate_with_keep_size_;
+#endif
+
+    // From here all variables are used exclusively by the DFlash backend
     nvm_directory *dir_;
 
     size_t cursize_;            // Current buf_ length. It follows mem_
@@ -226,7 +229,6 @@ class NVMWritableFile : public WritableFile {
 
     // Private metadata
     NVMPrivateMetadata* metadata_handle;
-
 
     unsigned long channel;
 
@@ -268,10 +270,13 @@ class NVMRandomRWFile : public RandomRWFile {
   private:
     const std::string filename_;
 
-    unsigned long channel;
+    union {
+      nvm_file *fd_;
+      int posix_fd_;
+    };
 
-    nvm_file *fd_;
     nvm_directory *dir_;
+    unsigned long channel;
 
     // TODO: Buffer PAGE_SIZE
     // size_t cursize_;            // Current buf_ length
@@ -297,6 +302,165 @@ class NVMRandomRWFile : public RandomRWFile {
 #ifdef ROCKSDB_FALLOCATE_PRESENT
     virtual Status Allocate(off_t offset, off_t len) override;
 #endif
+};
+
+// Posix classes. Copied from env_posix
+// This is a momentary solution until we decouple posix file implementations
+// from the posix environment
+class PosixMmapFile : public WritableFile {
+ private:
+  std::string filename_;
+  int fd_;
+  size_t page_size_;
+  size_t map_size_;       // How much extra memory to map at a time
+  char* base_;            // The mapped region
+  char* limit_;           // Limit of the mapped region
+  char* dst_;             // Where to write next  (in range [base_,limit_])
+  char* last_sync_;       // Where have we synced up to
+  uint64_t file_offset_;  // Offset of base_ in file
+#ifdef ROCKSDB_FALLOCATE_PRESENT
+  bool fallocate_with_keep_size_;
+#endif
+
+  // Roundup x to a multiple of y
+  static size_t Roundup(size_t x, size_t y) {
+    return ((x + y - 1) / y) * y;
+  }
+
+  size_t TruncateToPageBoundary(size_t s) {
+    s -= (s & (page_size_ - 1));
+    assert((s % page_size_) == 0);
+    return s;
+  }
+
+  Status UnmapCurrentRegion();
+  Status MapNewRegion();
+  Status Msync();
+
+ public:
+  PosixMmapFile(const std::string& fname, int fd, size_t page_size,
+                                                    const EnvOptions& options);
+  ~PosixMmapFile();
+
+  virtual Status Append(const Slice& data) override;
+  virtual Status Close() override;
+  virtual Status Flush() override;
+  virtual Status Sync() override;
+  virtual Status Fsync() override;
+  virtual uint64_t GetFileSize() override;
+  virtual Status InvalidateCache(size_t offset, size_t length) override;
+#ifdef ROCKSDB_FALLOCATE_PRESENT
+  virtual Status Allocate(off_t offset, off_t len) override;
+#endif
+};
+
+class PosixSequentialFile: public SequentialFile {
+ private:
+  std::string filename_;
+  FILE* file_;
+  int fd_;
+  bool use_os_buffer_;
+
+ public:
+  PosixSequentialFile(const std::string& fname, FILE* f,
+                                                     const EnvOptions& options);
+  ~PosixSequentialFile();
+
+  virtual Status Read(size_t n, Slice* result, char* scratch) override;
+  virtual Status Skip(uint64_t n) override;
+  virtual Status InvalidateCache(size_t offset, size_t length) override;
+};
+
+class PosixWritableFile : public WritableFile {
+ private:
+  const std::string filename_;
+  int fd_;
+  uint64_t filesize_;
+#ifdef ROCKSDB_FALLOCATE_PRESENT
+  bool fallocate_with_keep_size_;
+#endif
+
+ public:
+  PosixWritableFile(const std::string& fname, int fd,
+                                                    const EnvOptions& options);
+  ~PosixWritableFile();
+
+  virtual Status Append(const Slice& data) override;
+  virtual Status Close() override;
+  virtual Status Flush() override;
+  virtual Status Sync() override;
+  virtual Status Fsync() override;
+  virtual uint64_t GetFileSize() override;
+  virtual Status InvalidateCache(size_t offset, size_t length) override;
+#ifdef ROCKSDB_FALLOCATE_PRESENT
+  virtual Status Allocate(off_t offset, off_t len) override;
+  virtual Status RangeSync(off_t offset, off_t nbytes) override;
+  virtual size_t GetUniqueId(char* id, size_t max_size) const override;
+#endif
+};
+
+class PosixRandomRWFile : public RandomRWFile {
+ private:
+  const std::string filename_;
+  int fd_;
+#ifdef ROCKSDB_FALLOCATE_PRESENT
+  bool fallocate_with_keep_size_;
+#endif
+
+ public:
+  PosixRandomRWFile(const std::string& fname, int fd, const EnvOptions& options);
+  ~PosixRandomRWFile();
+
+  virtual Status Write(uint64_t offset, const Slice& data) override;
+  virtual Status Read(uint64_t offset, size_t n, Slice* result, char* scratch) const override;
+  virtual Status Close() override;
+
+  virtual Status Sync() override;
+  virtual Status Fsync() override;
+
+#ifdef ROCKSDB_FALLOCATE_PRESENT
+  virtual Status Allocate(off_t offset, off_t len) override;
+#endif
+};
+
+class PosixRandomAccessFile: public RandomAccessFile {
+ private:
+  std::string filename_;
+  int fd_;
+  bool use_os_buffer_;
+
+ public:
+  PosixRandomAccessFile(const std::string& fname, int fd,
+                                                  const EnvOptions& options);
+  ~PosixRandomAccessFile();
+
+  virtual Status Read(uint64_t offset, size_t n, Slice* result,
+                                                char* scratch) const override;
+
+#ifdef OS_LINUX
+  virtual size_t GetUniqueId(char* id, size_t max_size) const override;
+#endif
+
+  virtual void Hint(AccessPattern pattern) override;
+  virtual Status InvalidateCache(size_t offset, size_t length) override;
+};
+
+class PosixMmapReadableFile: public RandomAccessFile {
+ private:
+  int fd_;
+  std::string filename_;
+  void* mmapped_region_;
+  size_t length_;
+
+ public:
+  PosixMmapReadableFile(const int fd, const std::string& fname,
+                        void* base, size_t length,
+                        const EnvOptions& options);
+  ~PosixMmapReadableFile();
+
+  virtual Status Read(uint64_t offset, size_t n, Slice* result,
+                                                char* scratch) const override;
+  virtual Status InvalidateCache(size_t offset, size_t length) override;
 };
 
 } //rocksdb namespace
