@@ -556,7 +556,6 @@ class NVMEnv : public Env {
   }
 
   virtual Status CreateDirIfMissing(const std::string& name) override {
-    // TODO: Javier: Look into this
     return CreateDir(name);
   }
 

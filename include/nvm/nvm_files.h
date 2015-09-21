@@ -197,7 +197,6 @@ class NVMRandomAccessFile: public RandomAccessFile {
 class NVMWritableFile : public WritableFile {
   private:
     const std::string filename_;
-    // 0:Posix, 1:DFlash
 
     union {
       nvm_file *fd_;
