@@ -725,6 +725,7 @@ void DBImpl::PurgeObsoleteFiles(const JobContext& state) {
       case kDBLockFile:
       case kIdentityFile:
       case kMetaDatabase:
+      case kUnknownFile:
         keep = true;
         break;
     }
