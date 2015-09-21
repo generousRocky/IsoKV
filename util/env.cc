@@ -241,7 +241,7 @@ void Log(const shared_ptr<Logger>& info_log, const char* format, ...) {
 Status WriteStringToFile(Env* env, const Slice& data, const std::string& fname,
                          bool should_sync, FileType type) {
   unique_ptr<WritableFile> file;
-  EnvOptions soptions;
+  EnvOptions soptions = env->OptimizeForCurrentWrite(soptions);
   Status s = env->NewWritableFile(fname, &file, soptions);
   if (!s.ok()) {
     return s;
