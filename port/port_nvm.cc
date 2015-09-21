@@ -140,6 +140,21 @@ void Crash(const std::string& srcfile, int srcline) {
   kill(getpid(), SIGTERM);
 }
 
+int GetMaxOpenFiles() {
+#if defined(RLIMIT_NOFILE)
+  struct rlimit no_files_limit;
+  if (getrlimit(RLIMIT_NOFILE, &no_files_limit) != 0) {
+    return -1;
+  }
+  // protect against overflow
+  if (no_files_limit.rlim_cur >= std::numeric_limits<int>::max()) {
+    return std::numeric_limits<int>::max();
+  }
+  return static_cast<int>(no_files_limit.rlim_cur);
+#endif
+  return -1;
+}
+
 }  // namespace port
 }  // namespace rocksdb
 

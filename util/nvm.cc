@@ -114,6 +114,7 @@ nvm::nvm() {
 nvm::~nvm() {
   unsigned long i;
   unsigned long j;
+  unsigned long k;
 
   close_nvm_device("rocksdb");
   close(fd);
@@ -121,6 +122,9 @@ nvm::~nvm() {
   if (nr_luns > 0) {
     for (i = 0; i < nr_luns; ++i) {
       for (j = 0; j < luns[i].nr_blocks; ++j) {
+        for(k = 0; k < luns[i].nr_pages_per_blk; ++k) {
+          free(luns[i].blocks[j].pages[k].sizes);
+        }
         free(luns[i].blocks[j].block);
         free(luns[i].blocks[j].pages);
       }
@@ -197,6 +201,7 @@ bool nvm::GetBlock(unsigned int vlun_id, struct vblock *vblock) {
 
   vblock->vlun_id = vlun_id;
   vblock->flags = 0x0;
+  vblock->owner_id = 101;
 
   ret = ioctl(fd, NVM_GET_BLOCK, vblock);
   if (ret == -1) {
@@ -210,8 +215,29 @@ bool nvm::GetBlock(unsigned int vlun_id, struct vblock *vblock) {
   return true;
 }
 
+// Retrieve metadata of a block already own by DFlash
+bool nvm::GetBlockMeta(unsigned long vblock_id, struct vblock *vblock) {
+  long long ret;
+
+  vblock->id = vblock_id;
+  vblock->vlun_id = 0; //TODO: Figure out where is the best place to store this
+  vblock->flags = 0x0;
+  vblock->owner_id = 101;
+
+  ret = ioctl(fd, NVM_GET_BLOCK_META, vblock);
+  if (ret == -1) {
+    printf("Could not get vblock metadata for vblock %lu\n!!", vblock_id);
+    return false;
+  }
+
+  NVM_DEBUG("Getting block meta: lun:- block_id:%lu, bppa: %llu\n",
+                                                vblock->id, vblock->bppa);
+
+  return true;
+}
+
 void nvm::EraseBlock(struct vblock *vblock) {
-	ioctl(fd, NVMBLOCKERASE, vblock);
+  ioctl(fd, NVMBLOCKERASE, vblock);
 }
 
 bool nvm::RequestBlock(std::vector<struct nvm_page *> *block_pages,

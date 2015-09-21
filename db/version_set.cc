@@ -2118,7 +2118,7 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
         bool all_records_in = true;
         for (auto& e : batch_edits) {
           std::string record;
-          if (!e->EncodeTo(&record)) {
+          if (!e->EncodeTo(&record, env_)) {
             s = Status::Corruption(
                 "Unable to Encode VersionEdit:" + e->DebugString(true));
             all_records_in = false;
@@ -2955,7 +2955,7 @@ Status VersionSet::WriteSnapshot(log::Writer* log) {
       edit.SetComparatorName(
           cfd->internal_comparator().user_comparator()->Name());
       std::string record;
-      if (!edit.EncodeTo(&record)) {
+      if (!edit.EncodeTo(&record, env_)) {
         return Status::Corruption(
             "Unable to Encode VersionEdit:" + edit.DebugString(true));
       }
@@ -2981,7 +2981,7 @@ Status VersionSet::WriteSnapshot(log::Writer* log) {
       }
       edit.SetLogNumber(cfd->GetLogNumber());
       std::string record;
-      if (!edit.EncodeTo(&record)) {
+      if (!edit.EncodeTo(&record, env_)) {
         return Status::Corruption(
             "Unable to Encode VersionEdit:" + edit.DebugString(true));
       }

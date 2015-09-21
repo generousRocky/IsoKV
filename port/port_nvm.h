@@ -16,6 +16,8 @@
 // in fact, we could use that one
 #define ROCKSDB_PRIszt "zu"
 
+#define ROCKSDB_NOEXCEPT noexcept
+
 #undef PLATFORM_IS_LITTLE_ENDIAN
 #if defined(OS_MACOSX)
   #include <machine/endian.h>
@@ -80,6 +82,7 @@ namespace port {
 // For use at db/file_indexer.h kLevelMaxIndex
 const int kMaxInt32 = std::numeric_limits<int32_t>::max();
 const uint64_t kMaxUint64 = std::numeric_limits<uint64_t>::max();
+const size_t kMaxSizet = std::numeric_limits<size_t>::max();
 
 static const bool kLittleEndian = PLATFORM_IS_LITTLE_ENDIAN;
 #undef PLATFORM_IS_LITTLE_ENDIAN
@@ -151,6 +154,9 @@ extern void InitOnce(OnceType* once, void (*initializer)());
 #define PREFETCH(addr, rw, locality) __builtin_prefetch(addr, rw, locality)
 
 extern void Crash(const std::string& srcfile, int srcline);
+
+int GetMaxOpenFiles(); //TODO: Do we have a limit of opened dflash files?
+
 } // namespace port
 } // namespace rocksdb
 

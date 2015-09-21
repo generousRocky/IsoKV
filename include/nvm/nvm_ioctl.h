@@ -19,5 +19,6 @@
 
 #define NVM_GET_BLOCK           21526
 #define NVM_PUT_BLOCK           21525
+#define NVM_GET_BLOCK_META      21537
 
 #endif //_NVM_IOCTL_H_

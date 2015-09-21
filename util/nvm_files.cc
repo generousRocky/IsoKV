@@ -36,46 +36,38 @@
 
 namespace rocksdb {
 
-// Static method encoding metadata for DFlash backend
-// See comment above NVM:PrivateMetadata::GetMetadata()
-void Env::EncodePrivateMetadata(std::string *dst, void *metadata) {
-  if (metadata == nullptr) {
-    return;
+  void* NVMPrivateMetadata::GetMetadata(nvm_file *file) {
+  std::deque<struct vblock *>::iterator it;
+  std::string metadata;
+
+  PutVarint32(&metadata, file->vblocks_.size());
+  for (it = file->vblocks_.begin(); it != file->vblocks_.end(); it++) {
+    NVM_DEBUG("METADATA: Writing(%lu):\nsep:%d,id:%lu\noid:%lu\nnppas:%lu\nbitmap:%lu\nbppa:%llu\nvlunid:%d\nflags:%d\n",
+      file->vblocks_.size(), separator_, (*it)->id, (*it)->owner_id, (*it)->nppas, (*it)->ppa_bitmap, (*it)->bppa,
+      (*it)->vlun_id, (*it)->flags);
+    PutVarint32(&metadata, separator_); //This might go away
+    PutVarint64(&metadata, (*it)->id);
+    PutVarint64(&metadata, (*it)->owner_id);
+    PutVarint64(&metadata, (*it)->nppas);
+    PutVarint64(&metadata, (*it)->ppa_bitmap);
+    PutVarint64(&metadata, (*it)->bppa);
+    PutVarint32(&metadata, (*it)->vlun_id);
+    PutVarint32(&metadata, (*it)->flags);
   }
 
-  // metadata already contains the encoded data. See comment in
-  // NVMPrivateMetadata::GetMetadata()
-  struct vblock_meta *vblock_meta = (struct vblock_meta*)metadata;
-  dst->append((const char*)vblock_meta->encoded_vblocks, vblock_meta->len);
-}
+  uint64_t metadata_size = metadata.length();
+  struct vblock_meta *vblock_meta =
+                        (struct vblock_meta*)malloc(sizeof(struct vblock_meta));
+  vblock_meta->encoded_vblocks = (char*)malloc(metadata_size);
 
-void Env::DecodePrivateMetadata(Slice *input) {
-  uint32_t meta32;
-  uint64_t meta64;
-
-  GetVarint64(input, &meta64);
-  uint64_t left = meta64;
-
-  while (left > 0) {
-    GetVarint32(input, &meta32);
-    printf("separator: %d", meta32);
-    GetVarint64(input, &meta64);
-    printf("id: %lu", meta64);
-    GetVarint64(input, &meta64);
-    printf("owner id: %lu", meta64);
-    GetVarint64(input, &meta64);
-    printf("nppas: %lu", meta64);
-    GetVarint64(input, &meta64);
-    printf("bitmap: %lu", meta64);
-    GetVarint64(input, &meta64);
-    printf("bppa: %lu", meta64);
-    GetVarint32(input, &meta32);
-    printf("vlunid: %d", meta32);
-    GetVarint32(input, &meta32);
-    printf("flags: %d\n", meta32);
-
-    left--;
-  }
+  vblock_meta->len = metadata_size;
+  // At this point metadata has not been persisted yet, but it is given
+  // FileMetaData; in normal operation metadata will be persisted. In case of
+  // of RocksDB crushing before this happens, we can reconstruct this metadata
+  // from individual blocks in a recover phase.
+  file->blocks_meta_persisted_ = file->vblocks_.size();
+  memcpy(vblock_meta->encoded_vblocks, metadata.c_str(), metadata_size);
+  return (void*)vblock_meta;
 }
 
 #if defined(OS_LINUX)
@@ -117,6 +109,7 @@ nvm_file::nvm_file(const char *_name, const int fd, nvm_directory *_parent) {
 
   size_ = 0;
   fd_ = fd;
+  metadata_handle_ = new NVMPrivateMetadata(this);
 
   last_modified = time(nullptr);
   vblocks_.clear();
@@ -128,6 +121,9 @@ nvm_file::nvm_file(const char *_name, const int fd, nvm_directory *_parent) {
 
   seq_writable_file = nullptr;
   current_vblock_ = nullptr;
+  next_vblock_ = nullptr;
+  nblocks_ = 0;
+  blocks_meta_persisted_ = 0;
 
   pthread_mutexattr_init(&page_update_mtx_attr);
   pthread_mutexattr_settype(&page_update_mtx_attr, PTHREAD_MUTEX_RECURSIVE);
@@ -146,6 +142,7 @@ nvm_file::~nvm_file() {
     seq_writable_file = nullptr;
   }
 
+  delete metadata_handle_;
   list_node *temp = names;
   while (temp != nullptr) {
     list_node *temp1 = temp->GetNext();
@@ -156,8 +153,7 @@ nvm_file::~nvm_file() {
     temp = temp1;
   }
 
-  struct nvm *nvm = parent->GetNVMApi();
-  PutAllBlocks(nvm);
+  FreeAllBlocks();
   vblocks_.clear();
 
   pthread_mutexattr_destroy(&page_update_mtx_attr);
@@ -721,11 +717,25 @@ int nvm_file::GetFD() {
   return fd_;
 }
 
-unsigned long nvm_file::GetSize() {
+unsigned long nvm_file::GetPersistentSize() {
   unsigned long ret;
 
   pthread_mutex_lock(&page_update_mtx);
   ret = size_;
+  pthread_mutex_unlock(&page_update_mtx);
+  return ret;
+}
+
+unsigned long nvm_file::GetSize() {
+  unsigned long ret;
+
+  pthread_mutex_lock(&page_update_mtx);
+  // Account for data in write cache
+  if (seq_writable_file != nullptr) {
+    ret = seq_writable_file->GetFileSize();
+  } else {
+    ret = size_;
+  }
   pthread_mutex_unlock(&page_update_mtx);
   return ret;
 }
@@ -749,9 +759,15 @@ void nvm_file::DeleteAllLinks(struct nvm *_nvm_api) {
 
   pages.clear();
 
-  size_ = 0;
+  // size_ = 0;
 
   pthread_mutex_unlock(&page_update_mtx);
+
+  if (seq_writable_file) {
+    //flush any existing buffers
+    seq_writable_file->FileDeletedEvent();
+    seq_writable_file = nullptr;
+  }
 
   UpdateFileModificationTime();
 }
@@ -811,14 +827,14 @@ bool nvm_file::Delete(const char * filename, struct nvm *nvm_api) {
 
   if (link_files_left) {
     //we have link file pointing here.. don't delete
-
     return false;
   }
 
   NVM_DEBUG("Deleting all links");
-
   DeleteAllLinks(nvm_api);
 
+  // Put block back to BM
+  PutAllBlocks(parent->GetNVMApi());
   return true;
 }
 
@@ -897,6 +913,9 @@ size_t nvm_file::ReadBlock(struct nvm *nvm, unsigned int block_offset,
   size_t left =
       ((((data_len + page_offset + meta_beg_size) / PAGE_SIZE) + x) * PAGE_SIZE);
 
+  NVM_DEBUG("READBLOCK. BO: %d, PPAO: %lu, PO:%d. To read from block: %lu, left:%lu, blockid: %lu, current ppa: %lu, x:%d\n",
+            block_offset, ppa_offset, page_offset, data_len, left, current_vblock->id, current_ppa, x);
+
   assert(left <= (nppas * PAGE_SIZE));
   assert((left % PAGE_SIZE) == 0);
 
@@ -943,29 +962,96 @@ out:
 size_t nvm_file::Read(struct nvm *nvm, size_t read_pointer, char *data,
                                                         size_t data_len) {
   size_t nppas = nvm->GetNPagesBlock(0); //This is a momentary fix (FIXME)
-  unsigned int block_offset = read_pointer / (nppas * PAGE_SIZE);
-  size_t ppa_offset = (read_pointer / PAGE_SIZE) % (nppas * PAGE_SIZE);
-  unsigned int page_offset = read_pointer % PAGE_SIZE;
+  size_t meta_size =
+            sizeof(struct vblock_recov_meta) + sizeof(struct vblock_close_meta);
+  size_t bytes_per_block = (nppas * PAGE_SIZE) - meta_size;
+  unsigned int block_offset = read_pointer / bytes_per_block;
+  unsigned int page_offset = read_pointer % bytes_per_block;
   size_t left = data_len;
   size_t bytes_left_block;
   size_t bytes_per_read;
   size_t total_read = 0;
-  size_t meta_size =
-            sizeof(struct vblock_recov_meta) + sizeof(struct vblock_close_meta);
+  size_t ppa_offset =
+          ((read_pointer - (block_offset * bytes_per_block)) / PAGE_SIZE) %
+          (bytes_per_block);
+
+  // Update offsets if they overload
+  if (page_offset >= PAGE_SIZE) {
+    ppa_offset = page_offset / PAGE_SIZE;
+    page_offset = page_offset % PAGE_SIZE;
+    if (ppa_offset >= nppas) {
+      block_offset = ppa_offset / nppas;
+      ppa_offset = ppa_offset & nppas;
+    }
+  }
 
   while (left > 0) {
-    bytes_left_block = ((nppas - ppa_offset) * PAGE_SIZE) - meta_size;
+    // In the unlikely case that all vblock metadata is not loaded in memory,
+    // recover metadata from the current vblock
+retry:
+    if (UNLIKELY(block_offset + 1 > nblocks_)) {
+      RecoverAndLoadMetadata(nvm);
+      goto retry;
+    }
+    bytes_left_block = ((nppas - ppa_offset) * PAGE_SIZE) - page_offset - meta_size;
     bytes_per_read = (left > bytes_left_block) ? bytes_left_block : left;
     size_t read = ReadBlock(nvm, block_offset, ppa_offset, page_offset,
                                           data + total_read, bytes_per_read);
+    if (read != bytes_per_read) {
+      NVM_FATAL("Error reading vblock with data in offset: %lu\n", read_pointer);
+    }
 
     total_read += read;
     block_offset++;
     ppa_offset = 0;
+    page_offset = 0;
     left -= read;
   }
 
   return total_read;
+}
+
+void nvm_file::SaveSpecialMetadata(std::string fname) {
+  // TODO: Get name from dbname
+  std::string recovery_location = "testingrocks/DFLASH_RECOVERY";
+
+  std::string recovery_meta = fname;
+  recovery_meta.append(":", 1);
+
+  //TODO: RETURN TO void*
+  void* meta = NVMPrivateMetadata::GetMetadata(this);
+  std::string encoded_meta;
+  Env::EncodePrivateMetadata(&encoded_meta, meta);
+  Env::FreePrivateMetadata(meta);
+  // TODO: Use PutVarint64 technique
+  std::string len = std::to_string(encoded_meta.size());
+  recovery_meta.append(len);
+  recovery_meta.append(encoded_meta);
+
+  int fd = open(recovery_location.c_str(), O_WRONLY | O_APPEND | O_CREAT, S_IWUSR);
+  if (fd < 0) {
+    NVM_DEBUG("Cannot create RECOVERY file\n");
+    return;
+  }
+
+  recovery_meta.append("\n", 1);
+  size_t left = recovery_meta.size();
+  const char* src = recovery_meta.c_str();
+  ssize_t done;
+  while (left > 0) {
+    done = write(fd, src, left);
+    if (done < 0) {
+      if (errno == EINTR) {
+        continue;
+      }
+      NVM_DEBUG("Unable to write private metadata in RECOVERY\n");
+      return;
+    }
+    left -=done;
+    src +=done;
+  }
+
+  close(fd);
 }
 
 //TODO: Javier: get list of vluns at initialization and ask for a vblock from
@@ -986,6 +1072,61 @@ void nvm_file::GetBlock(struct nvm *nvm, unsigned int vlun_id) {
   pthread_mutex_lock(&page_update_mtx);
   vblocks_.push_back(new_vblock);
   current_vblock_ = new_vblock;
+  nblocks_++;
+  pthread_mutex_unlock(&page_update_mtx);
+}
+
+// Get a new vblock and put it in the nvm_file vblock vector, but do not update
+// pointers
+void nvm_file::PreallocateBlock(struct nvm* nvm, unsigned int vlun_id) {
+  //TODO: Make this better: mmap memory into device??
+  struct vblock *new_vblock = (struct vblock*)malloc(sizeof(struct vblock));
+  if (!new_vblock) {
+    NVM_FATAL("Could not allocate memory\n");
+  }
+
+  if (!nvm->GetBlock(vlun_id, new_vblock)) {
+    NVM_FATAL("could not get a new block - ssd out of space\n");
+  }
+
+  pthread_mutex_lock(&page_update_mtx);
+  vblocks_.push_back(new_vblock);
+  next_vblock_ = new_vblock;
+  nblocks_++;
+  pthread_mutex_unlock(&page_update_mtx);
+}
+
+void nvm_file::RecoverAndLoadMetadata(struct nvm* nvm) {
+  printf("Recover and load metadata!!\n");
+  if (UNLIKELY(current_vblock_ == nullptr)) {
+    NVM_DEBUG("Recovering metadata from an uninitialized nvm_file");
+  }
+  assert (current_vblock_ != nullptr);
+  // Recover metadata from last loaded vblock
+  size_t meta_size = sizeof(struct vblock_close_meta);
+  unsigned int block_offset = nblocks_ - 1;
+  size_t ppa_offset = current_vblock_->nppas - 1;
+  unsigned int page_offset = PAGE_SIZE - meta_size;
+  struct vblock_close_meta vblock_meta;
+  if (ReadBlock(nvm, block_offset, ppa_offset, page_offset,
+                          (char*)&vblock_meta, meta_size) != meta_size) {
+    NVM_FATAL("Error reading current block metadata\n");
+  }
+
+   //TODO: Make this better: mmap memory into device??
+  struct vblock *new_vblock = (struct vblock*)malloc(sizeof(struct vblock));
+  if (!new_vblock) {
+    NVM_FATAL("Could not allocate memory\n");
+  }
+
+  if (!nvm->GetBlockMeta(vblock_meta.next_vblock_id, new_vblock)) {
+    NVM_FATAL("could not get block metadata\n");
+  }
+
+  pthread_mutex_lock(&page_update_mtx);
+  vblocks_.push_back(new_vblock);
+  current_vblock_ = new_vblock;
+  nblocks_++;
   pthread_mutex_unlock(&page_update_mtx);
 }
 
@@ -1007,10 +1148,9 @@ void nvm_file::ReplaceBlock(struct nvm *nvm, unsigned int vlun_id,
   pthread_mutex_lock(&page_update_mtx);
   old_vblock = vblocks_[block_idx];
   vblocks_[block_idx] = new_vblock;
-
   current_vblock_ = new_vblock;
-
   pthread_mutex_unlock(&page_update_mtx);
+
   nvm->EraseBlock(old_vblock);
   free(old_vblock);
 }
@@ -1028,14 +1168,35 @@ void nvm_file::PutBlock(struct nvm *nvm, struct vblock *vblock) {
 }
 
 void nvm_file::PutAllBlocks(struct nvm *nvm) {
-  std::vector<struct vblock *>::iterator it;
-
-  for (it = vblocks_.begin(); it != vblocks_.end(); it++) {
-    PutBlock(nvm, *it);
+  unsigned long i;
+  
+  for(i = 0; i < vblocks_.size(); ++i) {
+    if(vblocks_[i] != nullptr) {
+      PutBlock(nvm, vblocks_[i]);
+      vblocks_[i] = nullptr;
+    }
   }
 
+  nblocks_ = 0;  
   current_vblock_ = nullptr;
 }
+
+// Free all structures holding vblock information in memory, but do not return
+// the block to the block manager
+void nvm_file::FreeAllBlocks() {
+  unsigned long i;
+  
+  for(i = 0; i < vblocks_.size(); ++i) {
+    if(vblocks_[i] != nullptr) {
+      free(vblocks_[i]);
+      vblocks_[i] = nullptr;
+    }
+  }
+
+  nblocks_ = 0;  
+  current_vblock_ = nullptr;
+}
+
 
 // For the moment we assume that all pages in a block are good pages. In the
 // future we would have to check ppa_bitmap and come back to the memtable to
@@ -1070,6 +1231,7 @@ size_t nvm_file::FlushBlock(struct nvm *nvm, char *data, size_t ppa_offset,
 
   // Flush has been forced by upper layers and page is not aligned to PAGE_SIZE
   if (!page_aligned) {
+    NVM_DEBUG("PAGE DISALIGNED!!\n");
     size_t disaligned_data = data_len % PAGE_SIZE;
     size_t aligned_data = data_len / PAGE_SIZE;
     uint8_t x = (disaligned_data == 0) ? 0 : 1;
@@ -1109,12 +1271,15 @@ size_t nvm_file::FlushBlock(struct nvm *nvm, char *data, size_t ppa_offset,
   //TODO: Use libaio instead of pread/pwrite
   //TODO: Write in out of bound area when API is ready (per_page_meta and
   //last_page_meta
+  
+  char *data_aligned_write = data_aligned;
+  
   while (left > 0) {
     // left is guaranteed to be a multiple of PAGE_SIZE
     bytes_per_write = (left > max_bytes_per_write) ? max_bytes_per_write : left;
     pages_per_write = bytes_per_write / PAGE_SIZE;
 
-    if ((unsigned)pwrite(fd_, data_aligned, bytes_per_write,
+    if ((unsigned)pwrite(fd_, data_aligned_write, bytes_per_write,
                                      current_ppa * PAGE_SIZE) != bytes_per_write) {
       //TODO: See if we can recover. Use another ppa + mark bad page in bitmap?
       NVM_ERROR("ERROR: Page no written\n");
@@ -1122,7 +1287,9 @@ size_t nvm_file::FlushBlock(struct nvm *nvm, char *data, size_t ppa_offset,
       goto out;
     }
 
-    data_aligned += bytes_per_write;
+    //moving data_aligned might cause an invalid free
+    //at free(data_aligned); in out label
+    data_aligned_write += bytes_per_write;
     left -= bytes_per_write;
     current_ppa += pages_per_write;
   }
@@ -1136,13 +1303,18 @@ size_t nvm_file::FlushBlock(struct nvm *nvm, char *data, size_t ppa_offset,
   }
 
   pthread_mutex_lock(&page_update_mtx);
+  NVM_DEBUG("Updating size: %lu, data_len %lu, left %lu, meta %d\n",
+        size_, data_len, left, meta_size);
   size_ += data_len - left - meta_size;
   pthread_mutex_unlock(&page_update_mtx);
+
+  NVM_DEBUG("FLUSHED BLOCK: %lu, size:%lu, data_len: %lu, left:%lu this:%p\n",
+          current_vblock_->id, size_, data_len, left, this);
 
   UpdateFileModificationTime();
   IOSTATS_ADD(bytes_written, write_len);
 
-  ret = write_len;
+  ret = data_len;
 
 out:
   if (allocate_aligned_buf)
@@ -1165,41 +1337,15 @@ NVMPrivateMetadata::NVMPrivateMetadata(nvm_file *file) {
 NVMPrivateMetadata::~NVMPrivateMetadata() {}
 
 //TODO: Can we maintain a friend reference to NVMWritableFile to simplify this?
-void NVMPrivateMetadata::UpdateMetadataHandle(nvm_file *file) {
-  file_ = file;
-}
+// void NVMPrivateMetadata::UpdateMetadataHandle(nvm_file *file) {
+  // file_ = file;
+// }
 
 // For now store the whole vblock as metadata. When we can retrieve a vblock
 // from its ID from the BM we can reduces the amount of metadata stored in
 // MANIFEST
 void* NVMPrivateMetadata::GetMetadata() {
-  std::vector<struct vblock *>::iterator it;
-  std::string metadata;
-
-  PutVarint32(&metadata, file_->vblocks_.size());
-  for (it = file_->vblocks_.begin(); it != file_->vblocks_.end(); it++) {
-    printf("METADATA: Writing:\nsep:%d,id:%lu\noid:%lu\nnppas:%lu\nbitmap:%lu\nbppa:%llu\nvlunid:%d\nflags:%d\n",
-      separator_, (*it)->id, (*it)->owner_id, (*it)->nppas, (*it)->ppa_bitmap, (*it)->bppa,
-      (*it)->vlun_id, (*it)->flags);
-    PutVarint32(&metadata, separator_); //This might go away
-    PutVarint64(&metadata, (*it)->id);
-    PutVarint64(&metadata, (*it)->owner_id);
-    PutVarint64(&metadata, (*it)->nppas);
-    PutVarint64(&metadata, (*it)->ppa_bitmap);
-    PutVarint64(&metadata, (*it)->bppa);
-    PutVarint32(&metadata, (*it)->vlun_id);
-    PutVarint32(&metadata, (*it)->flags);
-  }
-
-  uint64_t metadata_size = metadata.length();
-  struct vblock_meta *vblock_meta =
-                        (struct vblock_meta*)malloc(sizeof(struct vblock_meta));
-  vblock_meta->encoded_vblocks = (char*)malloc(metadata_size);
-
-  vblock_meta->len = metadata_size;
-  memcpy(vblock_meta->encoded_vblocks, metadata.c_str(), metadata_size);
-
-  return (void*)vblock_meta;
+  return GetMetadata(file_);
 }
 
 /*
@@ -1236,6 +1382,8 @@ Status NVMSequentialFile::Read(size_t n, Slice* result, char* scratch) {
     return Status::OK();
   }
 
+  NVM_DEBUG("READING FROM FILE: %s, offset: %lu, n:%lu\n", filename_.c_str(),
+                                                              read_pointer_, n);
   if (fd_->Read(nvm, read_pointer_, scratch, n) != n) {
     return Status::IOError("Unable to read\n");
   }
@@ -1279,45 +1427,19 @@ NVMRandomAccessFile::~NVMRandomAccessFile() {
 
 Status NVMRandomAccessFile::Read(uint64_t offset, size_t n, Slice* result,
                                                         char* scratch) const {
-  if (offset >= fd_->GetSize()) {
-    NVM_DEBUG("offset is out of bounds");
-    *result = Slice(scratch, 0);
-    return Status::OK();
-  }
-
-  if (offset >= fd_->GetSize()) {
+  if (offset + n > fd_->GetSize()) {
+    NVM_DEBUG("offset is out of bounds. Filename: %s, offset: %lu, n: %lu, filesize: %lu\n",
+                                filename_.c_str(), offset, n, fd_->GetSize());
+    // Read all that has been written to either the buffer or the dflash backend
     n = fd_->GetSize() - offset;
-  }
-
-  if (n <= 0) {
-    *result = Slice(scratch, 0);
-    return Status::OK();
   }
 
   struct nvm *nvm = dir_->GetNVMApi();
 
-  //Account for the metadata stored at the beginning of the virtual block.
-  // uint64_t internal_offset = offset + sizeof(struct vblock_recov_meta);
-  uint64_t internal_offset = offset;
-
-  unsigned int ppa_offset = internal_offset / PAGE_SIZE;
-  unsigned int page_offset = internal_offset % PAGE_SIZE;
-
-  size_t data_len = (((n / PAGE_SIZE) + 1) * PAGE_SIZE);
-  char *data = (char*)memalign(PAGE_SIZE, data_len);
-  if (!data) {
-    NVM_FATAL("Cannot allocate aligned memory\n");
-    return Status::Corruption("Cannot allocate aligned memory''");
-  }
-
-  if (fd_->Read(nvm, ppa_offset, data, data_len) != data_len) {
-    free(data);
+  NVM_DEBUG("READING FROM FILE: %s, offset: %lu, n:%lu\n", filename_.c_str(), offset, n);
+  if (fd_->Read(nvm, offset, scratch, n) != n) {
     return Status::IOError("Unable to read\n");
   }
-
-  //TODO: Can we avoid this memory copy?
-  memcpy(scratch, data + page_offset, n);
-  free(data);
 
   *result = Slice(scratch, n);
   return Status::OK();
@@ -1356,8 +1478,6 @@ NVMWritableFile::NVMWritableFile(const std::string& fname, nvm_file *fd,
   fd_ = fd;
   dir_ = dir;
 
-  metadata_handle = new NVMPrivateMetadata(fd_); //JAVIER: parameters?
-
   struct nvm *nvm = dir_->GetNVMApi();
   //TODO: Use the vlun type when this is available
   unsigned int vlun_type = 0;
@@ -1395,19 +1515,38 @@ NVMWritableFile::NVMWritableFile(const std::string& fname, nvm_file *fd,
 }
 
 NVMWritableFile::~NVMWritableFile() {
-  fd_->SetSeqWritableFile(nullptr);
+  if(fd_) {
+    fd_->SetSeqWritableFile(nullptr);
+
+    // TODO: This is for first prototype. This should be moved to SaveFTL, which
+    // should be called if a crush is detected. Even though we have a way to
+    // recover all metadata from individual blocks in case of a total crash (e.g.,
+    // power failure), this mechanism (which is cheaper) should be resistant to
+    // RocksDB internal crushes.
+    // TODO: Do not save special metadata for manifest
+    if ((fd_->GetNPersistentMetaBlocks() == 0) &&
+                                            (fd_->GetType() != kMetaDatabase)) {
+      NVM_DEBUG("Saving special metadata for file: %s\n", filename_.c_str());
+      fd_->SaveSpecialMetadata(filename_);
+    }
+  }
+
   NVMWritableFile::Close();
 }
 
-size_t NVMWritableFile::CalculatePpaOffset(size_t curflush) {
-  struct nvm *nvm = dir_->GetNVMApi();
-  size_t nppas = nvm->GetNPagesBlock(0); //This is a momentary fix (FIXME)
+void NVMWritableFile::FileDeletedEvent() {
+  fd_ = nullptr;
+}
 
+size_t NVMWritableFile::CalculatePpaOffset(size_t curflush) {
   // For now we assume that all blocks have the same size. When this assumption
   // no longer holds, we would need to iterate vblocks_ in nvm_file, or hold a
   // ppa pointer for each WritableFile.
   // We always flush one page at the time
-  return curflush % nppas * PAGE_SIZE;
+  size_t disaligned_data = curflush_ % PAGE_SIZE;
+  size_t aligned_data = curflush / PAGE_SIZE;
+  uint8_t x = (disaligned_data == 0) ? 0 : 1;
+  return (aligned_data + x);
 }
 
 // We try to flush at a page granurality. We need to see how this affects
@@ -1418,6 +1557,11 @@ bool NVMWritableFile::Flush(const bool force_flush) {
   size_t ppa_flush_offset = CalculatePpaOffset(curflush_);
   struct vblock_close_meta vblock_meta;
   bool page_aligned = false;
+
+  if(fd_ == nullptr) {
+    NVM_DEBUG("FILE WAS DELETED. DON'T FLUSH")
+    return true;
+  }
 
   if (!force_flush && flush_len < PAGE_SIZE) {
     return true;
@@ -1430,21 +1574,23 @@ bool NVMWritableFile::Flush(const bool force_flush) {
   assert (curflush_ + flush_len <= buf_limit_);
 
   if (force_flush) {
+    NVM_DEBUG("FORCED FLUSH IN FILE %s. this: %pref: %p\n", filename_.c_str(), this, fd_);
     // Append vblock medatada when closing a block.
     if (curflush_ + flush_len == buf_limit_) {
       unsigned int meta_size = sizeof(vblock_meta);
-      vblock_meta.flags = VBLOCK_CLOSED;
       vblock_meta.written_bytes = buf_limit_;
       vblock_meta.ppa_bitmap = 0x0; //Use real bad page information
+      vblock_meta.next_vblock_id = fd_->GetNextBlockID();
+      vblock_meta.flags = VBLOCK_CLOSED;
       memcpy(mem_, &vblock_meta, meta_size);
       flush_len += meta_size;
-      page_aligned = (flush_len % PAGE_SIZE == 0) ? true : false;
     } else {
       //TODO: Pass on to upper layers to append metadata to RocksDB WAL
       // TODO: Save this partial write structure to the metadata file
       write_pointer_.ppa_offset = ppa_flush_offset + flush_len / PAGE_SIZE;
       write_pointer_.page_offset = flush_len % PAGE_SIZE;
     }
+    page_aligned = (flush_len % PAGE_SIZE == 0) ? true : false;
   } else {
     size_t disaligned_data = flush_len % PAGE_SIZE;
     flush_len -= disaligned_data;
@@ -1464,12 +1610,19 @@ bool NVMWritableFile::Flush(const bool force_flush) {
   return true;
 }
 
-// We preallocate a new block to store future flushes in flash memory. We also
+// Allocate a new block to store future flushes in flash memory. Also,
 // reset all buffer pointers and sizes; there is no need to maintain old
 // buffered data in cache.
 bool NVMWritableFile::GetNewBlock() {
   struct nvm *nvm = dir_->GetNVMApi();
   unsigned int vlun_id = 0;
+
+  if(fd_ == nullptr) {
+    //file was deleted while a nvmwritablefile was still
+    //pointing to it
+    return false;
+  }
+
   fd_->GetBlock(nvm, vlun_id);
 
   //Preserve until we implement double buffering
@@ -1477,11 +1630,72 @@ bool NVMWritableFile::GetNewBlock() {
   assert(curflush_ == buf_limit_ + sizeof(struct vblock_close_meta));
   assert(flush_ == mem_ + sizeof(struct vblock_close_meta));
 
-  size_t new_buf_limit = nvm->GetNPagesBlock(vlun_id) * PAGE_SIZE;
+  size_t new_real_buf_limit = nvm->GetNPagesBlock(vlun_id) * PAGE_SIZE;
+  size_t new_buf_limit = new_real_buf_limit - sizeof(struct vblock_close_meta);
 
   // No need to reallocate memory and aligned. We reuse the same buffer. If this
   // becomes a security issues, we can zeroized the buffer before reusing it.
   if (new_buf_limit != buf_limit_) {
+    NVM_DEBUG("Changing buf_limit to %lu\n", new_buf_limit);
+    buf_limit_ = new_buf_limit;
+    free(buf_);
+
+    buf_ = (char*)memalign(PAGE_SIZE, buf_limit_);
+    if (!buf_) {
+      NVM_FATAL("Could not allocate aligned memory\n");
+      return false;
+    }
+  }
+
+  mem_ = buf_;
+  flush_ = buf_;
+  cursize_ = 0;
+  curflush_ = 0;
+
+  //Write metadata to the internal buffer to enable recovery before giving it
+  //to the upper layers. The responsibility of when to flush that buffer is left
+  //to the upper layers.
+  struct vblock_recov_meta vblock_meta;
+  std::strcpy(vblock_meta.filename, filename_.c_str());
+  vblock_meta.pos = fd_->GetNextPos();
+
+  unsigned int meta_size = sizeof(vblock_meta);
+  memcpy(mem_, &vblock_meta, meta_size);
+  mem_ += meta_size;
+  cursize_ += meta_size;
+
+  return true;
+}
+
+// Preallocate a new block to store future flushes in flash memory.
+bool NVMWritableFile::PreallocateNewBlock(unsigned int vlun_id) {
+  struct nvm *nvm = dir_->GetNVMApi();
+
+  if(fd_ == nullptr) {
+    //file was deleted while a nvmwritablefile was still
+    //pointing to it
+    return false;
+  }
+  fd_->PreallocateBlock(nvm, vlun_id);
+  return true;
+}
+
+// Update pointers and reset buffers and sizes to start using a preallocated
+// block.
+bool NVMWritableFile::UseNewBlock() {
+  fd_->IncreaseCurrentBlock();
+  //Preserve until we implement double buffering
+  assert(cursize_ == buf_limit_);
+  assert(curflush_ == buf_limit_ + sizeof(struct vblock_close_meta));
+  assert(flush_ == mem_ + sizeof(struct vblock_close_meta));
+
+  size_t new_real_buf_limit = fd_->GetCurrentBlockNppas() * PAGE_SIZE;
+  size_t new_buf_limit = new_real_buf_limit - sizeof(struct vblock_close_meta);
+
+  // No need to reallocate memory and aligned. We reuse the same buffer. If this
+  // becomes a security issues, we can zeroized the buffer before reusing it.
+  if (new_buf_limit != buf_limit_) {
+    NVM_DEBUG("Changing buf_limit to %lu\n", new_buf_limit);
     buf_limit_ = new_buf_limit;
     free(buf_);
 
@@ -1520,6 +1734,10 @@ Status NVMWritableFile::Append(const Slice& data) {
     return Status::IOError("file has been closed");
   }
 
+  if(fd_ == nullptr) {
+    return Status::IOError("file has been deleted");
+  }
+
   const char* src = data.data();
   size_t left = data.size();
   size_t offset = 0;
@@ -1527,6 +1745,8 @@ Status NVMWritableFile::Append(const Slice& data) {
   // If the size of the appended data does not fit in one flash block, fill out
   // this block, get a new block and continue writing
   if (cursize_ + left > buf_limit_) {
+    unsigned int vlun_id = 0;
+    PreallocateNewBlock(vlun_id);
     size_t fits_in_buf = (buf_limit_ - cursize_);
     memcpy(mem_, src, fits_in_buf);
     mem_ += fits_in_buf;
@@ -1534,18 +1754,9 @@ Status NVMWritableFile::Append(const Slice& data) {
     if (Flush(true) == false) {
       return Status::IOError("out of ssd space");
     }
-
-    //This might not be necessary
-    if (l0_table) {
-      // TODO: Inform the caller to move non-flushed data to a new memtable.
-    } else {
-      if (!GetNewBlock()) {
-        Status::IOError("Cannot allocate new block from flash media\n");
-      }
-      offset = fits_in_buf;
-    }
+    UseNewBlock();
+    offset = fits_in_buf;
   }
-
   memcpy(mem_, src + offset, left - offset);
   mem_ += left - offset;
   cursize_ += left - offset;
@@ -1554,7 +1765,11 @@ Status NVMWritableFile::Append(const Slice& data) {
 }
 
 Status NVMWritableFile::Close() {
-  if (closed_) {
+  if (closed_ || fd_ == nullptr) {
+    if (buf_) {
+      free(buf_);
+    }
+    buf_ = nullptr;
     return Status::OK();
   }
 
@@ -1563,6 +1778,9 @@ Status NVMWritableFile::Close() {
   if (Flush(true) == false) {
     return Status::IOError("out of ssd space");
   }
+
+  NVM_DEBUG("File %s - size: %lu - writablesize: %lu\n", filename_.c_str(),
+                                        fd_->GetSize(), GetFileSize());
 
   dir_->nvm_fclose(fd_, "a");
 
@@ -1585,7 +1803,6 @@ Status NVMWritableFile::Flush() {
     return Status::IOError("out of ssd space");
   }
 #endif
-
   return Status::OK();
 }
 
@@ -1614,7 +1831,11 @@ Status NVMWritableFile::Fsync() {
 }
 
 uint64_t NVMWritableFile::GetFileSize() {
-  return fd_->GetSize() + cursize_;
+  if(fd_ == nullptr) {
+    return 0;
+  }
+  NVM_DEBUG("FILESIZE: %lu, %lu, %lu\n", fd_->GetPersistentSize(), cursize_, curflush_);
+  return fd_->GetPersistentSize() + cursize_ - curflush_;
 }
 
 Status NVMWritableFile::InvalidateCache(size_t offset, size_t length) {
@@ -1631,19 +1852,26 @@ Status NVMWritableFile::RangeSync(off_t offset, off_t nbytes) {
 }
 
 size_t NVMWritableFile::GetUniqueId(char* id, size_t max_size) const {
+  if(fd_ == nullptr) {
+    return -1;
+  }
+    
   return GetUniqueIdFromFile(fd_, id, max_size);
 }
 
 #endif
 
 FilePrivateMetadata* NVMWritableFile::GetMetadataHandle() {
-  metadata_handle->UpdateMetadataHandle(fd_);
-  return metadata_handle;
+  if(fd_ == nullptr) {
+    return nullptr;
+  }
+  return fd_->GetMetadataHandle();
 }
 
 /*
  * RandomRWFile implementation
  */
+#if 0 //RandomRWFile removed from RocksDB
 NVMRandomRWFile::NVMRandomRWFile(const std::string& fname, nvm_file *f,
                                                           nvm_directory *dir) :
   filename_(fname) {
@@ -1784,6 +2012,7 @@ Status NVMRandomRWFile::Fsync() {
 Status NVMRandomRWFile::Allocate(off_t offset, off_t len) {
   return Status::OK();
 }
+#endif
 #endif
 
 NVMDirectory::NVMDirectory(nvm_directory *fd) {
@@ -2377,6 +2606,7 @@ size_t PosixWritableFile::GetUniqueId(char* id, size_t max_size) const {
 /*
  * PosixRandomRWFile
  */
+#if 0 //RandomRWFile removed from RocksDB
 PosixRandomRWFile::PosixRandomRWFile(const std::string& fname, int fd,
                       const EnvOptions& options) : filename_(fname), fd_(fd) {
 #ifdef ROCKSDB_FALLOCATE_PRESENT
@@ -2473,7 +2703,7 @@ Status PosixRandomRWFile::Allocate(off_t offset, off_t len) {
   }
 }
 #endif
-
+#endif
 } // namespace rocksdb
 
 #endif

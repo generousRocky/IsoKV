@@ -10,9 +10,26 @@ namespace rocksdb {
 
 class NVMWritableFile;
 
+class NVMPrivateMetadata: public FilePrivateMetadata {
+ private:
+  nvm_file *file_;
+ protected:
+  static const uint32_t separator_ = 42;
+  friend class Env;
+ public:
+  NVMPrivateMetadata(nvm_file *file);
+  virtual ~NVMPrivateMetadata();
+
+  void* GetMetadata() override;
+  void UpdateMetadataHandle(nvm_file *file);
+
+  static void* GetMetadata(nvm_file* file);
+};
+
 class nvm_file {
   private:
     list_node *names;
+    FileType type_;
 
     pthread_mutexattr_t page_update_mtx_attr;
     pthread_mutex_t page_update_mtx;
@@ -22,9 +39,17 @@ class nvm_file {
     unsigned long meta_size_;
     int fd_;
 
+    // Private metadata
+    NVMPrivateMetadata* metadata_handle_;
+
     // TODO: current_vblock_ is used to write, logic should move to WritableFile
     struct vblock *current_vblock_;
-    std::vector<struct vblock *>vblocks_;       //Vector of virtual flash blocks
+    struct vblock *next_vblock_;
+    std::deque<struct vblock *>vblocks_;       //Vector of virtual flash blocks
+    // Number of blocks loaded in memory
+    uint8_t nblocks_;
+    // Number of blocks whose metadata has been persisted
+    uint8_t blocks_meta_persisted_;
     std::vector<struct nvm_page *> pages;
 
     pthread_mutex_t write_lock;
@@ -46,7 +71,10 @@ class nvm_file {
     bool ClaimNewPage(nvm *nvm_api, const unsigned long lun_id,
                     const unsigned long block_id, const unsigned long page_id);
 
+  protected:
     friend class NVMPrivateMetadata;
+    friend class Env;
+
   public:
     nvm_file(const char *_name, const int fd, nvm_directory *_parent);
     ~nvm_file();
@@ -60,8 +88,40 @@ class nvm_file {
     void ChangeName(const char *crt_name, const char *new_name);
     void EnumerateNames(std::vector<std::string>* result);
     void SetSeqWritableFile(NVMWritableFile *_writable_file);
+    void SetType(FileType type) { type_ = type; }
+    FileType GetType() { return type_; }
+    void UpdateCurrentBlock() {
+      current_vblock_ = vblocks_.back();
+    }
+    void IncreaseCurrentBlock() {
+      current_vblock_ = next_vblock_;
+      next_vblock_ = nullptr;
+    }
+    FilePrivateMetadata* GetMetadataHandle() {
+      return metadata_handle_;
+    }
+    void* GetMetadata() {
+      return metadata_handle_->GetMetadata(this);
+    }
 
     unsigned long GetSize();
+    unsigned long GetPersistentSize();
+    NVMWritableFile* GetWritePointer() {
+      return seq_writable_file;
+    }
+    unsigned long GetCurrentBlockNppas() {
+      return current_vblock_->nppas;
+    }
+    unsigned long GetNextBlockID() {
+      return next_vblock_->id;
+    }
+    void LoadBlock(struct vblock* vblock) {
+      vblocks_.push_back(vblock);
+      nblocks_++;
+    }
+    uint8_t GetNPersistentMetaBlocks() {
+      return blocks_meta_persisted_;
+    }
 
     time_t GetLastModified();
     void UpdateFileModificationTime();
@@ -71,10 +131,13 @@ class nvm_file {
 
     size_t GetNextPos() { return vblocks_.size() + 1; }
     void GetBlock(struct nvm *nvm, unsigned int vlun_id);
+    void PreallocateBlock(struct nvm *nvm, unsigned int vlun_id);
+    void RecoverAndLoadMetadata(struct nvm* nvm);
     void ReplaceBlock(struct nvm *nvm, unsigned int vlun_id,
                                                       unsigned int block_idx);
     void PutBlock(struct nvm *nvm, struct vblock *vblock);
     void PutAllBlocks(struct nvm *nvm);
+    void FreeAllBlocks();
     size_t FlushBlock(struct nvm *nvm, char *data, size_t ppa_offset,
                                   const size_t data_len, bool page_aligned);
     size_t Read(struct nvm *nvm, size_t read_pointer, char *data,
@@ -108,6 +171,9 @@ class nvm_file {
 
     Status Save(const int fd);
     Status Load(const int fd);
+
+    // Save metadata that is not present in the MANIFEST (e.g., the last log)
+    void SaveSpecialMetadata(std::string fname);
 };
 
 class NVMFileLock : public FileLock {
@@ -117,17 +183,6 @@ class NVMFileLock : public FileLock {
     nvm_directory *root_dir_;
 
     bool Unlock();
-};
-
-class NVMPrivateMetadata: public FilePrivateMetadata {
- private:
-  nvm_file *file_;
-  uint32_t separator_ = 0;
- public:
-  NVMPrivateMetadata(nvm_file *file);
-  virtual ~NVMPrivateMetadata();
-  void* GetMetadata() override;
-  void UpdateMetadataHandle(nvm_file *file);
 };
 
 class NVMSequentialFile: public SequentialFile {
@@ -197,7 +252,6 @@ class NVMRandomAccessFile: public RandomAccessFile {
 class NVMWritableFile : public WritableFile {
   private:
     const std::string filename_;
-    // 0:Posix, 1:DFlash
 
     union {
       nvm_file *fd_;
@@ -214,7 +268,7 @@ class NVMWritableFile : public WritableFile {
     nvm_directory *dir_;
 
     size_t cursize_;            // Current buf_ length. It follows mem_
-    size_t curflush_;           // Byte in buf_ that have already been flushed
+    size_t curflush_;           // Bytes in buf_ that have already been flushed
     size_t buf_limit_;          // Limit of the allocated memory region
     char *buf_;                 // Buffer to cache writes
     char *mem_;                 // Points to the place to append data in memory.
@@ -231,9 +285,6 @@ class NVMWritableFile : public WritableFile {
     // write
     struct vblock_partial_meta write_pointer_;
 
-    // Private metadata
-    NVMPrivateMetadata* metadata_handle;
-
     unsigned long channel;
 
     //JAVIER: This will go
@@ -245,11 +296,15 @@ class NVMWritableFile : public WritableFile {
     size_t CalculatePpaOffset(size_t curflush);
     bool Flush(const bool closing);
     bool GetNewBlock();
+    bool PreallocateNewBlock(unsigned int vlun_id);
+    bool UseNewBlock();
     bool UpdateLastPage();
 
   public:
     NVMWritableFile(const std::string& fname, nvm_file *fd, nvm_directory *dir);
     ~NVMWritableFile();
+    
+    void FileDeletedEvent();
 
     virtual Status Append(const Slice& data) override;
     virtual Status Close() override;
@@ -270,6 +325,7 @@ class NVMWritableFile : public WritableFile {
 #endif
 };
 
+#if 0 //RandomRWFile removed from RocksDB
 class NVMRandomRWFile : public RandomRWFile {
   private:
     const std::string filename_;
@@ -307,6 +363,7 @@ class NVMRandomRWFile : public RandomRWFile {
     virtual Status Allocate(off_t offset, off_t len) override;
 #endif
 };
+#endif
 
 // Posix classes. Copied from env_posix
 // This is a momentary solution until we decouple posix file implementations
@@ -403,6 +460,7 @@ class PosixWritableFile : public WritableFile {
 #endif
 };
 
+#if 0 //RandomRWFile removed from RocksDB
 class PosixRandomRWFile : public RandomRWFile {
  private:
   const std::string filename_;
@@ -426,6 +484,7 @@ class PosixRandomRWFile : public RandomRWFile {
   virtual Status Allocate(off_t offset, off_t len) override;
 #endif
 };
+#endif
 
 class PosixRandomAccessFile: public RandomAccessFile {
  private:

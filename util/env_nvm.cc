@@ -137,6 +137,10 @@ bool ParseType(std::string fname, FileType* type) {
   uint64_t num;
   size_t dir_pos;
   std::string filename;
+	
+	if (fname.length() > 2 && fname[0] == '.' && fname[1] == '/') {
+    fname = fname.substr(2);
+  }
 
   // Asume dbname/file as in filename filename.cc
   dir_pos = fname.find_first_of("/") + 1; // Account for "/"
@@ -163,7 +167,6 @@ class NVMEnv : public Env {
 
     ALLOC_CLASS(nvm_api, nvm());
     ALLOC_CLASS(root_dir, nvm_directory("root", 4, nvm_api, nullptr));
-
     LoadFtl();
   }
 
@@ -191,11 +194,13 @@ class NVMEnv : public Env {
     return Status::OK();
   }
 
+  // TODO: Get dbname directory from RocksDB
   virtual Status SaveFTL() override {
-    printf("saving ftl");
+    std::string current_location = "testingrocks/CURRENT";
+    int fd;
+    NVM_DEBUG("saving ftl");
 
-    int fd = open(ftl_save_location, O_RDWR | O_CREAT, S_IWUSR | S_IRUSR);
-
+    fd = open(ftl_save_location, O_RDWR | O_CREAT, S_IWUSR | S_IRUSR);
     if (fd < 0) {
       return Status::IOError("Unable to create save ftl file");
     }
@@ -204,8 +209,72 @@ class NVMEnv : public Env {
       close(fd);
       return Status::IOError("Unable to save directory");
     }
+    close(fd);
+
+    // Save superblock (MANIFEST block metadata) in CURRENT. We save it here
+    // because when CURRENT is created, the current MANIFEST has not yet been
+    // written. We need to save block metadata when we close the database
+    // gracefully.
+    fd = open(current_location.c_str(), O_RDONLY | S_IWUSR | S_IRUSR);
+    if (fd < 0) {
+      return Status::IOError("Unable to open CURRENT for reading");
+    }
+
+    char* current_manifest = new char[100]; //TODO: Can the MANIFEST name be larger?
+    size_t offset = 0;
+    ssize_t r = -1;
+    char* ptr = current_manifest;
+    while (1) {
+      r = pread(fd, ptr, 1, offset);
+      if (r <= 0) {
+        if (errno == EINTR) {
+          continue;
+        }
+        return Status::IOError("Unable to read CURRENT");
+      }
+      if (ptr[0] == '\n') {
+        break;
+      }
+      ptr += r;
+      offset += r;
+    }
+    close(fd);
+
+    std::string manifest_path = ("testingrocks/");
+    manifest_path.append(current_manifest, offset);
+    nvm_file *current = root_dir->file_look_up(manifest_path.c_str());
+    if (current == nullptr) {
+      return Status::IOError("Cannot retrieve %s", current_manifest);
+    }
+
+    std::string manifest_meta;
+    NVM_DEBUG("SAVING METADATA!!!!!\n");
+    void* meta = NVMPrivateMetadata::GetMetadata(current);
+    Env::EncodePrivateMetadata(&manifest_meta, meta);
+
+    fd = open(current_location.c_str(), O_WRONLY | O_APPEND | S_IWUSR);
+    if (fd < 0) {
+      return Status::IOError("Unable to open CURRENT for appending");
+    }
+
+    manifest_meta.append("\n", 1);
+    size_t left = manifest_meta.size();
+    const char* src = manifest_meta.c_str();
+    ssize_t done;
+    while (left > 0) {
+      done = write(fd, src, left);
+      if (done < 0) {
+        if (errno == EINTR) {
+          continue;
+        }
+        return Status::IOError("Unable to write private metadata in CURRENT");
+      }
+      left -=done;
+      src +=done;
+    }
 
     close(fd);
+    delete [] current_manifest;
     return Status::OK();
   }
 
@@ -224,8 +293,10 @@ class NVMEnv : public Env {
                                                                 fname.c_str());
     }
 
-    if (type == kInfoLogFile || type == kCurrentFile ||
-                              type == kDBLockFile || type == kIdentityFile) {
+    if (type == kInfoLogFile ||
+        type == kCurrentFile ||
+        type == kDBLockFile ||
+        type == kIdentityFile) {
       FILE* f = nullptr;
       do {
         IOSTATS_TIMER_GUARD(open_nanos);
@@ -321,8 +392,11 @@ class NVMEnv : public Env {
     // combine posix with other storage backends, decouple this part of the code
     // form the posix environment so that PosixXFile classes can be used
     // simultaneously with a different storage backend.
-    if (type == kInfoLogFile || type == kCurrentFile ||
-                              type == kDBLockFile || type == kIdentityFile) {
+    if (type == kInfoLogFile ||
+        type == kCurrentFile ||
+        type == kDBLockFile ||
+        type == kIdentityFile ||
+        options.type == kCurrentFile) {
       Status s;
       int fd = -1;
       do {
@@ -366,11 +440,13 @@ class NVMEnv : public Env {
       NVMWritableFile *writable_file;
       ALLOC_CLASS(writable_file, NVMWritableFile(fname, fd, root_dir));
       fd->SetSeqWritableFile(writable_file);
+      fd->SetType(type);
       result->reset(writable_file);
     }
     return Status::OK();
   }
 
+#if 0 //RandomRWFile removed from RocksDB
   virtual Status NewRandomRWFile(const std::string& fname,
         unique_ptr<RandomRWFile>* result, const EnvOptions& options) override {
     result->reset();
@@ -410,6 +486,7 @@ class NVMEnv : public Env {
       return Status::OK();
     }
   }
+#endif
 
   // For now, replicate the directory tree for bot posix and dflash.
   virtual Status NewDirectory(const std::string& name,
@@ -449,8 +526,10 @@ class NVMEnv : public Env {
     }
 
     //Posix
-    if (type == kInfoLogFile || type == kCurrentFile ||
-                              type == kDBLockFile || type == kIdentityFile) {
+    if (type == kInfoLogFile ||
+        type == kCurrentFile ||
+        type == kDBLockFile ||
+        type == kIdentityFile) {
 
       int result = access(fname.c_str(), F_OK);
       if (result == 0) {
@@ -553,7 +632,6 @@ class NVMEnv : public Env {
   }
 
   virtual Status CreateDirIfMissing(const std::string& name) override {
-    // TODO: Javier: Look into this
     return CreateDir(name);
   }
 
@@ -726,8 +804,12 @@ class NVMEnv : public Env {
   }
 
   virtual Status UnlockFile(FileLock* lock) override {
-    return (lock->Unlock() ? Status::OK() : IOError("unlock", errno));
+    if (lock->Unlock()) {
+      delete lock;
+      return Status::OK();
+    }
     delete lock;
+    return IOError("unlock", errno);
   }
 
   virtual void Schedule(void (*function)(void* arg1), void* arg,
@@ -937,11 +1019,222 @@ class NVMEnv : public Env {
     // breaks TransactionLogIteratorStallAtLastRecord unit test. Fix the unit
     // test and make this false
     optimized.fallocate_with_keep_size = true;
+    optimized.type = kLogFile;
     return optimized;
   }
 
   EnvOptions OptimizeForManifestWrite(const EnvOptions& env_options) const override {
-    return env_options;
+    EnvOptions optimized = env_options;
+    optimized.type = kDescriptorFile;
+    return optimized;
+  }
+
+  EnvOptions OptimizeForCurrentWrite(const EnvOptions& env_options) const override {
+    EnvOptions optimized = env_options;
+    optimized.type = kCurrentFile;
+    return optimized;
+  }
+
+  void LoadSuperblockMetadata(std::string* fname, Slice* super_meta) {
+    void* meta = Env::DecodePrivateMetadata(super_meta);
+    if (LoadPrivateMetadata(*fname, meta) != Status::OK()) {
+      NVM_DEBUG("Could not load superblock metadata\n");
+    }
+  }
+
+  void RetrieveSuperblockMetadata(std::string* meta) override {
+    const char* str_init = meta->c_str();
+    const char* meta_init = meta->c_str();
+    size_t i = 0;
+
+  for (i = 0; i < meta->size(); i++) {
+    if (meta_init[0] == '\n') {
+      goto next_meta;
+    }
+    meta_init++;
+  }
+  // CURRENT has a bad format; we let the upper layers fail
+  return;
+
+next_meta:
+    i++; meta_init++;
+    // CURRENT is well constructed and does not contain private metadata
+    if (i == meta->size()) {
+      return;
+    }
+
+    // CURRENT is well constructed and contains private metadata
+    if (meta->back() == '\n') {
+      size_t super_size = meta->size() - i;
+      Slice super_meta = Slice(meta_init, super_size);
+      std::string fname = "testingrocks/"; //TODO: Get dbname from LSM
+      fname.append(str_init, i - 1);
+      LoadSuperblockMetadata(&fname, &super_meta);
+      // Return the current MANIFEST name as expected by upper layers
+      meta->resize(meta->size() - super_size);
+    }
+  }
+
+  Status LoadPrivateMetadata(std::string fname, void* metadata) override {
+    if (metadata == nullptr) {
+      NVM_FATAL("METADATA NOT LOADED!!!!!!!!!!!!!!\n");
+      // TODO: Load from RECOVERY - the metadata did not make it to the MANIFEST
+      // in the past RocksDB instance
+    }
+    nvm_file* fd = root_dir->nvm_fopen(fname.c_str(), "a");
+    struct vblock_meta *vblock_meta = (struct vblock_meta*)metadata;
+    struct vblock *ptr = (struct vblock*)vblock_meta->encoded_vblocks;
+    struct vblock *new_vblock;
+
+    uint64_t left = vblock_meta->len;
+    while (left > 0) {
+      new_vblock = (struct vblock*)malloc(sizeof(struct vblock));
+      if (!new_vblock) {
+        NVM_FATAL("Could not allocate memory\n");
+      }
+      memcpy(new_vblock, ptr, sizeof(struct vblock));
+        NVM_DEBUG("Load file: %s - Decoding: id: %lu, ownerid: %lu, nppas: %lu, ppa_bitmap: %lu, bppa: %llu, vlun_id: %d, flags: %d\n",
+        fname.c_str(), new_vblock->id, new_vblock->owner_id, new_vblock->nppas, new_vblock->ppa_bitmap,
+        new_vblock->bppa, new_vblock->vlun_id, new_vblock->flags);
+
+      // Add to vblock vector
+      if (fd == nullptr) {
+        NVM_FATAL("SOMETHING WAS FREED BEFORE TIME\n");
+      }
+      fd->LoadBlock(new_vblock);
+      left--;
+      ptr++;
+    }
+    fd->UpdateCurrentBlock();
+    free(vblock_meta->encoded_vblocks);
+    free(vblock_meta);
+    return Status::OK();
+  }
+
+  // Static method encoding WAL metadata for DFlash backend
+  // TODO: Get WAL dir from dboptions
+  void EncodeLogPrivateMetadata(std::string* dst, uint64_t log_number, uint8_t priv_type) {
+    std::string fname = LogFileName("testingrocks", log_number);
+    nvm_file* fd = root_dir->file_look_up(fname.c_str());
+    if (fd == nullptr) {
+      NVM_DEBUG("Log file %s not found for saving metadata\n", fname.c_str());
+      return;
+    }
+
+    PutVarint32(dst, priv_type);
+    void* metadata = fd->GetMetadata();
+    Env::EncodePrivateMetadata(dst, metadata);
+  }
+
+  // This is necessary for the last log, which may not have been written to the
+  // MANIFEST. We need to recover it from DFLASH's specific metadata file
+  // (DFLASH_RECOVERY). If this file does not exist we need to scan all blocks
+  // and reconstruct DFLASH metadata.
+  void DiscoverAndLoadLogPrivateMetadata(uint64_t log_number) {
+    std::string recovery_location = "testingrocks/DFLASH_RECOVERY";
+    std::string log_name = LogFileName("testingrocks", log_number);
+
+    // Check if the file has already been loaded from MANIFEST
+    // TODO: Can we avoid this check?
+    nvm_file* file = root_dir->file_look_up(log_name.c_str());
+    if (file != nullptr) {
+      if (file->HasBlock()) {
+        NVM_DEBUG("File %s already loaded\n", log_name.c_str());
+        return;
+      }
+    }
+
+    printf("Discover and load log %s\n", log_name.c_str());
+    int fd = open(recovery_location.c_str(), O_RDONLY | S_IWUSR | S_IRUSR);
+    if (fd < 0) {
+      NVM_FATAL("Unable to open RECOVERY for reading\n");
+    }
+
+    char* recovery = new char[100]; //TODO: Can file names be larger?
+    size_t offset = 0;
+    ssize_t r = -1;
+    int count = 0;
+retry:
+    if (count > 10) {
+      NVM_FATAL("");
+    }
+    size_t name_len = 0;
+    char* ptr = recovery;
+    while (1) {
+      r = pread(fd, ptr, 1, offset);
+      if (r <= 0) {
+        if (errno == EINTR) {
+          continue;
+        } else if (errno == EOF) {
+          NVM_DEBUG("Log %s not found in RECOVERY\n", log_name.c_str());
+        }
+        NVM_FATAL("Error reading RECOVERY\n");
+        return;
+      }
+      if (ptr[0] == ':') {
+        break;
+      }
+      ptr += r;
+      offset += r;
+      name_len +=r;
+    }
+
+    offset += 1;
+    if (log_name.compare(0, log_name.size(), recovery, name_len) != 0) {
+      int len;
+      char aux[2];
+      if (pread(fd, &aux, 2, offset) != 2) {
+        NVM_FATAL("Error reading RECOVERY file\n");
+      }
+      len = atoi(aux);
+
+      lseek(fd, offset + len + 2 + 1, SEEK_SET);
+      offset += len + 2 + 1; // aux + \n in RECOVERY format
+      count ++;
+      goto retry;
+    }
+
+    NVM_DEBUG("Found metadata in RECOVERY for log: %s\n", log_name.c_str());
+    int len;
+    char aux[2];
+    if (pread(fd, &aux, 2, offset) != 2) {
+      NVM_FATAL("Error reading RECOVERY file\n");
+    }
+    len = atoi(aux);
+    offset += 2; // aux
+
+    char* read_meta = (char*)malloc(len * sizeof(char));
+    if (!read_meta) {
+      NVM_FATAL("Could not allocate memory\n");
+    }
+
+    if (pread(fd, read_meta, len, offset) != len) {
+      NVM_FATAL("Error reading RECOVERY file\n");
+    }
+
+    Slice recovery_meta = Slice(read_meta, len);
+    void* meta = DecodePrivateMetadata(&recovery_meta);
+    if (LoadPrivateMetadata(log_name, meta) != Status::OK()) {
+      NVM_DEBUG("Could not load metadata from RECOVERY\n");
+    }
+
+    free(read_meta);
+    close(fd);
+  }
+
+  void DecodeAndLoadLogPrivateMetadata(Slice* input, uint64_t log_number) {
+    std::string fname = LogFileName("testingrocks", log_number);
+    void* metadata = Env::DecodePrivateMetadata(input);
+    nvm_file* fd = root_dir->file_look_up(fname.c_str());
+    if (fd != nullptr) {
+      LoadPrivateMetadata(fname, metadata);
+      return;
+    }
+    // Old WAL; throw metadata away and free memory
+    struct vblock_meta *vblock_meta = (struct vblock_meta*)metadata;
+    free(vblock_meta->encoded_vblocks);
+    free(vblock_meta);
+    NVM_DEBUG("Log file %s not found for loading metadata\n", fname.c_str());
   }
 
  private:
@@ -971,10 +1264,8 @@ class NVMEnv : public Env {
   std::vector<pthread_t> threads_to_join_;
 
   void LoadFtl() {
-    int fd = open(ftl_save_location, O_RDONLY);
-
     char temp;
-
+    int fd = open(ftl_save_location, O_RDONLY);
     if (fd < 0) {
       NVM_DEBUG("FTL file not found");
       return;
@@ -996,14 +1287,11 @@ class NVMEnv : public Env {
 
     if (!root_dir->Load(fd).ok()) {
       NVM_DEBUG("FTL file is corrupt");
-
       delete root_dir;
       delete nvm_api;
-
       ALLOC_CLASS(nvm_api, nvm());
       ALLOC_CLASS(root_dir, nvm_directory("root", 4, nvm_api, nullptr));
     }
-
     close(fd);
   }
 };
@@ -1025,6 +1313,76 @@ std::string Env::GenerateUniqueId() {
 Env* Env::Default() {
   static NVMEnv default_env;
   return &default_env;
+}
+
+// Static method encoding sstable metadata for DFlash backend
+// See comment above NVM:PrivateMetadata::GetMetadata()
+void Env::EncodePrivateMetadata(std::string *dst, void *metadata) {
+  if (metadata == nullptr) {
+    return;
+  }
+
+  // metadata already contains the encoded data. See comment in
+  // NVMPrivateMetadata::GetMetadata()
+  struct vblock_meta *vblock_meta = (struct vblock_meta*)metadata;
+  dst->append((const char*)vblock_meta->encoded_vblocks, vblock_meta->len);
+  return;
+}
+
+void* Env::DecodePrivateMetadata(Slice* input) {
+  struct vblock new_vblock;
+  uint32_t meta32;
+  uint64_t meta64;
+
+  GetVarint64(input, &meta64);
+  uint64_t left = meta64;
+
+  struct vblock_meta *vblock_meta =
+                (struct vblock_meta*)malloc(sizeof(struct vblock_meta));
+  vblock_meta->encoded_vblocks = (char*)malloc(left * sizeof(struct vblock));
+  struct vblock *ptr = (struct vblock*)vblock_meta->encoded_vblocks;
+  vblock_meta->len = left;
+
+  while (left > 0) {
+    GetVarint32(input, &meta32);
+    if (meta32 != NVMPrivateMetadata::separator_) {
+      NVM_DEBUG("Private metadata from manifest is corrupted\n");
+      return nullptr;
+    }
+
+    GetVarint64(input, &meta64);
+    new_vblock.id = meta64;
+    GetVarint64(input, &meta64);
+    new_vblock.owner_id = meta64;
+    GetVarint64(input, &meta64);
+    new_vblock.nppas = meta64;
+    GetVarint64(input, &meta64);
+    new_vblock.ppa_bitmap = meta64;
+    GetVarint64(input, &meta64);
+    new_vblock.bppa = meta64;
+    GetVarint32(input, &meta32);
+    new_vblock.vlun_id = meta32;
+    GetVarint32(input, &meta32);
+    new_vblock.flags = meta32;
+
+    NVM_DEBUG("Decoding: id: %lu, ownerid: %lu, nppas: %lu, ppa_bitmap: %lu, bppa: %llu, vlun_id: %d, flags: %d\n",
+        new_vblock.id, new_vblock.owner_id, new_vblock.nppas, new_vblock.ppa_bitmap,
+        new_vblock.bppa, new_vblock.vlun_id, new_vblock.flags);
+    memcpy(ptr, &new_vblock, sizeof(struct vblock));
+    ptr++;
+    left--;
+  }
+  return (void*)vblock_meta;
+}
+
+void Env::FreePrivateMetadata(void* metadata) {
+  if (metadata == nullptr) {
+    return;
+  }
+
+  struct vblock_meta* vblock_meta = (struct vblock_meta*)metadata;
+  free(vblock_meta->encoded_vblocks);
+  free(vblock_meta);
 }
 
 }  // namespace rocksdb

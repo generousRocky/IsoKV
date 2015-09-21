@@ -108,7 +108,6 @@ void w_test_1() {
   NVMRandomAccessFile *rr_file;
   ALLOC_CLASS(rr_file, NVMRandomAccessFile("test2.c", srfd, dir));
 
-
   for (int i = 0; i < 100; i++) {
     if (!rr_file->Read(i, 1, &t, datax).ok()) {
       NVM_FATAL("");
@@ -306,7 +305,78 @@ void w_block_test_3() {
     }
   }
 
+  NVMRandomAccessFile *rr_file;
+  ALLOC_CLASS(rr_file, NVMRandomAccessFile("test2.c", srfd, dir));
+  for (size_t i = 0; i < 5 * 4096; i++) {
+   if (!rr_file->Read(i, 1, &t, datax).ok()) {
+      NVM_FATAL("");
+    }
+
+    len = t.size();
+    data_read = t.data();
+
+    if (len != 1) {
+      NVM_FATAL("%lu", len);
+    }
+
+    if (data_read[0] != data[i]) {
+      NVM_FATAL("");
+    }
+  }
+
+  if (!rr_file->Read(0, 5 * 4096, &t, datax).ok()) {
+     NVM_FATAL("");
+   }
+
+   len = t.size();
+   data_read = t.data();
+
+   if (len != 5 * 4096) {
+     NVM_FATAL("%lu", len);
+   }
+
+  for (size_t i = 0; i < 5 * 4096; i++) {
+    if (data_read[i] != data[i]) {
+      NVM_FATAL("");
+    }
+  }
+
+  if (!rr_file->Read(500, (5 * 4096) - 500, &t, datax).ok()) {
+     NVM_FATAL("");
+   }
+
+   len = t.size();
+   data_read = t.data();
+
+   if (len != (5 * 4096) - 500) {
+     NVM_FATAL("%lu", len);
+   }
+
+  for (size_t i = 0; i < (5 * 4096) - 500; i++) {
+    if (data_read[i] != data[500 + i]) {
+      NVM_FATAL("");
+    }
+  }
+
+  if (!rr_file->Read(5000, (5 * 4096) - 5000, &t, datax).ok()) {
+     NVM_FATAL("");
+   }
+
+   len = t.size();
+   data_read = t.data();
+
+   if (len != (5 * 4096) - 5000) {
+     NVM_FATAL("%lu", len);
+   }
+
+  for (size_t i = 0; i < (5 * 4096) - 5000; i++) {
+    if (data_read[i] != data[5000 + i]) {
+      NVM_FATAL("");
+    }
+  }
+
   delete sr_file;
+  delete rr_file;
   delete w_file;
   delete dir;
   delete nvm_api;
@@ -369,8 +439,67 @@ void w_block_test_4() {
       NVM_FATAL("");
     }
   }
+  delete sr_file;
+
+  ALLOC_CLASS(sr_file, NVMSequentialFile("test2.c", srfd, dir));
+  if (!sr_file->Read(128 * 4096, &t, datax).ok()) {
+    NVM_FATAL("");
+  }
+
+  len = t.size();
+  data_read = t.data();
+
+  if (len != 128 * 4096) {
+    NVM_FATAL("%lu", len);
+  }
+
+  for (long i = 0; i < 128 * 4096; i++) {
+    if (data_read[i] != data[i]) {
+      NVM_FATAL("");
+    }
+  }
+
+  if (!sr_file->Read(8 * 4096, &t, datax).ok()) {
+    NVM_FATAL("");
+  }
+
+  len = t.size();
+  data_read = t.data();
+
+  if (len != 8 * 4096) {
+    NVM_FATAL("%lu", len);
+  }
+
+  for (long i = 0; i < 8 * 4096; i++) {
+    if (data_read[i] != data[(128 * 4096) + i]) {
+      NVM_FATAL("");
+    }
+  }
+
+
+  NVMRandomAccessFile *rr_file;
+  ALLOC_CLASS(rr_file, NVMRandomAccessFile("test2.c", srfd, dir));
+
+  // Read randomly from a block that is not initial block
+  if (!rr_file->Read(130 * 4096, 10, &t, datax).ok()) {
+     NVM_FATAL("");
+  }
+
+  len = t.size();
+  data_read = t.data();
+
+  if (len != 10) {
+    NVM_FATAL("%lu", len);
+  }
+
+  for (size_t i = 0; i < 10; i++) {
+    if (data_read[i] != data[(130 * 4096) + i]) {
+      NVM_FATAL("%lu", i);
+    }
+  }
 
   delete sr_file;
+  delete rr_file;
   delete w_file;
   delete dir;
   delete nvm_api;
@@ -443,6 +572,125 @@ void w_block_test_5() {
   NVM_DEBUG("TEST 5 FINISHED!");
 }
 
+void w_block_test_6() {
+  nvm_directory *dir;
+  nvm *nvm_api;
+
+  ALLOC_CLASS(nvm_api, nvm());
+  ALLOC_CLASS(dir, nvm_directory("root", 4, nvm_api, nullptr));
+
+  nvm_file *wfd = dir->nvm_fopen("test.c", "w");
+  if(wfd == nullptr) {
+    NVM_FATAL("");
+  }
+
+  nvm_file *srfd = dir->nvm_fopen("test.c", "r");
+  if(srfd == nullptr) {
+    NVM_FATAL("");
+  }
+
+  NVMWritableFile *w_file;
+  NVMSequentialFile *sr_file;
+
+  //Write enough data to trigger a new block creation
+  char data[400 * 4096];
+  char datax[400 * 4096];
+
+  ALLOC_CLASS(w_file, NVMWritableFile("test.c", wfd, dir));
+  Slice s, t;
+
+  char input = 'a';
+  for (int i = 0; i < 400 * 4096; i++) {
+      data[i] = (input + i % 30);
+  }
+
+  size_t alignment = 380;
+  size_t bytes_written = 0;
+  //write in block disaligned chunks but make sure to respect boundaries
+  for (size_t i = 0; i < ((400 * 4096) - alignment); i += alignment) {
+    s = Slice(data + i, alignment);
+    w_file->Append(s);
+    bytes_written += alignment;
+  }
+
+  w_file->Close();
+
+  // Read all at once to test the writing mechanism
+  ALLOC_CLASS(sr_file, NVMSequentialFile("test2.c", srfd, dir));
+  if (!sr_file->Read(bytes_written, &t, datax).ok()) {
+      NVM_FATAL("");
+  }
+
+  size_t len = t.size();
+  const char *data_read = t.data();
+
+  if (len !=  bytes_written) {
+    NVM_FATAL("%lu", len);
+   }
+
+  for (size_t i = 0; i < bytes_written && i < 400 * 4096; i++) {
+    if (data[i] != data_read[i]) {
+      NVM_FATAL("%lu\n", i);
+    }
+  }
+  delete sr_file;
+
+  // Read the same data in 32 KB chunks
+  ALLOC_CLASS(sr_file, NVMSequentialFile("test2.c", srfd, dir));
+  size_t chunk_size = 32 * 1024;
+  size_t nchunks = bytes_written / chunk_size;
+
+  for (size_t i = 0; i < nchunks; i++) {
+    if (!sr_file->Read(chunk_size, &t, datax).ok()) {
+      NVM_FATAL("");
+    }
+
+    len = t.size();
+    data_read = t.data();
+
+    if (len != chunk_size) {
+      NVM_FATAL("%lu", len);
+    }
+
+    for (size_t j = 0; j < chunk_size; j++) {
+      if (data[(i * chunk_size) + j] != data_read[j]) {
+        NVM_FATAL("%lu\n", (i * chunk_size) + j);
+      }
+    }
+  }
+  delete sr_file;
+
+  // Read the same data in 2278 byte chunks (small unaligned chunks)
+  ALLOC_CLASS(sr_file, NVMSequentialFile("test2.c", srfd, dir));
+  chunk_size = 2278;
+  nchunks = bytes_written / chunk_size;
+
+  for (size_t i = 0; i < nchunks; i++) {
+    if (!sr_file->Read(chunk_size, &t, datax).ok()) {
+      NVM_FATAL("");
+    }
+
+    len = t.size();
+    data_read = t.data();
+
+    if (len != chunk_size) {
+      NVM_FATAL("%lu", len);
+    }
+
+    for (size_t j = 0; j < chunk_size; j++) {
+      if (data[(i * chunk_size) + j] != data_read[j]) {
+        NVM_FATAL("%lu\n", (i * chunk_size) + j);
+      }
+    }
+  }
+
+  delete w_file;
+  delete dir;
+  delete nvm_api;
+
+  NVM_DEBUG("TEST 6 FINISHED!");
+}
+
 
 int main(int argc, char **argv) {
   w_test_1();
@@ -451,6 +699,7 @@ int main(int argc, char **argv) {
   w_block_test_3();
   w_block_test_4();
   w_block_test_5();
+  w_block_test_6();
 
   return 0;
 }

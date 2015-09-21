@@ -29,7 +29,6 @@ enum Tag {
   kNewFile = 7,
   // 8 was used for large value refs
   kPrevLogNumber = 9,
-  kPrivMeta = 10,
 
   // these are new formats divergent from open source leveldb
   kNewFile2 = 100,
@@ -87,13 +86,18 @@ bool VersionEdit::EncodeTo(std::string* dst, Env* env) const {
     PutVarint32(dst, kLogNumber);
     PutVarint64(dst, log_number_);
     // Encode storage backend WAL private metadata
-    if (env != nullptr) {
-      env->EncodeLogPrivateMetadata(dst, log_number_, kPrivMeta);
+    if (env != nullptr && log_number_ > 0) {
+      env->EncodeLogPrivateMetadata(dst, log_number_, CustomTag::kPrivMeta);
     }
   }
   if (has_prev_log_number_) {
     PutVarint32(dst, kPrevLogNumber);
     PutVarint64(dst, prev_log_number_);
+    // Encode storage backend WAL private metadata
+    // TODO: Javier Is this necessary??
+    if (env != nullptr && prev_log_number_ > 0) {
+      env->EncodeLogPrivateMetadata(dst, prev_log_number_, CustomTag::kPrivMeta);
+    }
   }
   if (has_next_file_number_) {
     PutVarint32(dst, kNextFileNumber);
@@ -324,7 +328,8 @@ Status VersionEdit::DecodeFrom(const Slice& src, Env* env) {
       case kLogNumber:
         if (GetVarint64(&input, &log_number_)) {
           has_log_number_ = true;
-          if (env != nullptr && LookupVarint32(&input, kPrivMeta)) {
+          // TODO: Javier: check with the encoding part
+          if (env != nullptr && LookupVarint32(&input, CustomTag::kPrivMeta)) {
               env->DecodeAndLoadLogPrivateMetadata(&input, log_number_);
           }
         } else {
@@ -335,6 +340,9 @@ Status VersionEdit::DecodeFrom(const Slice& src, Env* env) {
       case kPrevLogNumber:
         if (GetVarint64(&input, &prev_log_number_)) {
           has_prev_log_number_ = true;
+          if (env != nullptr && LookupVarint32(&input, CustomTag::kPrivMeta)) {
+              env->DecodeAndLoadLogPrivateMetadata(&input, log_number_);
+          }
         } else {
           msg = "previous log number";
         }

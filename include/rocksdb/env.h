@@ -361,7 +361,7 @@ class Env {
   // metadata that allows to discover the current manifest if the name is not
   // enough. This function must return the format of the original CURRENT
   // content: name of the current manifest followed by newline (\n).
-  virtual void RetrieveSuperblockMetadata(std::string* meta) const {}
+  virtual void RetrieveSuperblockMetadata(std::string* meta) {}
 
   // Decode and load log metadata used by the storage backend implementing Env.
   virtual void DiscoverAndLoadLogPrivateMetadata(uint64_t log_number) {}
