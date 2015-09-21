@@ -28,6 +28,7 @@ class Directory;
 class WritableFileWriter;
 
 enum FileType {
+  kUnknownFile,
   kLogFile,
   kDBLockFile,
   kTableFile,

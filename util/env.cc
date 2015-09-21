@@ -298,6 +298,10 @@ EnvOptions Env::OptimizeForManifestWrite(const EnvOptions& env_options) const {
   return env_options;
 }
 
+EnvOptions Env::OptimizeForCurrentWrite(const EnvOptions& env_options) const {
+  return env_options;
+}
+
 EnvOptions::EnvOptions(const DBOptions& options) {
   AssignEnvOptions(this, options);
 }
