@@ -931,7 +931,9 @@ class NVMEnv : public Env {
   }
 
   EnvOptions OptimizeForManifestWrite(const EnvOptions& env_options) const override {
-    return env_options;
+    EnvOptions optimized = env_options;
+    optimized.type = kDescriptorFile;
+    return optimized;
   }
 
   EnvOptions OptimizeForCurrentWrite(const EnvOptions& env_options) const override {
