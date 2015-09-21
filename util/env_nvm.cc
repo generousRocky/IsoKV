@@ -321,8 +321,11 @@ class NVMEnv : public Env {
     // combine posix with other storage backends, decouple this part of the code
     // form the posix environment so that PosixXFile classes can be used
     // simultaneously with a different storage backend.
-    if (type == kInfoLogFile || type == kCurrentFile ||
-                              type == kDBLockFile || type == kIdentityFile) {
+    if (type == kInfoLogFile ||
+        type == kCurrentFile ||
+        type == kDBLockFile ||
+        type == kIdentityFile ||
+        options.type == kCurrentFile) {
       Status s;
       int fd = -1;
       do {
