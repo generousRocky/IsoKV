@@ -530,7 +530,13 @@ class NVMEnv : public Env {
 
     // Posix
     if (mkdir(name.c_str(), 0755) != 0) {
-      result = IOError(name, errno);
+      if (errno != EEXIST) {
+        result = IOError(name, errno);
+      } else if (!DirExists(name)) { // Check that name is actually a
+                                     // directory.
+        // Message is taken from mkdir
+        result = Status::IOError("`"+name+"' exists but is not a directory");
+      }
     }
     return result;
   }
