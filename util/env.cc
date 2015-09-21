@@ -239,7 +239,7 @@ void Log(const shared_ptr<Logger>& info_log, const char* format, ...) {
 }
 
 Status WriteStringToFile(Env* env, const Slice& data, const std::string& fname,
-                         bool should_sync) {
+                         bool should_sync, FileType type) {
   unique_ptr<WritableFile> file;
   EnvOptions soptions;
   Status s = env->NewWritableFile(fname, &file, soptions);
@@ -311,6 +311,10 @@ EnvOptions Env::OptimizeForLogWrite(const EnvOptions& env_options,
 }
 
 EnvOptions Env::OptimizeForManifestWrite(const EnvOptions& env_options) const {
+  return env_options;
+}
+
+EnvOptions Env::OptimizeForCurrentWrite(const EnvOptions& env_options) const {
   return env_options;
 }
 

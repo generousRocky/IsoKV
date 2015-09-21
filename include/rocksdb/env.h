@@ -25,6 +25,7 @@
 #include <vector>
 #include "rocksdb/status.h"
 #include "rocksdb/thread_status.h"
+#include "db/filename.h"
 
 #ifdef _WIN32
 // Windows API macro interference
@@ -100,6 +101,10 @@ struct EnvOptions {
 
   // If not nullptr, write rate limiting is enabled for flush and compaction
   RateLimiter* rate_limiter = nullptr;
+
+  // Specify the type of file to enable type-specific optimizations and
+  // decisions in the storage backend
+  FileType type = kUnknownFile;
 };
 
 class Env {
@@ -328,6 +333,12 @@ class Env {
   // of the EnvOptions in the parameters, but is optimized for writing manifest
   // files. Default implementation returns the copy of the same object.
   virtual EnvOptions OptimizeForManifestWrite(const EnvOptions& env_options)
+      const;
+
+  // OptimizeForCurrentWrite will create a new EnvOptions object that is a copy
+  // of the EnvOptions in the parameters, but is optimized for setting current
+  // Default implementation returns the copy of the same object.
+  virtual EnvOptions OptimizeForCurrentWrite(const EnvOptions& env_options)
       const;
 
   // Returns the status of all threads that belong to the current Env.
@@ -759,7 +770,8 @@ extern void Fatal(Logger* info_log, const char* format, ...);
 // A utility routine: write "data" to the named file.
 extern Status WriteStringToFile(Env* env, const Slice& data,
                                 const std::string& fname,
-                                bool should_sync = false);
+                                bool should_sync = false,
+                                FileType type = kUnknownFile);
 
 // A utility routine: read contents of named file into *data
 extern Status ReadFileToString(Env* env, const std::string& fname,
