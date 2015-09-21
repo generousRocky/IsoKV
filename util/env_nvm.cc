@@ -483,16 +483,30 @@ class NVMEnv : public Env {
     }
   }
 
-  // Since we replicate the directory tree in both posix and dflash, they both
-  // would return the same. We use dflash, since it does not need to access the
-  // FS
+  // We need to return the files in both directories: the one created in posix
+  // and the one created in dflash. We explore both and return the union. Note
+  // that the files in posix and dflash are mutually exclusive either way.
   virtual Status GetChildren(const std::string& dir,
                                   std::vector<std::string>* result) override {
-    if (root_dir->GetChildren(dir.c_str(), result) == 0) {
-      return Status::OK();
+    result->clear();
+
+    // DFlash
+    if (!root_dir->GetChildren(dir.c_str(), result) == 0) {
+      return Status::IOError("Could not get children for DFlash\n");
     }
 
-    return Status::IOError("GetChildren failed");
+    // Posix
+    DIR* d = opendir(dir.c_str());
+    if (d == nullptr) {
+      return IOError(dir, errno);
+    }
+    struct dirent* entry;
+    while ((entry = readdir(d)) != nullptr) {
+      result->push_back(entry->d_name);
+    }
+    closedir(d);
+
+    return Status::OK();
   }
 
   virtual Status DeleteFile(const std::string& fname) override {
