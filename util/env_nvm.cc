@@ -924,6 +924,12 @@ class NVMEnv : public Env {
     return env_options;
   }
 
+  EnvOptions OptimizeForCurrentWrite(const EnvOptions& env_options) const override {
+    EnvOptions optimized = env_options;
+    optimized.type = kCurrentFile;
+    return optimized;
+  }
+
  private:
   nvm *nvm_api;
 
