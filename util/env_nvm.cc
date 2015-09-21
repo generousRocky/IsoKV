@@ -926,6 +926,7 @@ class NVMEnv : public Env {
     // breaks TransactionLogIteratorStallAtLastRecord unit test. Fix the unit
     // test and make this false
     optimized.fallocate_with_keep_size = true;
+    optimized.type = kLogFile;
     return optimized;
   }
 
