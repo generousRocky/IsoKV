@@ -108,7 +108,6 @@ void w_test_1() {
   NVMRandomAccessFile *rr_file;
   ALLOC_CLASS(rr_file, NVMRandomAccessFile("test2.c", srfd, dir));
 
-
   for (int i = 0; i < 100; i++) {
     if (!rr_file->Read(i, 1, &t, datax).ok()) {
       NVM_FATAL("");
@@ -306,7 +305,78 @@ void w_block_test_3() {
     }
   }
 
+  NVMRandomAccessFile *rr_file;
+  ALLOC_CLASS(rr_file, NVMRandomAccessFile("test2.c", srfd, dir));
+  for (size_t i = 0; i < 5 * 4096; i++) {
+   if (!rr_file->Read(i, 1, &t, datax).ok()) {
+      NVM_FATAL("");
+    }
+
+    len = t.size();
+    data_read = t.data();
+
+    if (len != 1) {
+      NVM_FATAL("%lu", len);
+    }
+
+    if (data_read[0] != data[i]) {
+      NVM_FATAL("");
+    }
+  }
+
+  if (!rr_file->Read(0, 5 * 4096, &t, datax).ok()) {
+     NVM_FATAL("");
+   }
+
+   len = t.size();
+   data_read = t.data();
+
+   if (len != 5 * 4096) {
+     NVM_FATAL("%lu", len);
+   }
+
+  for (size_t i = 0; i < 5 * 4096; i++) {
+    if (data_read[i] != data[i]) {
+      NVM_FATAL("");
+    }
+  }
+
+  if (!rr_file->Read(500, (5 * 4096) - 500, &t, datax).ok()) {
+     NVM_FATAL("");
+   }
+
+   len = t.size();
+   data_read = t.data();
+
+   if (len != (5 * 4096) - 500) {
+     NVM_FATAL("%lu", len);
+   }
+
+  for (size_t i = 0; i < (5 * 4096) - 500; i++) {
+    if (data_read[i] != data[500 + i]) {
+      NVM_FATAL("");
+    }
+  }
+
+  if (!rr_file->Read(5000, (5 * 4096) - 5000, &t, datax).ok()) {
+     NVM_FATAL("");
+   }
+
+   len = t.size();
+   data_read = t.data();
+
+   if (len != (5 * 4096) - 5000) {
+     NVM_FATAL("%lu", len);
+   }
+
+  for (size_t i = 0; i < (5 * 4096) - 5000; i++) {
+    if (data_read[i] != data[5000 + i]) {
+      NVM_FATAL("");
+    }
+  }
+
   delete sr_file;
+  delete rr_file;
   delete w_file;
   delete dir;
   delete nvm_api;
@@ -370,7 +440,29 @@ void w_block_test_4() {
     }
   }
 
+  NVMRandomAccessFile *rr_file;
+  ALLOC_CLASS(rr_file, NVMRandomAccessFile("test2.c", srfd, dir));
+
+  // Read randomly from a block that is not initial block
+  if (!rr_file->Read(130 * 4096, 10, &t, datax).ok()) {
+     NVM_FATAL("");
+  }
+
+  len = t.size();
+  data_read = t.data();
+
+  if (len != 10) {
+    NVM_FATAL("%lu", len);
+  }
+
+  for (size_t i = 0; i < 10; i++) {
+    if (data_read[i] != data[(130 * 4096) + i]) {
+      NVM_FATAL("%lu", i);
+    }
+  }
+
   delete sr_file;
+  delete rr_file;
   delete w_file;
   delete dir;
   delete nvm_api;
