@@ -721,11 +721,25 @@ int nvm_file::GetFD() {
   return fd_;
 }
 
-unsigned long nvm_file::GetSize() {
+unsigned long nvm_file::GetPersistentSize() {
   unsigned long ret;
 
   pthread_mutex_lock(&page_update_mtx);
   ret = size_;
+  pthread_mutex_unlock(&page_update_mtx);
+  return ret;
+}
+
+unsigned long nvm_file::GetSize() {
+  unsigned long ret;
+
+  pthread_mutex_lock(&page_update_mtx);
+  // Account for data in write cache
+  if (seq_writable_file != nullptr) {
+    ret = seq_writable_file->GetFileSize();
+  } else {
+    ret = size_;
+  }
   pthread_mutex_unlock(&page_update_mtx);
   return ret;
 }
@@ -1593,7 +1607,7 @@ Status NVMWritableFile::Fsync() {
 }
 
 uint64_t NVMWritableFile::GetFileSize() {
-  return fd_->GetSize() + cursize_;
+  return fd_->GetPersistentSize() + cursize_ - curflush_;
 }
 
 Status NVMWritableFile::InvalidateCache(size_t offset, size_t length) {

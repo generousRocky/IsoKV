@@ -62,6 +62,10 @@ class nvm_file {
     void SetSeqWritableFile(NVMWritableFile *_writable_file);
 
     unsigned long GetSize();
+    unsigned long GetPersistentSize();
+    NVMWritableFile* GetWritePointer() {
+      return seq_writable_file;
+    }
 
     time_t GetLastModified();
     void UpdateFileModificationTime();
