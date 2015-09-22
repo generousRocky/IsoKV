@@ -1293,18 +1293,12 @@ NVMRandomAccessFile::~NVMRandomAccessFile() {
 
 Status NVMRandomAccessFile::Read(uint64_t offset, size_t n, Slice* result,
                                                         char* scratch) const {
-  // TODO: JAVIER: There might be an issue here!
-  if (offset + n >= fd_->GetSize()) {
-    NVM_DEBUG("offset is out of bounds. Filename: %s, offset: %lu, filesize: %lu\n",
-                                    filename_.c_str(), offset, fd_->GetSize());
-    // *result = Slice(scratch, 0);
-    // return Status::OK();
+  if (offset + n > fd_->GetSize()) {
+    NVM_DEBUG("offset is out of bounds. Filename: %s, offset: %lu, n: %lu, filesize: %lu\n",
+                                filename_.c_str(), offset, n, fd_->GetSize());
+    *result = Slice(scratch, 0);
+    return Status::OK();
   }
-
- // if (n <= 0) {
-    // *result = Slice(scratch, 0);
-    // return Status::OK();
-  // }
 
   struct nvm *nvm = dir_->GetNVMApi();
 
@@ -1393,14 +1387,14 @@ NVMWritableFile::~NVMWritableFile() {
 }
 
 size_t NVMWritableFile::CalculatePpaOffset(size_t curflush) {
-  struct nvm *nvm = dir_->GetNVMApi();
-  size_t nppas = nvm->GetNPagesBlock(0); //This is a momentary fix (FIXME)
-
   // For now we assume that all blocks have the same size. When this assumption
   // no longer holds, we would need to iterate vblocks_ in nvm_file, or hold a
   // ppa pointer for each WritableFile.
   // We always flush one page at the time
-  return curflush % nppas * PAGE_SIZE;
+  size_t disaligned_data = curflush_ % PAGE_SIZE;
+  size_t aligned_data = curflush / PAGE_SIZE;
+  uint8_t x = (disaligned_data == 0) ? 0 : 1;
+  return (aligned_data + x);
 }
 
 // We try to flush at a page granurality. We need to see how this affects

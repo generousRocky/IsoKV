@@ -217,7 +217,7 @@ class NVMWritableFile : public WritableFile {
     nvm_directory *dir_;
 
     size_t cursize_;            // Current buf_ length. It follows mem_
-    size_t curflush_;           // Byte in buf_ that have already been flushed
+    size_t curflush_;           // Bytes in buf_ that have already been flushed
     size_t buf_limit_;          // Limit of the allocated memory region
     char *buf_;                 // Buffer to cache writes
     char *mem_;                 // Points to the place to append data in memory.
