@@ -197,6 +197,7 @@ bool nvm::GetBlock(unsigned int vlun_id, struct vblock *vblock) {
 
   vblock->vlun_id = vlun_id;
   vblock->flags = 0x0;
+  vblock->owner_id = 101;
 
   ret = ioctl(fd, NVM_GET_BLOCK, vblock);
   if (ret == -1) {
