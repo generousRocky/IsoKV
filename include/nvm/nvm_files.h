@@ -46,6 +46,7 @@ class nvm_file {
     bool ClaimNewPage(nvm *nvm_api, const unsigned long lun_id,
                     const unsigned long block_id, const unsigned long page_id);
 
+  protected:
     friend class NVMPrivateMetadata;
   public:
     nvm_file(const char *_name, const int fd, nvm_directory *_parent);
