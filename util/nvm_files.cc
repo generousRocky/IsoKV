@@ -958,7 +958,6 @@ size_t nvm_file::Read(struct nvm *nvm, size_t read_pointer, char *data,
                                                         size_t data_len) {
   size_t nppas = nvm->GetNPagesBlock(0); //This is a momentary fix (FIXME)
   unsigned int block_offset = read_pointer / (nppas * PAGE_SIZE);
-  size_t ppa_offset = (read_pointer / PAGE_SIZE) % (nppas * PAGE_SIZE);
   unsigned int page_offset = read_pointer % PAGE_SIZE;
   size_t left = data_len;
   size_t bytes_left_block;
@@ -966,6 +965,13 @@ size_t nvm_file::Read(struct nvm *nvm, size_t read_pointer, char *data,
   size_t total_read = 0;
   size_t meta_size =
             sizeof(struct vblock_recov_meta) + sizeof(struct vblock_close_meta);
+  size_t ppa_offset =
+          ((read_pointer - (block_offset * nppas * PAGE_SIZE)) / PAGE_SIZE) %
+          (nppas * PAGE_SIZE);
+
+  // Account for past metadata offsets.
+  // TODO: If page_offset overloads increase ppa_offset and block_offset
+  page_offset += block_offset * meta_size;
 
   while (left > 0) {
     bytes_left_block = ((nppas - ppa_offset) * PAGE_SIZE) - meta_size;
