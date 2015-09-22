@@ -1142,7 +1142,7 @@ size_t nvm_file::FlushBlock(struct nvm *nvm, char *data, size_t ppa_offset,
   UpdateFileModificationTime();
   IOSTATS_ADD(bytes_written, write_len);
 
-  ret = write_len;
+  ret = data_len;
 
 out:
   if (allocate_aligned_buf)
@@ -1279,45 +1279,24 @@ NVMRandomAccessFile::~NVMRandomAccessFile() {
 
 Status NVMRandomAccessFile::Read(uint64_t offset, size_t n, Slice* result,
                                                         char* scratch) const {
-  if (offset >= fd_->GetSize()) {
-    NVM_DEBUG("offset is out of bounds");
-    *result = Slice(scratch, 0);
-    return Status::OK();
+  // TODO: JAVIER: There might be an issue here!
+  if (offset + n >= fd_->GetSize()) {
+    NVM_DEBUG("offset is out of bounds. Filename: %s, offset: %lu, filesize: %lu\n",
+                                    filename_.c_str(), offset, fd_->GetSize());
+    // *result = Slice(scratch, 0);
+    // return Status::OK();
   }
 
-  if (offset >= fd_->GetSize()) {
-    n = fd_->GetSize() - offset;
-  }
-
-  if (n <= 0) {
-    *result = Slice(scratch, 0);
-    return Status::OK();
-  }
+ // if (n <= 0) {
+    // *result = Slice(scratch, 0);
+    // return Status::OK();
+  // }
 
   struct nvm *nvm = dir_->GetNVMApi();
 
-  //Account for the metadata stored at the beginning of the virtual block.
-  // uint64_t internal_offset = offset + sizeof(struct vblock_recov_meta);
-  uint64_t internal_offset = offset;
-
-  unsigned int ppa_offset = internal_offset / PAGE_SIZE;
-  unsigned int page_offset = internal_offset % PAGE_SIZE;
-
-  size_t data_len = (((n / PAGE_SIZE) + 1) * PAGE_SIZE);
-  char *data = (char*)memalign(PAGE_SIZE, data_len);
-  if (!data) {
-    NVM_FATAL("Cannot allocate aligned memory\n");
-    return Status::Corruption("Cannot allocate aligned memory''");
-  }
-
-  if (fd_->Read(nvm, ppa_offset, data, data_len) != data_len) {
-    free(data);
+  if (fd_->Read(nvm, offset, scratch, n) != n) {
     return Status::IOError("Unable to read\n");
   }
-
-  //TODO: Can we avoid this memory copy?
-  memcpy(scratch, data + page_offset, n);
-  free(data);
 
   *result = Slice(scratch, n);
   return Status::OK();
@@ -1438,13 +1417,13 @@ bool NVMWritableFile::Flush(const bool force_flush) {
       vblock_meta.ppa_bitmap = 0x0; //Use real bad page information
       memcpy(mem_, &vblock_meta, meta_size);
       flush_len += meta_size;
-      page_aligned = (flush_len % PAGE_SIZE == 0) ? true : false;
     } else {
       //TODO: Pass on to upper layers to append metadata to RocksDB WAL
       // TODO: Save this partial write structure to the metadata file
       write_pointer_.ppa_offset = ppa_flush_offset + flush_len / PAGE_SIZE;
       write_pointer_.page_offset = flush_len % PAGE_SIZE;
     }
+    page_aligned = (flush_len % PAGE_SIZE == 0) ? true : false;
   } else {
     size_t disaligned_data = flush_len % PAGE_SIZE;
     flush_len -= disaligned_data;
