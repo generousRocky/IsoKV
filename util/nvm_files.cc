@@ -78,6 +78,36 @@ void Env::DecodePrivateMetadata(Slice *input) {
   }
 }
 
+void* NVMPrivateMetadata::GetMetadata(nvm_file *file) {
+  std::vector<struct vblock *>::iterator it;
+  std::string metadata;
+
+  PutVarint32(&metadata, file->vblocks_.size());
+  for (it = file->vblocks_.begin(); it != file->vblocks_.end(); it++) {
+    printf("METADATA: Writing:\nsep:%d,id:%lu\noid:%lu\nnppas:%lu\nbitmap:%lu\nbppa:%llu\nvlunid:%d\nflags:%d\n",
+      separator_, (*it)->id, (*it)->owner_id, (*it)->nppas, (*it)->ppa_bitmap, (*it)->bppa,
+      (*it)->vlun_id, (*it)->flags);
+    PutVarint32(&metadata, separator_); //This might go away
+    PutVarint64(&metadata, (*it)->id);
+    PutVarint64(&metadata, (*it)->owner_id);
+    PutVarint64(&metadata, (*it)->nppas);
+    PutVarint64(&metadata, (*it)->ppa_bitmap);
+    PutVarint64(&metadata, (*it)->bppa);
+    PutVarint32(&metadata, (*it)->vlun_id);
+    PutVarint32(&metadata, (*it)->flags);
+  }
+
+  uint64_t metadata_size = metadata.length();
+  struct vblock_meta *vblock_meta =
+                        (struct vblock_meta*)malloc(sizeof(struct vblock_meta));
+  vblock_meta->encoded_vblocks = (char*)malloc(metadata_size);
+
+  vblock_meta->len = metadata_size;
+  memcpy(vblock_meta->encoded_vblocks, metadata.c_str(), metadata_size);
+
+  return (void*)vblock_meta;
+}
+
 #if defined(OS_LINUX)
 
 // DFlash implementation
@@ -1193,33 +1223,7 @@ void NVMPrivateMetadata::UpdateMetadataHandle(nvm_file *file) {
 // from its ID from the BM we can reduces the amount of metadata stored in
 // MANIFEST
 void* NVMPrivateMetadata::GetMetadata() {
-  std::vector<struct vblock *>::iterator it;
-  std::string metadata;
-
-  PutVarint32(&metadata, file_->vblocks_.size());
-  for (it = file_->vblocks_.begin(); it != file_->vblocks_.end(); it++) {
-    printf("METADATA: Writing:\nsep:%d,id:%lu\noid:%lu\nnppas:%lu\nbitmap:%lu\nbppa:%llu\nvlunid:%d\nflags:%d\n",
-      separator_, (*it)->id, (*it)->owner_id, (*it)->nppas, (*it)->ppa_bitmap, (*it)->bppa,
-      (*it)->vlun_id, (*it)->flags);
-    PutVarint32(&metadata, separator_); //This might go away
-    PutVarint64(&metadata, (*it)->id);
-    PutVarint64(&metadata, (*it)->owner_id);
-    PutVarint64(&metadata, (*it)->nppas);
-    PutVarint64(&metadata, (*it)->ppa_bitmap);
-    PutVarint64(&metadata, (*it)->bppa);
-    PutVarint32(&metadata, (*it)->vlun_id);
-    PutVarint32(&metadata, (*it)->flags);
-  }
-
-  uint64_t metadata_size = metadata.length();
-  struct vblock_meta *vblock_meta =
-                        (struct vblock_meta*)malloc(sizeof(struct vblock_meta));
-  vblock_meta->encoded_vblocks = (char*)malloc(metadata_size);
-
-  vblock_meta->len = metadata_size;
-  memcpy(vblock_meta->encoded_vblocks, metadata.c_str(), metadata_size);
-
-  return (void*)vblock_meta;
+  return GetMetadata(file_);
 }
 
 /*

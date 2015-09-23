@@ -191,11 +191,13 @@ class NVMEnv : public Env {
     return Status::OK();
   }
 
+  // TODO: Get dbname directory from RocksDB
   virtual Status SaveFTL() override {
+    std::string current_location = "testingrocks/CURRENT";
+    int fd;
     printf("saving ftl");
 
-    int fd = open(ftl_save_location, O_RDWR | O_CREAT, S_IWUSR | S_IRUSR);
-
+    fd = open(ftl_save_location, O_RDWR | O_CREAT, S_IWUSR | S_IRUSR);
     if (fd < 0) {
       return Status::IOError("Unable to create save ftl file");
     }
@@ -204,8 +206,69 @@ class NVMEnv : public Env {
       close(fd);
       return Status::IOError("Unable to save directory");
     }
+    close(fd);
+
+    // Save superblock (MANIFEST block metadata) in CURRENT
+    // TODO: Reuse posix functions
+    fd = open(current_location.c_str(), O_RDONLY | S_IWUSR | S_IRUSR);
+    if (fd < 0) {
+      return Status::IOError("Unable to open CURRENT for reading");
+    }
+
+    char* current_manifest = new char[100]; //TODO: Can the MANIFEST name be larger?
+    size_t offset = 0;
+    ssize_t r = -1;
+    char* ptr = current_manifest;
+    while (1) {
+      r = pread(fd, ptr, 1, offset);
+      if (r <= 0) {
+        if (errno == EINTR) {
+          continue;
+        }
+        return Status::IOError("Unable to read CURRENT");
+      }
+      if (ptr[0] == '\n') {
+        break;
+      }
+      ptr += r;
+      offset +=r;
+    }
+    close(fd);
+
+    std::string manifest_path = ("testingrocks/");
+    manifest_path.append(current_manifest, offset);
+    nvm_file *current = root_dir->file_look_up(manifest_path.c_str());
+    if (current == nullptr) {
+      return Status::IOError("Cannot retrieve %s", current_manifest);
+    }
+
+    std::string manifest_meta;
+    void* meta = NVMPrivateMetadata::GetMetadata(current);
+    Env::EncodePrivateMetadata(&manifest_meta, meta);
+
+    fd = open(current_location.c_str(), O_WRONLY | O_APPEND |S_IWUSR | S_IRUSR);
+    if (fd < 0) {
+      return Status::IOError("Unable to open CURRENT for appending");
+    }
+
+    manifest_meta.append('\n', 1);
+    size_t left = manifest_meta.size();
+    const char* src = manifest_meta.c_str();
+    ssize_t done;
+    while (left > 0) {
+      done = write(fd, src, left);
+      if (done < 0) {
+        if (errno == EINTR) {
+          continue;
+        }
+        return Status::IOError("Unable to write private metadata in CURRENT");
+      }
+      left -=done;
+      src +=done;
+    }
 
     close(fd);
+    delete [] current_manifest;
     return Status::OK();
   }
 

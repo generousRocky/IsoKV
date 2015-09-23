@@ -127,12 +127,15 @@ class NVMFileLock : public FileLock {
 class NVMPrivateMetadata: public FilePrivateMetadata {
  private:
   nvm_file *file_;
-  uint32_t separator_ = 0;
+  static const uint32_t separator_ = 0;
  public:
   NVMPrivateMetadata(nvm_file *file);
   virtual ~NVMPrivateMetadata();
+
   void* GetMetadata() override;
   void UpdateMetadataHandle(nvm_file *file);
+
+  static void* GetMetadata(nvm_file* file);
 };
 
 class NVMSequentialFile: public SequentialFile {
