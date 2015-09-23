@@ -248,12 +248,12 @@ class NVMEnv : public Env {
     void* meta = NVMPrivateMetadata::GetMetadata(current);
     Env::EncodePrivateMetadata(&manifest_meta, meta);
 
-    fd = open(current_location.c_str(), O_WRONLY | O_APPEND |S_IWUSR | S_IRUSR);
+    fd = open(current_location.c_str(), O_WRONLY | O_APPEND | S_IWUSR);
     if (fd < 0) {
       return Status::IOError("Unable to open CURRENT for appending");
     }
 
-    manifest_meta.append('\n', 1);
+    manifest_meta.append("\n", 1);
     size_t left = manifest_meta.size();
     const char* src = manifest_meta.c_str();
     ssize_t done;
