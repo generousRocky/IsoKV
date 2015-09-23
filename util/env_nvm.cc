@@ -208,8 +208,10 @@ class NVMEnv : public Env {
     }
     close(fd);
 
-    // Save superblock (MANIFEST block metadata) in CURRENT
-    // TODO: Reuse posix functions
+    // Save superblock (MANIFEST block metadata) in CURRENT. We save it here
+    // because when CURRENT is created, the current MANIFEST has not yet been
+    // written. We need to save block metadata when we close the database
+    // gracefully.
     fd = open(current_location.c_str(), O_RDONLY | S_IWUSR | S_IRUSR);
     if (fd < 0) {
       return Status::IOError("Unable to open CURRENT for reading");
