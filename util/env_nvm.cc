@@ -1099,14 +1099,11 @@ next_meta:
 
     if (!root_dir->Load(fd).ok()) {
       NVM_DEBUG("FTL file is corrupt");
-
       delete root_dir;
       delete nvm_api;
-
       ALLOC_CLASS(nvm_api, nvm());
       ALLOC_CLASS(root_dir, nvm_directory("root", 4, nvm_api, nullptr));
     }
-
     close(fd);
   }
 };
