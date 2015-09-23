@@ -349,6 +349,12 @@ class Env {
   // Returns the ID of the current thread.
   virtual uint64_t GetThreadID() const;
 
+  // Enables the storage backend to retrieve private superblock metadata, i.e.,
+  // metadata that allows to discover the current manifest if the name is not
+  // enough. This function must return the format of the original CURRENT
+  // content: name of the current manifest followed by newline (\n).
+  virtual void RetrieveSuperblockMetadata(std::string* meta) const {}
+
   // Encode metadata used by the storage backend implementing Env
   static void EncodePrivateMetadata(std::string *dst, void *metadata);
 
