@@ -289,8 +289,10 @@ class NVMEnv : public Env {
                                                                 fname.c_str());
     }
 
-    if (type == kInfoLogFile || type == kCurrentFile ||
-                              type == kDBLockFile || type == kIdentityFile) {
+    if (type == kInfoLogFile ||
+        type == kCurrentFile ||
+        type == kDBLockFile ||
+        type == kIdentityFile) {
       FILE* f = nullptr;
       do {
         IOSTATS_TIMER_GUARD(open_nanos);
@@ -517,8 +519,10 @@ class NVMEnv : public Env {
     }
 
     //Posix
-    if (type == kInfoLogFile || type == kCurrentFile ||
-                              type == kDBLockFile || type == kIdentityFile) {
+    if (type == kInfoLogFile ||
+        type == kCurrentFile ||
+        type == kDBLockFile ||
+        type == kIdentityFile) {
 
       int result = access(fname.c_str(), F_OK);
       if (result == 0) {
@@ -1020,6 +1024,31 @@ class NVMEnv : public Env {
     return optimized;
   }
 
+  void RetrieveSuperblockMetadata(std::string* meta) const override {
+  const char* str_init = meta->c_str();
+  size_t i = 0;
+
+  for (i = 0; i < meta->size(); i++) {
+    if (str_init[0] == '\n') {
+      goto next_meta;
+    }
+    str_init++;
+  }
+  // CURRENT has a bad format; we let the upper layers fail
+  return;
+
+next_meta:
+  i++; str_init++;
+  // CURRENT is well constructed
+  if (meta->back() == '\n') {
+    size_t super_size = meta->size() - i;
+    Slice super_meta = Slice(str_init, super_size);
+    Env::DecodePrivateMetadata(&super_meta);
+    // Return the current MANIFEST name as expected by upper layers
+    meta->resize(meta->size() - super_size);
+  }
+}
+
  private:
   nvm *nvm_api;
 
@@ -1047,10 +1076,8 @@ class NVMEnv : public Env {
   std::vector<pthread_t> threads_to_join_;
 
   void LoadFtl() {
-    int fd = open(ftl_save_location, O_RDONLY);
-
     char temp;
-
+    int fd = open(ftl_save_location, O_RDONLY);
     if (fd < 0) {
       NVM_DEBUG("FTL file not found");
       return;
