@@ -121,7 +121,8 @@ struct FileMetaData {
   }
 
   bool DecodePrivateMetadata(Slice* input) {
-    return Env::DecodePrivateMetadata(input, priv_meta);
+    priv_meta = Env::DecodePrivateMetadata(input);
+    return true;
   }
 
   // TODO: Free private metadata

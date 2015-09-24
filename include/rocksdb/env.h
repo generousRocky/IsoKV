@@ -355,14 +355,16 @@ class Env {
   // content: name of the current manifest followed by newline (\n).
   virtual void RetrieveSuperblockMetadata(std::string* meta) {}
 
+  // Load metadata
+  virtual Status LoadPrivateMetadata(std::string fname, void* metadata) {
+    return Status::OK();
+  }
+
   // Encode metadata used by the storage backend implementing Env
   static bool EncodePrivateMetadata(std::string* dst, void* metadata);
 
   // Retrieve metadata
-  static bool DecodePrivateMetadata(Slice* input, void* metadata);
-
-  // Load metadata
-  static Status LoadPrivateMetadata(std::string fname, void* metadata);
+  static void* DecodePrivateMetadata(Slice* input);
 
  protected:
   // The pointer to an internal structure that will update the
