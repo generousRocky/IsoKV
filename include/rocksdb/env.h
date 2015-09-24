@@ -361,6 +361,9 @@ class Env {
   // Retrieve metadata
   static bool DecodePrivateMetadata(Slice* input, void* metadata);
 
+  // Load metadata
+  static Status LoadPrivateMetadata(std::string fname, void* metadata);
+
  protected:
   // The pointer to an internal structure that will update the
   // status of each thread.
