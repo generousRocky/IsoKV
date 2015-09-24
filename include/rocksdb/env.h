@@ -353,13 +353,13 @@ class Env {
   // metadata that allows to discover the current manifest if the name is not
   // enough. This function must return the format of the original CURRENT
   // content: name of the current manifest followed by newline (\n).
-  virtual void RetrieveSuperblockMetadata(std::string* meta) {}
+  virtual void RetrieveSuperblockMetadata(std::string* meta) const {}
 
   // Encode metadata used by the storage backend implementing Env
-  static bool EncodePrivateMetadata(std::string* dst, void* metadata);
+  static void EncodePrivateMetadata(std::string *dst, void *metadata);
 
   // Retrieve metadata
-  static bool DecodePrivateMetadata(Slice* input, void* metadata);
+  static void DecodePrivateMetadata(Slice *input);
 
  protected:
   // The pointer to an internal structure that will update the

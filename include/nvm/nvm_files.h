@@ -46,9 +46,8 @@ class nvm_file {
     bool ClaimNewPage(nvm *nvm_api, const unsigned long lun_id,
                     const unsigned long block_id, const unsigned long page_id);
 
+  protected:
     friend class NVMPrivateMetadata;
-    friend class NVMEnv;
-
   public:
     nvm_file(const char *_name, const int fd, nvm_directory *_parent);
     ~nvm_file();
@@ -128,9 +127,7 @@ class NVMFileLock : public FileLock {
 class NVMPrivateMetadata: public FilePrivateMetadata {
  private:
   nvm_file *file_;
- protected:
-  static const uint32_t separator_ = 42;
-  friend class Env;
+  static const uint32_t separator_ = 0;
  public:
   NVMPrivateMetadata(nvm_file *file);
   virtual ~NVMPrivateMetadata();

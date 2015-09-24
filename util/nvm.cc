@@ -114,6 +114,7 @@ nvm::nvm() {
 nvm::~nvm() {
   unsigned long i;
   unsigned long j;
+  unsigned long k;
 
   close_nvm_device("rocksdb");
   close(fd);
@@ -121,6 +122,9 @@ nvm::~nvm() {
   if (nr_luns > 0) {
     for (i = 0; i < nr_luns; ++i) {
       for (j = 0; j < luns[i].nr_blocks; ++j) {
+        for(k = 0; k < luns[i].nr_pages_per_blk; ++k) {
+          free(luns[i].blocks[j].pages[k].sizes);
+        }
         free(luns[i].blocks[j].block);
         free(luns[i].blocks[j].pages);
       }

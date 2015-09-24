@@ -1028,45 +1028,30 @@ class NVMEnv : public Env {
     return optimized;
   }
 
-  void LoadSuperblockMetadata(std::string* fname, Slice* super_meta) {
-    nvm_file* fd = root_dir->nvm_fopen(fname->c_str(), "a");
-    bool ret = Env::DecodePrivateMetadata(super_meta, &(fd->vblocks_));
-    if (!ret) {
-      NVM_DEBUG("Could not load superblock metadata\n");
+  void RetrieveSuperblockMetadata(std::string* meta) const override {
+  const char* str_init = meta->c_str();
+  size_t i = 0;
+
+  for (i = 0; i < meta->size(); i++) {
+    if (str_init[0] == '\n') {
+      goto next_meta;
     }
+    str_init++;
   }
-
-  void RetrieveSuperblockMetadata(std::string* meta) override {
-    const char* str_init = meta->c_str();
-    const char* meta_init = meta->c_str();
-    size_t i = 0;
-
-    for (i = 0; i < meta->size(); i++) {
-      if (meta_init[0] == '\n') {
-        goto next_meta;
-      }
-      meta_init++;
-    }
-    // CURRENT has a bad format; we let the upper layers fail
-    return;
+  // CURRENT has a bad format; we let the upper layers fail
+  return;
 
 next_meta:
-    i++; meta_init++;
-    // CURRENT is well constructed and does not contain private metadata
-    if (i == meta->size()) {
-      return;
-    }
-
-    // CURRENT is well constructed and contains private metadata
-    if (meta->back() == '\n') {
-      size_t super_size = meta->size() - i;
-      Slice super_meta = Slice(meta_init, super_size);
-      std::string fname = std::string(str_init, 15);
-      LoadSuperblockMetadata(&fname, &super_meta);
-      // Return the current MANIFEST name as expected by upper layers
-      meta->resize(meta->size() - super_size);
-    }
+  i++; str_init++;
+  // CURRENT is well constructed
+  if (meta->back() == '\n') {
+    size_t super_size = meta->size() - i;
+    Slice super_meta = Slice(str_init, super_size);
+    Env::DecodePrivateMetadata(&super_meta);
+    // Return the current MANIFEST name as expected by upper layers
+    meta->resize(meta->size() - super_size);
   }
+}
 
  private:
   nvm *nvm_api;
