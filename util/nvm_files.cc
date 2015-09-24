@@ -85,6 +85,10 @@ bool Env::DecodePrivateMetadata(Slice* input, void* metadata) {
     GetVarint32(input, &meta32);
     new_vblock->flags = meta32;
 
+    printf("DECODED:id:%lu\noid:%lu\nnppas:%lu\nbitmap:%lu\nbppa:%llu\nvlunid:%d\nflags:%d\n",
+        new_vblock->id, new_vblock->owner_id, new_vblock->nppas, new_vblock->ppa_bitmap,
+        new_vblock->bppa, new_vblock->vlun_id, new_vblock->flags);
+
     // Add to vblock vector
     if (LIKELY(vblocks != nullptr)) {
       vblocks->push_back(new_vblock);
@@ -94,14 +98,19 @@ bool Env::DecodePrivateMetadata(Slice* input, void* metadata) {
   return true;
 }
 
+Status Env::LoadPrivateMetadata(std::string fname, void* metadata) {
+  NVM_DEBUG("TACHAAAAAAN\n");
+  return Status::OK();
+}
+
 void* NVMPrivateMetadata::GetMetadata(nvm_file *file) {
   std::vector<struct vblock *>::iterator it;
   std::string metadata;
 
   PutVarint32(&metadata, file->vblocks_.size());
   for (it = file->vblocks_.begin(); it != file->vblocks_.end(); it++) {
-    printf("METADATA: Writing:\nsep:%d,id:%lu\noid:%lu\nnppas:%lu\nbitmap:%lu\nbppa:%llu\nvlunid:%d\nflags:%d\n",
-      separator_, (*it)->id, (*it)->owner_id, (*it)->nppas, (*it)->ppa_bitmap, (*it)->bppa,
+    printf("METADATA: Writing(%lu):\nsep:%d,id:%lu\noid:%lu\nnppas:%lu\nbitmap:%lu\nbppa:%llu\nvlunid:%d\nflags:%d\n",
+      file->vblocks_.size(), separator_, (*it)->id, (*it)->owner_id, (*it)->nppas, (*it)->ppa_bitmap, (*it)->bppa,
       (*it)->vlun_id, (*it)->flags);
     PutVarint32(&metadata, separator_); //This might go away
     PutVarint64(&metadata, (*it)->id);
@@ -935,6 +944,7 @@ struct nvm_page *nvm_file::GetNVMPage(const unsigned long idx) {
 size_t nvm_file::ReadBlock(struct nvm *nvm, unsigned int block_offset,
                               size_t ppa_offset, unsigned int page_offset,
                                                 char *data, size_t data_len) {
+  NVM_DEBUG("READBLOCK. BO: %d, PPAO: %lu, PO:%d\n", block_offset, ppa_offset, page_offset);
   struct vblock *current_vblock = vblocks_[block_offset];
   size_t base_ppa = current_vblock->bppa;
   size_t nppas = current_vblock->nppas;
@@ -1328,6 +1338,7 @@ Status NVMRandomAccessFile::Read(uint64_t offset, size_t n, Slice* result,
 
   struct nvm *nvm = dir_->GetNVMApi();
 
+  NVM_DEBUG("READING FROM FILE: %s, offset: %lu, n:%lu\n", filename_.c_str(), offset, n);
   if (fd_->Read(nvm, offset, scratch, n) != n) {
     return Status::IOError("Unable to read\n");
   }

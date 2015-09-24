@@ -249,6 +249,7 @@ class NVMEnv : public Env {
     }
 
     std::string manifest_meta;
+    NVM_DEBUG("SAVING METADATA!!!!!\n");
     void* meta = NVMPrivateMetadata::GetMetadata(current);
     Env::EncodePrivateMetadata(&manifest_meta, meta);
 
