@@ -1029,29 +1029,30 @@ class NVMEnv : public Env {
   }
 
   void RetrieveSuperblockMetadata(std::string* meta) const override {
-  const char* str_init = meta->c_str();
-  size_t i = 0;
+    const char* str_init = meta->c_str();
+    size_t i = 0;
 
-  for (i = 0; i < meta->size(); i++) {
-    if (str_init[0] == '\n') {
-      goto next_meta;
+    for (i = 0; i < meta->size(); i++) {
+      if (str_init[0] == '\n') {
+        goto next_meta;
+      }
+      str_init++;
     }
-    str_init++;
-  }
-  // CURRENT has a bad format; we let the upper layers fail
-  return;
+    // CURRENT has a bad format; we let the upper layers fail
+    return;
 
 next_meta:
-  i++; str_init++;
-  // CURRENT is well constructed
-  if (meta->back() == '\n') {
-    size_t super_size = meta->size() - i;
-    Slice super_meta = Slice(str_init, super_size);
-    Env::DecodePrivateMetadata(&super_meta);
-    // Return the current MANIFEST name as expected by upper layers
-    meta->resize(meta->size() - super_size);
+    i++; str_init++;
+    // CURRENT is well constructed
+    if (meta->back() == '\n') {
+      size_t super_size = meta->size() - i;
+      Slice super_meta = Slice(str_init, super_size);
+      Env::DecodePrivateMetadata(&super_meta);
+
+      // Return the current MANIFEST name as expected by upper layers
+      meta->resize(meta->size() - super_size);
+    }
   }
-}
 
  private:
   nvm *nvm_api;
