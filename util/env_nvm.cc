@@ -1046,7 +1046,7 @@ class NVMEnv : public Env {
     if (str_init[0] == '\n') {
       goto next_meta;
     }
-    str_init++;
+    meta_init++;
   }
   // CURRENT has a bad format; we let the upper layers fail
   return;
@@ -1063,7 +1063,8 @@ next_meta:
       size_t super_size = meta->size() - i;
       Slice super_meta = Slice(meta_init, super_size);
       std::string fname = "testingrocks/"; //TODO: Get dbname from LSM
-      fname.append(str_init, 15);
+      fname.append(str_init, i);
+      NVM_DEBUG("FILE: %s\n", fname.c_str());
       LoadSuperblockMetadata(&fname, &super_meta);
       // Return the current MANIFEST name as expected by upper layers
       meta->resize(meta->size() - super_size);
