@@ -61,6 +61,9 @@ class nvm_file {
     void ChangeName(const char *crt_name, const char *new_name);
     void EnumerateNames(std::vector<std::string>* result);
     void SetSeqWritableFile(NVMWritableFile *_writable_file);
+    void UpdateCurrentBlock() {
+      current_vblock_ = vblocks_.back();
+    }
 
     unsigned long GetSize();
     unsigned long GetPersistentSize();
