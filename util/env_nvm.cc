@@ -1043,7 +1043,7 @@ class NVMEnv : public Env {
     size_t i = 0;
 
   for (i = 0; i < meta->size(); i++) {
-    if (str_init[0] == '\n') {
+    if (meta_init[0] == '\n') {
       goto next_meta;
     }
     meta_init++;
@@ -1063,8 +1063,7 @@ next_meta:
       size_t super_size = meta->size() - i;
       Slice super_meta = Slice(meta_init, super_size);
       std::string fname = "testingrocks/"; //TODO: Get dbname from LSM
-      fname.append(str_init, i);
-      NVM_DEBUG("FILE: %s\n", fname.c_str());
+      fname.append(str_init, i - 1);
       LoadSuperblockMetadata(&fname, &super_meta);
       // Return the current MANIFEST name as expected by upper layers
       meta->resize(meta->size() - super_size);
