@@ -203,9 +203,6 @@ bool ParseFileName(const std::string& fname, uint64_t* number,
                    const Slice& info_log_name_prefix, FileType* type,
                    WalFileType* log_type) {
   Slice rest(fname);
-	if (fname.length() > 2 && fname[0] == '.' && fname[1] == '/') {
-    rest.remove_prefix(2);
-  }
   if (fname.length() > 1 && fname[0] == '/') {
     rest.remove_prefix(1);
   }

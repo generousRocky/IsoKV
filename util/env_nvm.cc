@@ -137,6 +137,10 @@ bool ParseType(std::string fname, FileType* type) {
   uint64_t num;
   size_t dir_pos;
   std::string filename;
+	
+	if (fname.length() > 2 && fname[0] == '.' && fname[1] == '/') {
+    fname = fname.substr(2);
+  }
 
   // Asume dbname/file as in filename filename.cc
   dir_pos = fname.find_first_of("/") + 1; // Account for "/"
