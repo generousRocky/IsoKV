@@ -38,44 +38,60 @@ namespace rocksdb {
 
 // Static method encoding metadata for DFlash backend
 // See comment above NVM:PrivateMetadata::GetMetadata()
-void Env::EncodePrivateMetadata(std::string *dst, void *metadata) {
+bool Env::EncodePrivateMetadata(std::string *dst, void *metadata) {
   if (metadata == nullptr) {
-    return;
+    return true; //TODO: Should this be an error?
   }
 
   // metadata already contains the encoded data. See comment in
   // NVMPrivateMetadata::GetMetadata()
   struct vblock_meta *vblock_meta = (struct vblock_meta*)metadata;
   dst->append((const char*)vblock_meta->encoded_vblocks, vblock_meta->len);
+  return true;
 }
 
-void Env::DecodePrivateMetadata(Slice *input) {
+bool Env::DecodePrivateMetadata(Slice* input, void* metadata) {
   uint32_t meta32;
   uint64_t meta64;
 
   GetVarint64(input, &meta64);
   uint64_t left = meta64;
 
+  std::vector<struct vblock *>*vblocks = (std::vector<struct vblock *>*)metadata;
+  struct vblock *new_vblock = (struct vblock*)malloc(sizeof(struct vblock));
+  if (!new_vblock) {
+    NVM_FATAL("Could not allocate memory\n");
+  }
+
   while (left > 0) {
     GetVarint32(input, &meta32);
-    printf("separator: %d", meta32);
-    GetVarint64(input, &meta64);
-    printf("id: %lu", meta64);
-    GetVarint64(input, &meta64);
-    printf("owner id: %lu", meta64);
-    GetVarint64(input, &meta64);
-    printf("nppas: %lu", meta64);
-    GetVarint64(input, &meta64);
-    printf("bitmap: %lu", meta64);
-    GetVarint64(input, &meta64);
-    printf("bppa: %lu", meta64);
-    GetVarint32(input, &meta32);
-    printf("vlunid: %d", meta32);
-    GetVarint32(input, &meta32);
-    printf("flags: %d\n", meta32);
+    if (meta32 != NVMPrivateMetadata::separator_) {
+      NVM_DEBUG("Private metadata from manifest is corrupted\n");
+      return false;
+    }
 
+    GetVarint64(input, &meta64);
+    new_vblock->id = meta64;
+    GetVarint64(input, &meta64);
+    new_vblock->owner_id = meta64;
+    GetVarint64(input, &meta64);
+    new_vblock->nppas = meta64;
+    GetVarint64(input, &meta64);
+    new_vblock->ppa_bitmap = meta64;
+    GetVarint64(input, &meta64);
+    new_vblock->bppa = meta64;
+    GetVarint32(input, &meta32);
+    new_vblock->vlun_id = meta32;
+    GetVarint32(input, &meta32);
+    new_vblock->flags = meta32;
+
+    // Add to vblock vector
+    if (LIKELY(vblocks != nullptr)) {
+      vblocks->push_back(new_vblock);
+    }
     left--;
   }
+  return true;
 }
 
 void* NVMPrivateMetadata::GetMetadata(nvm_file *file) {
