@@ -1030,12 +1030,10 @@ class NVMEnv : public Env {
   }
 
   void LoadSuperblockMetadata(std::string* fname, Slice* super_meta) {
-    nvm_file* fd = root_dir->nvm_fopen(fname->c_str(), "a");
-    bool ret = Env::DecodePrivateMetadata(super_meta, &(fd->vblocks_));
-    if (!ret) {
+    void* meta = Env::DecodePrivateMetadata(super_meta);
+    if (LoadPrivateMetadata(*fname, meta) != Status::OK()) {
       NVM_DEBUG("Could not load superblock metadata\n");
     }
-    fd->UpdateCurrentBlock();
   }
 
   void RetrieveSuperblockMetadata(std::string* meta) override {
@@ -1069,6 +1067,29 @@ next_meta:
       // Return the current MANIFEST name as expected by upper layers
       meta->resize(meta->size() - super_size);
     }
+  }
+
+  Status LoadPrivateMetadata(std::string fname, void* metadata) override {
+    nvm_file* fd = root_dir->nvm_fopen(fname.c_str(), "a");
+    struct vblock_meta *vblock_meta = (struct vblock_meta*)metadata;
+    struct vblock *ptr = (struct vblock*)vblock_meta->encoded_vblocks;
+    struct vblock *new_vblock = (struct vblock*)malloc(sizeof(struct vblock));
+    if (!new_vblock) {
+      NVM_FATAL("Could not allocate memory\n");
+    }
+
+    uint64_t left = vblock_meta->len;
+    while (left > 0) {
+      memcpy(new_vblock, ptr, sizeof(struct vblock));
+      // Add to vblock vector
+      fd->vblocks_.push_back(new_vblock);
+      left--;
+      ptr++;
+    }
+    fd->UpdateCurrentBlock();
+    free(vblock_meta->encoded_vblocks);
+    free(vblock_meta);
+    return Status::OK();
   }
 
  private:
@@ -1147,6 +1168,64 @@ std::string Env::GenerateUniqueId() {
 Env* Env::Default() {
   static NVMEnv default_env;
   return &default_env;
+}
+
+// Static method encoding metadata for DFlash backend
+// See comment above NVM:PrivateMetadata::GetMetadata()
+bool Env::EncodePrivateMetadata(std::string *dst, void *metadata) {
+  if (metadata == nullptr) {
+    return true; //TODO: Should this be an error?
+  }
+
+  // metadata already contains the encoded data. See comment in
+  // NVMPrivateMetadata::GetMetadata()
+  struct vblock_meta *vblock_meta = (struct vblock_meta*)metadata;
+  dst->append((const char*)vblock_meta->encoded_vblocks, vblock_meta->len);
+  return true;
+}
+
+void* Env::DecodePrivateMetadata(Slice* input) {
+
+  struct vblock new_vblock;
+  uint32_t meta32;
+  uint64_t meta64;
+
+  GetVarint64(input, &meta64);
+  uint64_t left = meta64;
+
+  struct vblock_meta *vblock_meta =
+                (struct vblock_meta*)malloc(sizeof(struct vblock_meta));
+  vblock_meta->encoded_vblocks = (char*)malloc(left * sizeof(struct vblock));
+  struct vblock *ptr = (struct vblock*)vblock_meta->encoded_vblocks;
+  vblock_meta->len = left;
+
+  while (left > 0) {
+    GetVarint32(input, &meta32);
+    if (meta32 != NVMPrivateMetadata::separator_) {
+      return nullptr;
+    }
+
+    GetVarint64(input, &meta64);
+    new_vblock.id = meta64;
+    GetVarint64(input, &meta64);
+    new_vblock.owner_id = meta64;
+    GetVarint64(input, &meta64);
+    new_vblock.nppas = meta64;
+    GetVarint64(input, &meta64);
+    new_vblock.ppa_bitmap = meta64;
+    GetVarint64(input, &meta64);
+    new_vblock.bppa = meta64;
+    GetVarint32(input, &meta32);
+    new_vblock.vlun_id = meta32;
+    GetVarint32(input, &meta32);
+    new_vblock.flags = meta32;
+
+    memcpy(ptr, &new_vblock, sizeof(struct vblock));
+    ptr++;
+    left--;
+  }
+
+  return (void*)vblock_meta;
 }
 
 }  // namespace rocksdb

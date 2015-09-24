@@ -36,74 +36,7 @@
 
 namespace rocksdb {
 
-// Static method encoding metadata for DFlash backend
-// See comment above NVM:PrivateMetadata::GetMetadata()
-bool Env::EncodePrivateMetadata(std::string *dst, void *metadata) {
-  if (metadata == nullptr) {
-    return true; //TODO: Should this be an error?
-  }
-
-  // metadata already contains the encoded data. See comment in
-  // NVMPrivateMetadata::GetMetadata()
-  struct vblock_meta *vblock_meta = (struct vblock_meta*)metadata;
-  dst->append((const char*)vblock_meta->encoded_vblocks, vblock_meta->len);
-  return true;
-}
-
-bool Env::DecodePrivateMetadata(Slice* input, void* metadata) {
-  uint32_t meta32;
-  uint64_t meta64;
-
-  GetVarint64(input, &meta64);
-  uint64_t left = meta64;
-
-  std::vector<struct vblock *>*vblocks = (std::vector<struct vblock *>*)metadata;
-  struct vblock *new_vblock = (struct vblock*)malloc(sizeof(struct vblock));
-  if (!new_vblock) {
-    NVM_FATAL("Could not allocate memory\n");
-  }
-
-  while (left > 0) {
-    GetVarint32(input, &meta32);
-    if (meta32 != NVMPrivateMetadata::separator_) {
-      NVM_DEBUG("Private metadata from manifest is corrupted\n");
-      return false;
-    }
-
-    GetVarint64(input, &meta64);
-    new_vblock->id = meta64;
-    GetVarint64(input, &meta64);
-    new_vblock->owner_id = meta64;
-    GetVarint64(input, &meta64);
-    new_vblock->nppas = meta64;
-    GetVarint64(input, &meta64);
-    new_vblock->ppa_bitmap = meta64;
-    GetVarint64(input, &meta64);
-    new_vblock->bppa = meta64;
-    GetVarint32(input, &meta32);
-    new_vblock->vlun_id = meta32;
-    GetVarint32(input, &meta32);
-    new_vblock->flags = meta32;
-
-    printf("DECODED:id:%lu\noid:%lu\nnppas:%lu\nbitmap:%lu\nbppa:%llu\nvlunid:%d\nflags:%d\n",
-        new_vblock->id, new_vblock->owner_id, new_vblock->nppas, new_vblock->ppa_bitmap,
-        new_vblock->bppa, new_vblock->vlun_id, new_vblock->flags);
-
-    // Add to vblock vector
-    if (LIKELY(vblocks != nullptr)) {
-      vblocks->push_back(new_vblock);
-    }
-    left--;
-  }
-  return true;
-}
-
-Status Env::LoadPrivateMetadata(std::string fname, void* metadata) {
-  NVM_DEBUG("TACHAAAAAAN\n");
-  return Status::OK();
-}
-
-void* NVMPrivateMetadata::GetMetadata(nvm_file *file) {
+  void* NVMPrivateMetadata::GetMetadata(nvm_file *file) {
   std::vector<struct vblock *>::iterator it;
   std::string metadata;
 
@@ -129,7 +62,6 @@ void* NVMPrivateMetadata::GetMetadata(nvm_file *file) {
 
   vblock_meta->len = metadata_size;
   memcpy(vblock_meta->encoded_vblocks, metadata.c_str(), metadata_size);
-
   return (void*)vblock_meta;
 }
 

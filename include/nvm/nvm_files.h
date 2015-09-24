@@ -49,6 +49,7 @@ class nvm_file {
   protected:
     friend class NVMPrivateMetadata;
     friend class NVMEnv;
+    friend class Env;
 
   public:
     nvm_file(const char *_name, const int fd, nvm_directory *_parent);
