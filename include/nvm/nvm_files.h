@@ -10,6 +10,22 @@ namespace rocksdb {
 
 class NVMWritableFile;
 
+class NVMPrivateMetadata: public FilePrivateMetadata {
+ private:
+  nvm_file *file_;
+ protected:
+  static const uint32_t separator_ = 42;
+  friend class Env;
+ public:
+  NVMPrivateMetadata(nvm_file *file);
+  virtual ~NVMPrivateMetadata();
+
+  void* GetMetadata() override;
+  void UpdateMetadataHandle(nvm_file *file);
+
+  static void* GetMetadata(nvm_file* file);
+};
+
 class nvm_file {
   private:
     list_node *names;
@@ -21,6 +37,9 @@ class nvm_file {
     unsigned long size_;
     unsigned long meta_size_;
     int fd_;
+
+    // Private metadata
+    NVMPrivateMetadata* metadata_handle_;
 
     // TODO: current_vblock_ is used to write, logic should move to WritableFile
     struct vblock *current_vblock_;
@@ -66,6 +85,9 @@ class nvm_file {
     void SetSeqWritableFile(NVMWritableFile *_writable_file);
     void UpdateCurrentBlock() {
       current_vblock_ = vblocks_.back();
+    }
+    FilePrivateMetadata* GetMetadataHandle() {
+      return metadata_handle_;
     }
 
     unsigned long GetSize();
@@ -128,22 +150,6 @@ class NVMFileLock : public FileLock {
     nvm_directory *root_dir_;
 
     bool Unlock();
-};
-
-class NVMPrivateMetadata: public FilePrivateMetadata {
- private:
-  nvm_file *file_;
- protected:
-  static const uint32_t separator_ = 42;
-  friend class Env;
- public:
-  NVMPrivateMetadata(nvm_file *file);
-  virtual ~NVMPrivateMetadata();
-
-  void* GetMetadata() override;
-  void UpdateMetadataHandle(nvm_file *file);
-
-  static void* GetMetadata(nvm_file* file);
 };
 
 class NVMSequentialFile: public SequentialFile {
@@ -245,9 +251,6 @@ class NVMWritableFile : public WritableFile {
 
     // write
     struct vblock_partial_meta write_pointer_;
-
-    // Private metadata
-    NVMPrivateMetadata* metadata_handle;
 
     unsigned long channel;
 

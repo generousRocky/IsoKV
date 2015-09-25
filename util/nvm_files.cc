@@ -104,6 +104,7 @@ nvm_file::nvm_file(const char *_name, const int fd, nvm_directory *_parent) {
 
   size_ = 0;
   fd_ = fd;
+  metadata_handle_ = new NVMPrivateMetadata(this);
 
   last_modified = time(nullptr);
   vblocks_.clear();
@@ -133,6 +134,7 @@ nvm_file::~nvm_file() {
     seq_writable_file = nullptr;
   }
 
+  delete metadata_handle_;
   list_node *temp = names;
   while (temp != nullptr) {
     list_node *temp1 = temp->GetNext();
@@ -1173,9 +1175,9 @@ NVMPrivateMetadata::NVMPrivateMetadata(nvm_file *file) {
 NVMPrivateMetadata::~NVMPrivateMetadata() {}
 
 //TODO: Can we maintain a friend reference to NVMWritableFile to simplify this?
-void NVMPrivateMetadata::UpdateMetadataHandle(nvm_file *file) {
-  file_ = file;
-}
+// void NVMPrivateMetadata::UpdateMetadataHandle(nvm_file *file) {
+  // file_ = file;
+// }
 
 // For now store the whole vblock as metadata. When we can retrieve a vblock
 // from its ID from the BM we can reduces the amount of metadata stored in
@@ -1312,8 +1314,6 @@ NVMWritableFile::NVMWritableFile(const std::string& fname, nvm_file *fd,
   fd_ = fd;
   dir_ = dir;
 
-  metadata_handle = new NVMPrivateMetadata(fd_); //JAVIER: parameters?
-
   struct nvm *nvm = dir_->GetNVMApi();
   //TODO: Use the vlun type when this is available
   unsigned int vlun_type = 0;
@@ -1351,7 +1351,6 @@ NVMWritableFile::NVMWritableFile(const std::string& fname, nvm_file *fd,
 }
 
 NVMWritableFile::~NVMWritableFile() {
-  delete metadata_handle;
   fd_->SetSeqWritableFile(nullptr);
   NVMWritableFile::Close();
 }
@@ -1594,8 +1593,7 @@ size_t NVMWritableFile::GetUniqueId(char* id, size_t max_size) const {
 #endif
 
 FilePrivateMetadata* NVMWritableFile::GetMetadataHandle() {
-  metadata_handle->UpdateMetadataHandle(fd_);
-  return metadata_handle;
+  return fd_->GetMetadataHandle();
 }
 
 /*
