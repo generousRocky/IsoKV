@@ -376,7 +376,6 @@ DBImpl::~DBImpl() {
   mutex_.Unlock();
   if (db_lock_ != nullptr) {
     env_->UnlockFile(db_lock_);
-    delete db_lock_;
   }
 
   LogFlush(db_options_.info_log);
