@@ -96,19 +96,23 @@ struct vblock_meta {
   char* encoded_vblocks;
 };
 
-static uint32_t separator_ = 101;
-std::vector<struct vblock *>vblocks_;
+// static uint32_t separator_ = 101;
+// std::vector<struct vblock *>vblocks_;
 
-void Env::EncodePrivateMetadata(std::string *dst, void *metadata) {
+bool Env::EncodePrivateMetadata(std::string *dst, void *metadata) {
+#if 0
   if (metadata == nullptr) {
-    return;
+    return true;
   }
 
   struct vblock_meta *vblock_meta = (struct vblock_meta*)metadata;
   dst->append((const char*)vblock_meta->encoded_vblocks, vblock_meta->len);
+#endif
+  return true;
 }
 
-void Env::DecodePrivateMetadata(Slice *input) {
+void* Env::DecodePrivateMetadata(Slice *input) {
+#if 0
   uint32_t meta32;
   uint64_t meta64;
 
@@ -135,6 +139,9 @@ void Env::DecodePrivateMetadata(Slice *input) {
 
     left--;
   }
+
+#endif
+  return nullptr;
 }
 
 namespace {
@@ -639,6 +646,7 @@ class PosixMmapFile : public WritableFile {
 #endif
 };
 
+#if 0
 class PosixPrivateMetadataTest: public FilePrivateMetadata {
  public:
   PosixPrivateMetadataTest(std::string filename) {
@@ -701,6 +709,7 @@ void generate_test_metadata() {
     vblocks_.push_back(new_vblock);
   }
 }
+#endif
 
 // Use posix write to write data to a file.
 class PosixWritableFile : public WritableFile {
@@ -712,8 +721,8 @@ class PosixWritableFile : public WritableFile {
   bool fallocate_with_keep_size_;
 #endif
 
-  PosixPrivateMetadataTest* metadata_handle =
-                                        new PosixPrivateMetadataTest(filename_);
+  // PosixPrivateMetadataTest* metadata_handle =
+                                        // new PosixPrivateMetadataTest(filename_);
  public:
   PosixWritableFile(const std::string& fname, int fd, const EnvOptions& options)
       : filename_(fname), fd_(fd), filesize_(0) {
@@ -723,7 +732,7 @@ class PosixWritableFile : public WritableFile {
     assert(!options.use_mmap_writes);
 
     // Generate metadata tets
-    generate_test_metadata();
+    // generate_test_metadata();
   }
 
   ~PosixWritableFile() {
@@ -753,7 +762,7 @@ class PosixWritableFile : public WritableFile {
 
   virtual Status Close() override {
     Status s;
-
+    printf("Filename %s - size: %lu\n", filename_.c_str(), filesize_);
     size_t block_size;
     size_t last_allocated_block;
     GetPreallocationStatus(&block_size, &last_allocated_block);
@@ -848,9 +857,9 @@ class PosixWritableFile : public WritableFile {
   }
 #endif
 
-  virtual FilePrivateMetadata* GetMetadataHandle() override {
-    return metadata_handle;
-  }
+  // virtual FilePrivateMetadata* GetMetadataHandle() override {
+    // return metadata_handle;
+  // }
 };
 
 class PosixRandomRWFile : public RandomRWFile {
