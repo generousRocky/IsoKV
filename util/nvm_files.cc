@@ -752,7 +752,7 @@ void nvm_file::DeleteAllLinks(struct nvm *_nvm_api) {
 
   pages.clear();
 
-  size_ = 0;
+  // size_ = 0;
 
   pthread_mutex_unlock(&page_update_mtx);
 
