@@ -167,7 +167,6 @@ class NVMEnv : public Env {
 
     ALLOC_CLASS(nvm_api, nvm());
     ALLOC_CLASS(root_dir, nvm_directory("root", 4, nvm_api, nullptr));
-
     LoadFtl();
   }
 
@@ -1085,11 +1084,41 @@ next_meta:
       fd->vblocks_.push_back(new_vblock);
       left--;
       ptr++;
+      new_vblock->id, new_vblock->owner_id, new_vblock->nppas, new_vblock->ppa_bitmap,
+      new_vblock->bppa, new_vblock->vlun_id, new_vblock->flags);
     }
     fd->UpdateCurrentBlock();
     free(vblock_meta->encoded_vblocks);
     free(vblock_meta);
     return Status::OK();
+  }
+
+  // Static method encoding WAL metadata for DFlash backend
+  // TODO: Get WAL dir from dboptions
+  void EncodeLogPrivateMetadata(std::string* dst, uint64_t log_number, uint8_t priv_type) {
+    std::string fname = LogFileName("testingrocks", log_number);
+    nvm_file* fd = root_dir->file_look_up(fname.c_str());
+    if (fd == nullptr) {
+      return;
+    }
+
+    PutVarint32(dst, priv_type);
+    void* metadata = fd->GetMetadata();
+    Env::EncodePrivateMetadata(dst, metadata);
+  }
+
+  void DecodeAndLoadLogPrivateMetadata(Slice* input, uint64_t log_number) {
+    std::string fname = LogFileName("testingrocks", log_number);
+    void* metadata = Env::DecodePrivateMetadata(input);
+    nvm_file* fd = root_dir->file_look_up(fname.c_str());
+    if (fd != nullptr) {
+      LoadPrivateMetadata(fname, metadata);
+      return;
+    }
+    // Old WAL; throw metadata away and free memory
+    struct vblock_meta *vblock_meta = (struct vblock_meta*)metadata;
+    free(vblock_meta->encoded_vblocks);
+    free(vblock_meta);
   }
 
  private:
@@ -1170,7 +1199,7 @@ Env* Env::Default() {
   return &default_env;
 }
 
-// Static method encoding metadata for DFlash backend
+// Static method encoding sstable metadata for DFlash backend
 // See comment above NVM:PrivateMetadata::GetMetadata()
 bool Env::EncodePrivateMetadata(std::string *dst, void *metadata) {
   if (metadata == nullptr) {
@@ -1224,7 +1253,6 @@ void* Env::DecodePrivateMetadata(Slice* input) {
     ptr++;
     left--;
   }
-
   return (void*)vblock_meta;
 }
 

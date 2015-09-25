@@ -89,6 +89,9 @@ class nvm_file {
     FilePrivateMetadata* GetMetadataHandle() {
       return metadata_handle_;
     }
+    void* GetMetadata() {
+      return metadata_handle_->GetMetadata(this);
+    }
 
     unsigned long GetSize();
     unsigned long GetPersistentSize();
