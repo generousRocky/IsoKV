@@ -439,6 +439,43 @@ void w_block_test_4() {
       NVM_FATAL("");
     }
   }
+  delete sr_file;
+
+  ALLOC_CLASS(sr_file, NVMSequentialFile("test2.c", srfd, dir));
+  if (!sr_file->Read(128 * 4096, &t, datax).ok()) {
+    NVM_FATAL("");
+  }
+
+  len = t.size();
+  data_read = t.data();
+
+  if (len != 128 * 4096) {
+    NVM_FATAL("%lu", len);
+  }
+
+  for (long i = 0; i < 128 * 4096; i++) {
+    if (data_read[i] != data[i]) {
+      NVM_FATAL("");
+    }
+  }
+
+  if (!sr_file->Read(8 * 4096, &t, datax).ok()) {
+    NVM_FATAL("");
+  }
+
+  len = t.size();
+  data_read = t.data();
+
+  if (len != 8 * 4096) {
+    NVM_FATAL("%lu", len);
+  }
+
+  for (long i = 0; i < 8 * 4096; i++) {
+    if (data_read[i] != data[(128 * 4096) + i]) {
+      NVM_FATAL("");
+    }
+  }
+
 
   NVMRandomAccessFile *rr_file;
   ALLOC_CLASS(rr_file, NVMRandomAccessFile("test2.c", srfd, dir));
