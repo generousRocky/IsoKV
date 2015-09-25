@@ -572,14 +572,89 @@ void w_block_test_5() {
   NVM_DEBUG("TEST 5 FINISHED!");
 }
 
+void w_block_test_6() {
+  nvm_directory *dir;
+  nvm *nvm_api;
+
+  ALLOC_CLASS(nvm_api, nvm());
+  ALLOC_CLASS(dir, nvm_directory("root", 4, nvm_api, nullptr));
+
+  nvm_file *wfd = dir->nvm_fopen("test.c", "w");
+  if(wfd == nullptr) {
+    NVM_FATAL("");
+  }
+
+  nvm_file *srfd = dir->nvm_fopen("test.c", "r");
+  if(srfd == nullptr) {
+    NVM_FATAL("");
+  }
+
+  NVMWritableFile *w_file;
+  NVMSequentialFile *sr_file;
+
+  //Write enough data to trigger a new block creation
+  char data[400 * 4096];
+  char datax[400 * 4096];
+
+  ALLOC_CLASS(w_file, NVMWritableFile("test.c", wfd, dir));
+  Slice s, t;
+
+  //write in block disaligned chunks
+  char input = 'a';
+  for (int i = 0; i < 400; i++) {
+    for (int j = 0; j < 4096; j++) {
+      data[(i * 4096) + j] = (input + i);
+    }
+  }
+
+  int j = 380;
+  for (size_t i = 0; i < 400 * 4096; ) {
+    s = Slice(data + (i + 380), 380);
+    w_file->Append(s);
+    i += j;
+  }
+
+  w_file->Close();
+
+  ALLOC_CLASS(sr_file, NVMSequentialFile("test2.c", srfd, dir));
+  for (size_t i = 0; i < 300 * 4096; ) {
+    if (!sr_file->Read(400, &t, datax).ok()) {
+      NVM_FATAL("");
+    }
+
+    size_t len = t.size();
+    const char *data_read = t.data();
+
+    if (len !=  400) {
+      NVM_FATAL("%lu", len);
+     }
+
+    for (int k = 0; k < 400; k++) {
+      if (data[i + k] != data_read[k]) {
+        NVM_FATAL("");
+      }
+    }
+
+    i += 400;
+  }
+
+  delete sr_file;
+  delete w_file;
+  delete dir;
+  delete nvm_api;
+
+  NVM_DEBUG("TEST 6 FINISHED!");
+}
+
 
 int main(int argc, char **argv) {
-  w_test_1();
-  w_block_test_1();
-  w_block_test_2();
-  w_block_test_3();
-  w_block_test_4();
-  w_block_test_5();
+  // w_test_1();
+  // w_block_test_1();
+  // w_block_test_2();
+  // w_block_test_3();
+  // w_block_test_4();
+  // w_block_test_5();
+  w_block_test_6();
 
   return 0;
 }
