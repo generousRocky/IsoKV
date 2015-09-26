@@ -972,10 +972,10 @@ size_t nvm_file::Read(struct nvm *nvm, size_t read_pointer, char *data,
           (bytes_per_block);
 
   // Account for past metadata offsets.
-  if (page_offset > PAGE_SIZE) {
+  if (page_offset >= PAGE_SIZE) {
     ppa_offset = page_offset / PAGE_SIZE;
     page_offset = page_offset % PAGE_SIZE;
-    if (ppa_offset > nppas) {
+    if (ppa_offset >= nppas) {
       block_offset = ppa_offset / nppas;
       ppa_offset = ppa_offset & nppas;
     }
