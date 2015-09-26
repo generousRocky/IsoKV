@@ -755,6 +755,12 @@ void nvm_file::DeleteAllLinks(struct nvm *_nvm_api) {
   // size_ = 0;
 
   pthread_mutex_unlock(&page_update_mtx);
+  
+  if (seq_writable_file) {
+    //flush any existing buffers
+    seq_writable_file->FileDeletedEvent();
+    seq_writable_file = nullptr;
+  }
 
   UpdateFileModificationTime();
 }
@@ -1344,7 +1350,6 @@ NVMWritableFile::NVMWritableFile(const std::string& fname, nvm_file *fd,
   flush_ = buf_;
 
   cursize_ = 0;
-  fortest = 0;
   curflush_ = 0;
   closed_ = false;
 
@@ -1364,8 +1369,14 @@ NVMWritableFile::NVMWritableFile(const std::string& fname, nvm_file *fd,
 }
 
 NVMWritableFile::~NVMWritableFile() {
-  fd_->SetSeqWritableFile(nullptr);
+  if(fd_) {
+    fd_->SetSeqWritableFile(nullptr);
+  }
   NVMWritableFile::Close();
+}
+
+void NVMWritableFile::FileDeletedEvent() {
+  fd_ = nullptr;
 }
 
 size_t NVMWritableFile::CalculatePpaOffset(size_t curflush) {
@@ -1387,6 +1398,11 @@ bool NVMWritableFile::Flush(const bool force_flush) {
   size_t ppa_flush_offset = CalculatePpaOffset(curflush_);
   struct vblock_close_meta vblock_meta;
   bool page_aligned = false;
+  
+  if(fd_ == nullptr) {
+    NVM_DEBUG("FILE WAS DELETED. DON'T FLUSH")
+    return true;
+  }
 
   if (!force_flush && flush_len < PAGE_SIZE) {
     return true;
@@ -1440,6 +1456,13 @@ bool NVMWritableFile::Flush(const bool force_flush) {
 bool NVMWritableFile::GetNewBlock() {
   struct nvm *nvm = dir_->GetNVMApi();
   unsigned int vlun_id = 0;
+  
+  if(fd_ == nullptr) {
+    //file was deleted while a nvmwritablefile was still
+    //pointing to it
+    return false;
+  }
+  
   fd_->GetBlock(nvm, vlun_id);
 
   //Preserve until we implement double buffering
@@ -1491,6 +1514,10 @@ Status NVMWritableFile::Append(const Slice& data) {
   if (closed_) {
     return Status::IOError("file has been closed");
   }
+  
+  if(fd_ == nullptr) {
+    return Status::IOError("file has been deleted");
+  }
 
   const char* src = data.data();
   size_t left = data.size();
@@ -1521,14 +1548,16 @@ Status NVMWritableFile::Append(const Slice& data) {
   memcpy(mem_, src + offset, left - offset);
   mem_ += left - offset;
   cursize_ += left - offset;
-  fortest += left - offset;
-
-  // NVM_DEBUG("TOTAL APPENDED TO %s: %lu\n", filename_.c_str(), fortest);
+  
   return Status::OK();
 }
 
 Status NVMWritableFile::Close() {
-  if (closed_) {
+  if (closed_ || fd_ == nullptr) {
+    if (buf_) {
+      free(buf_);
+    }
+    buf_ = nullptr;
     return Status::OK();
   }
 
@@ -1591,6 +1620,9 @@ Status NVMWritableFile::Fsync() {
 }
 
 uint64_t NVMWritableFile::GetFileSize() {
+  if(fd_ == nullptr) {
+    return 0;
+  }
   NVM_DEBUG("FILESIZE: %lu, %lu, %lu\n", fd_->GetPersistentSize(), cursize_, curflush_);
   return fd_->GetPersistentSize() + cursize_ - curflush_;
 }
@@ -1609,12 +1641,19 @@ Status NVMWritableFile::RangeSync(off_t offset, off_t nbytes) {
 }
 
 size_t NVMWritableFile::GetUniqueId(char* id, size_t max_size) const {
+  if(fd_ == nullptr) {
+    return -1;
+  }
+    
   return GetUniqueIdFromFile(fd_, id, max_size);
 }
 
 #endif
 
 FilePrivateMetadata* NVMWritableFile::GetMetadataHandle() {
+  if(fd_ == nullptr) {
+    return nullptr;
+  }
   return fd_->GetMetadataHandle();
 }
 

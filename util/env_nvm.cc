@@ -1084,8 +1084,6 @@ next_meta:
       fd->vblocks_.push_back(new_vblock);
       left--;
       ptr++;
-      new_vblock->id, new_vblock->owner_id, new_vblock->nppas, new_vblock->ppa_bitmap,
-      new_vblock->bppa, new_vblock->vlun_id, new_vblock->flags);
     }
     fd->UpdateCurrentBlock();
     free(vblock_meta->encoded_vblocks);

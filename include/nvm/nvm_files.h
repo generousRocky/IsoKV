@@ -271,6 +271,8 @@ class NVMWritableFile : public WritableFile {
   public:
     NVMWritableFile(const std::string& fname, nvm_file *fd, nvm_directory *dir);
     ~NVMWritableFile();
+    
+    void FileDeletedEvent();
 
     virtual Status Append(const Slice& data) override;
     virtual Status Close() override;
