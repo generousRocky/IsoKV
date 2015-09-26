@@ -634,6 +634,31 @@ void w_block_test_6() {
       NVM_FATAL("%lu\n", i);
     }
   }
+  delete sr_file;
+
+  // Read the same data in 32 KB chunks
+  ALLOC_CLASS(sr_file, NVMSequentialFile("test2.c", srfd, dir));
+  size_t chunk_size = 32 * 4096;
+  size_t nchunks = bytes_written / chunk_size;
+
+  for (size_t i = 0; i < nchunks; i++) {
+    if (!sr_file->Read(chunk_size, &t, datax).ok()) {
+      NVM_FATAL("");
+    }
+
+    len = t.size();
+    data_read = t.data();
+
+    if (len != chunk_size) {
+      NVM_FATAL("%lu", len);
+    }
+
+    for (size_t j = 0; j < chunk_size; j++) {
+      if (data[(i * chunk_size) + j] != data_read[j]) {
+        NVM_FATAL("%lu\n", (i * chunk_size) + j);
+      }
+    }
+  }
 
   delete sr_file;
   delete w_file;
