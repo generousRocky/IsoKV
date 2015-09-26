@@ -893,6 +893,8 @@ size_t nvm_file::ReadBlock(struct nvm *nvm, unsigned int block_offset,
   unsigned long max_bytes_per_read = nvm->max_pages_in_io * PAGE_SIZE;
   unsigned long bytes_per_read;
   unsigned int meta_beg_size = sizeof(struct vblock_recov_meta);
+  size_t meta_size =
+            sizeof(struct vblock_recov_meta) + sizeof(struct vblock_close_meta);
   uint8_t pages_per_read;
 
   // Attempting to read an empty file
@@ -906,11 +908,12 @@ size_t nvm_file::ReadBlock(struct nvm *nvm, unsigned int block_offset,
   size_t left =
       ((((data_len + page_offset + meta_beg_size) / PAGE_SIZE) + x) * PAGE_SIZE);
 
-  assert(left <= (nppas * PAGE_SIZE));
-  assert((left % PAGE_SIZE) == 0);
-
   NVM_DEBUG("READBLOCK. BO: %d, PPAO: %lu, PO:%d. To read from block: %lu, left:%lu, x:%d\n",
             block_offset, ppa_offset, page_offset, data_len, left, x);
+
+  assert(left <= (nppas * PAGE_SIZE));
+  assert(data_len <= (nppas * PAGE_SIZE) - meta_size);
+  assert((left % PAGE_SIZE) == 0);
 
   char *page = (char*)memalign(PAGE_SIZE, left * PAGE_SIZE);
   if (!data) {
@@ -955,25 +958,30 @@ out:
 size_t nvm_file::Read(struct nvm *nvm, size_t read_pointer, char *data,
                                                         size_t data_len) {
   size_t nppas = nvm->GetNPagesBlock(0); //This is a momentary fix (FIXME)
-  unsigned int block_offset = read_pointer / (nppas * PAGE_SIZE);
-  unsigned int page_offset = read_pointer % PAGE_SIZE;
+  size_t meta_size =
+            sizeof(struct vblock_recov_meta) + sizeof(struct vblock_close_meta);
+  size_t bytes_per_block = (nppas * PAGE_SIZE) - meta_size;
+  unsigned int block_offset = read_pointer / bytes_per_block;
+  unsigned int page_offset = read_pointer % bytes_per_block;
   size_t left = data_len;
   size_t bytes_left_block;
   size_t bytes_per_read;
   size_t total_read = 0;
-  size_t meta_size =
-            sizeof(struct vblock_recov_meta) + sizeof(struct vblock_close_meta);
   size_t ppa_offset =
-          ((read_pointer - (block_offset * nppas * PAGE_SIZE)) / PAGE_SIZE) %
-          (nppas * PAGE_SIZE);
+          ((read_pointer - (block_offset * bytes_per_block)) / PAGE_SIZE) %
+          (bytes_per_block);
 
   // Account for past metadata offsets.
-  // TODO: If page_offset overloads increase ppa_offset and block_offset
-  page_offset += block_offset * meta_size;
-
-  NVM_DEBUG("READ: readpointer: %lu, n: %lu\n", read_pointer, data_len);
+  if (page_offset > PAGE_SIZE) {
+    ppa_offset = page_offset / PAGE_SIZE;
+    page_offset = page_offset % PAGE_SIZE;
+    if (ppa_offset > nppas) {
+      block_offset = ppa_offset / nppas;
+      ppa_offset = ppa_offset & nppas;
+    }
+  }
   while (left > 0) {
-    bytes_left_block = ((nppas - ppa_offset) * PAGE_SIZE) - meta_size;
+    bytes_left_block = ((nppas - ppa_offset) * PAGE_SIZE) - page_offset - meta_size;
     bytes_per_read = (left > bytes_left_block) ? bytes_left_block : left;
     size_t read = ReadBlock(nvm, block_offset, ppa_offset, page_offset,
                                           data + total_read, bytes_per_read);
