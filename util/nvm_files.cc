@@ -755,7 +755,7 @@ void nvm_file::DeleteAllLinks(struct nvm *_nvm_api) {
   // size_ = 0;
 
   pthread_mutex_unlock(&page_update_mtx);
-  
+
   if (seq_writable_file) {
     //flush any existing buffers
     seq_writable_file->FileDeletedEvent();
@@ -971,7 +971,7 @@ size_t nvm_file::Read(struct nvm *nvm, size_t read_pointer, char *data,
           ((read_pointer - (block_offset * bytes_per_block)) / PAGE_SIZE) %
           (bytes_per_block);
 
-  // Account for past metadata offsets.
+  // Update offsets if they overload
   if (page_offset >= PAGE_SIZE) {
     ppa_offset = page_offset / PAGE_SIZE;
     page_offset = page_offset % PAGE_SIZE;
@@ -980,6 +980,7 @@ size_t nvm_file::Read(struct nvm *nvm, size_t read_pointer, char *data,
       ppa_offset = ppa_offset & nppas;
     }
   }
+
   while (left > 0) {
     bytes_left_block = ((nppas - ppa_offset) * PAGE_SIZE) - page_offset - meta_size;
     bytes_per_read = (left > bytes_left_block) ? bytes_left_block : left;

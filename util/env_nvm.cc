@@ -198,7 +198,7 @@ class NVMEnv : public Env {
   virtual Status SaveFTL() override {
     std::string current_location = "testingrocks/CURRENT";
     int fd;
-    printf("saving ftl");
+    NVM_DEBUG("saving ftl");
 
     fd = open(ftl_save_location, O_RDWR | O_CREAT, S_IWUSR | S_IRUSR);
     if (fd < 0) {
@@ -1097,6 +1097,7 @@ next_meta:
     std::string fname = LogFileName("testingrocks", log_number);
     nvm_file* fd = root_dir->file_look_up(fname.c_str());
     if (fd == nullptr) {
+      NVM_DEBUG("Log file %s not found for saving metadata\n", fname.c_str());
       return;
     }
 
@@ -1117,6 +1118,7 @@ next_meta:
     struct vblock_meta *vblock_meta = (struct vblock_meta*)metadata;
     free(vblock_meta->encoded_vblocks);
     free(vblock_meta);
+    NVM_DEBUG("Log file %s not found for loading metadata\n", fname.c_str());
   }
 
  private:
@@ -1212,7 +1214,6 @@ bool Env::EncodePrivateMetadata(std::string *dst, void *metadata) {
 }
 
 void* Env::DecodePrivateMetadata(Slice* input) {
-
   struct vblock new_vblock;
   uint32_t meta32;
   uint64_t meta64;
@@ -1229,6 +1230,7 @@ void* Env::DecodePrivateMetadata(Slice* input) {
   while (left > 0) {
     GetVarint32(input, &meta32);
     if (meta32 != NVMPrivateMetadata::separator_) {
+      NVM_DEBUG("Private metadata from manifest is corrupted\n");
       return nullptr;
     }
 
