@@ -601,7 +601,7 @@ void w_block_test_6() {
 
   char input = 'a';
   for (int i = 0; i < 400 * 4096; i++) {
-      data[i] = (input + i % 28);
+      data[i] = (input + i % 30);
   }
 
   size_t alignment = 380;
@@ -628,7 +628,6 @@ void w_block_test_6() {
     NVM_FATAL("%lu", len);
    }
 
-  NVM_DEBUG("Bytes written:%lu\n", bytes_written);
   for (size_t i = 0; i < bytes_written && i < 400 * 4096; i++) {
     if (data[i] != data_read[i]) {
       NVM_FATAL("%lu\n", i);
@@ -638,7 +637,7 @@ void w_block_test_6() {
 
   // Read the same data in 32 KB chunks
   ALLOC_CLASS(sr_file, NVMSequentialFile("test2.c", srfd, dir));
-  size_t chunk_size = 32 * 4096;
+  size_t chunk_size = 32 * 1024;
   size_t nchunks = bytes_written / chunk_size;
 
   for (size_t i = 0; i < nchunks; i++) {
