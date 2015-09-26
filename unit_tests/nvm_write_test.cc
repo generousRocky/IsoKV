@@ -599,43 +599,40 @@ void w_block_test_6() {
   ALLOC_CLASS(w_file, NVMWritableFile("test.c", wfd, dir));
   Slice s, t;
 
-  //write in block disaligned chunks
   char input = 'a';
-  for (int i = 0; i < 400; i++) {
-    for (int j = 0; j < 4096; j++) {
-      data[(i * 4096) + j] = (input + i);
-    }
+  for (int i = 0; i < 400 * 4096; i++) {
+      data[i] = (input + i % 28);
   }
 
-  int j = 380;
-  for (size_t i = 0; i < 400 * 4096; ) {
-    s = Slice(data + (i + 380), 380);
+  size_t alignment = 380;
+  size_t bytes_written = 0;
+  //write in block disaligned chunks but make sure to respect boundaries
+  for (size_t i = 0; i < ((400 * 4096) - alignment); i += alignment) {
+    s = Slice(data + i, alignment);
     w_file->Append(s);
-    i += j;
+    bytes_written += alignment;
   }
 
   w_file->Close();
 
+  // Read all at once to test the writing mechanism
   ALLOC_CLASS(sr_file, NVMSequentialFile("test2.c", srfd, dir));
-  for (size_t i = 0; i < 300 * 4096; ) {
-    if (!sr_file->Read(400, &t, datax).ok()) {
+  if (!sr_file->Read(bytes_written, &t, datax).ok()) {
       NVM_FATAL("");
+  }
+
+  size_t len = t.size();
+  const char *data_read = t.data();
+
+  if (len !=  bytes_written) {
+    NVM_FATAL("%lu", len);
+   }
+
+  NVM_DEBUG("Bytes written:%lu\n", bytes_written);
+  for (size_t i = 0; i < bytes_written && i < 400 * 4096; i++) {
+    if (data[i] != data_read[i]) {
+      NVM_FATAL("%lu\n", i);
     }
-
-    size_t len = t.size();
-    const char *data_read = t.data();
-
-    if (len !=  400) {
-      NVM_FATAL("%lu", len);
-     }
-
-    for (int k = 0; k < 400; k++) {
-      if (data[i + k] != data_read[k]) {
-        NVM_FATAL("");
-      }
-    }
-
-    i += 400;
   }
 
   delete sr_file;
