@@ -1433,11 +1433,13 @@ bool NVMWritableFile::GetNewBlock() {
   assert(curflush_ == buf_limit_ + sizeof(struct vblock_close_meta));
   assert(flush_ == mem_ + sizeof(struct vblock_close_meta));
 
-  size_t new_buf_limit = nvm->GetNPagesBlock(vlun_id) * PAGE_SIZE;
+  size_t new_real_buf_limit = nvm->GetNPagesBlock(vlun_id) * PAGE_SIZE;
+  size_t new_buf_limit = new_real_buf_limit - sizeof(struct vblock_close_meta);
 
   // No need to reallocate memory and aligned. We reuse the same buffer. If this
   // becomes a security issues, we can zeroized the buffer before reusing it.
   if (new_buf_limit != buf_limit_) {
+    NVM_DEBUG("Changing buf_limit to %lu\n", new_buf_limit);
     buf_limit_ = new_buf_limit;
     free(buf_);
 
