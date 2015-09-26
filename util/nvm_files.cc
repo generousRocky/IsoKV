@@ -878,7 +878,6 @@ struct nvm_page *nvm_file::GetNVMPage(const unsigned long idx) {
 size_t nvm_file::ReadBlock(struct nvm *nvm, unsigned int block_offset,
                               size_t ppa_offset, unsigned int page_offset,
                                                 char *data, size_t data_len) {
-  NVM_DEBUG("READBLOCK. BO: %d, PPAO: %lu, PO:%d\n", block_offset, ppa_offset, page_offset);
   struct vblock *current_vblock = vblocks_[block_offset];
   size_t base_ppa = current_vblock->bppa;
   size_t nppas = current_vblock->nppas;
@@ -903,6 +902,9 @@ size_t nvm_file::ReadBlock(struct nvm *nvm, unsigned int block_offset,
 
   assert(left <= (nppas * PAGE_SIZE));
   assert((left % PAGE_SIZE) == 0);
+
+  NVM_DEBUG("READBLOCK. BO: %d, PPAO: %lu, PO:%d. To read from block: %lu, left:%lu, x:%d\n",
+            block_offset, ppa_offset, page_offset, data_len, left, x);
 
   char *page = (char*)memalign(PAGE_SIZE, left * PAGE_SIZE);
   if (!data) {
@@ -963,6 +965,7 @@ size_t nvm_file::Read(struct nvm *nvm, size_t read_pointer, char *data,
   // TODO: If page_offset overloads increase ppa_offset and block_offset
   page_offset += block_offset * meta_size;
 
+  NVM_DEBUG("READ: readpointer: %lu, n: %lu\n", read_pointer, data_len);
   while (left > 0) {
     bytes_left_block = ((nppas - ppa_offset) * PAGE_SIZE) - meta_size;
     bytes_per_read = (left > bytes_left_block) ? bytes_left_block : left;
@@ -972,6 +975,7 @@ size_t nvm_file::Read(struct nvm *nvm, size_t read_pointer, char *data,
     total_read += read;
     block_offset++;
     ppa_offset = 0;
+    page_offset = 0;
     left -= read;
   }
 
@@ -1080,6 +1084,7 @@ size_t nvm_file::FlushBlock(struct nvm *nvm, char *data, size_t ppa_offset,
 
   // Flush has been forced by upper layers and page is not aligned to PAGE_SIZE
   if (!page_aligned) {
+    NVM_DEBUG("PAGE DISALIGNED!!\n");
     size_t disaligned_data = data_len % PAGE_SIZE;
     size_t aligned_data = data_len / PAGE_SIZE;
     uint8_t x = (disaligned_data == 0) ? 0 : 1;
@@ -1146,8 +1151,13 @@ size_t nvm_file::FlushBlock(struct nvm *nvm, char *data, size_t ppa_offset,
   }
 
   pthread_mutex_lock(&page_update_mtx);
+  NVM_DEBUG("Updating size: %lu, data_len %lu, left %lu, meta %d\n",
+        size_, data_len, left, meta_size);
   size_ += data_len - left - meta_size;
   pthread_mutex_unlock(&page_update_mtx);
+
+  NVM_DEBUG("FLUSHED BLOCK: %lu, size:%lu, data_len: %lu, left:%lu this:%p\n",
+          current_vblock_->id, size_, data_len, left, this);
 
   UpdateFileModificationTime();
   IOSTATS_ADD(bytes_written, write_len);
@@ -1220,6 +1230,8 @@ Status NVMSequentialFile::Read(size_t n, Slice* result, char* scratch) {
     return Status::OK();
   }
 
+  NVM_DEBUG("READING FROM FILE: %s, offset: %lu, n:%lu\n", filename_.c_str(),
+                                                              read_pointer_, n);
   if (fd_->Read(nvm, read_pointer_, scratch, n) != n) {
     return Status::IOError("Unable to read\n");
   }
@@ -1332,6 +1344,7 @@ NVMWritableFile::NVMWritableFile(const std::string& fname, nvm_file *fd,
   flush_ = buf_;
 
   cursize_ = 0;
+  fortest = 0;
   curflush_ = 0;
   closed_ = false;
 
@@ -1386,6 +1399,7 @@ bool NVMWritableFile::Flush(const bool force_flush) {
   assert (curflush_ + flush_len <= buf_limit_);
 
   if (force_flush) {
+    NVM_DEBUG("FORCED FLUSH IN FILE %s. this: %pref: %p\n", filename_.c_str(), this, fd_);
     // Append vblock medatada when closing a block.
     if (curflush_ + flush_len == buf_limit_) {
       unsigned int meta_size = sizeof(vblock_meta);
@@ -1507,7 +1521,9 @@ Status NVMWritableFile::Append(const Slice& data) {
   memcpy(mem_, src + offset, left - offset);
   mem_ += left - offset;
   cursize_ += left - offset;
+  fortest += left - offset;
 
+  // NVM_DEBUG("TOTAL APPENDED TO %s: %lu\n", filename_.c_str(), fortest);
   return Status::OK();
 }
 
@@ -1521,6 +1537,9 @@ Status NVMWritableFile::Close() {
   if (Flush(true) == false) {
     return Status::IOError("out of ssd space");
   }
+
+  NVM_DEBUG("File %s - size: %lu - writablesize: %lu\n", filename_.c_str(),
+                                        fd_->GetSize(), GetFileSize());
 
   dir_->nvm_fclose(fd_, "a");
 
@@ -1572,6 +1591,7 @@ Status NVMWritableFile::Fsync() {
 }
 
 uint64_t NVMWritableFile::GetFileSize() {
+  NVM_DEBUG("FILESIZE: %lu, %lu, %lu\n", fd_->GetPersistentSize(), cursize_, curflush_);
   return fd_->GetPersistentSize() + cursize_ - curflush_;
 }
 
