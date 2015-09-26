@@ -669,12 +669,12 @@ void w_block_test_6() {
 
 
 int main(int argc, char **argv) {
-  // w_test_1();
-  // w_block_test_1();
-  // w_block_test_2();
-  // w_block_test_3();
-  // w_block_test_4();
-  // w_block_test_5();
+  w_test_1();
+  w_block_test_1();
+  w_block_test_2();
+  w_block_test_3();
+  w_block_test_4();
+  w_block_test_5();
   w_block_test_6();
 
   return 0;
