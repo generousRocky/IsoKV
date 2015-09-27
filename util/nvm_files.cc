@@ -1139,12 +1139,15 @@ size_t nvm_file::FlushBlock(struct nvm *nvm, char *data, size_t ppa_offset,
   //TODO: Use libaio instead of pread/pwrite
   //TODO: Write in out of bound area when API is ready (per_page_meta and
   //last_page_meta
+  
+  char *data_aligned_write = data_aligned;
+  
   while (left > 0) {
     // left is guaranteed to be a multiple of PAGE_SIZE
     bytes_per_write = (left > max_bytes_per_write) ? max_bytes_per_write : left;
     pages_per_write = bytes_per_write / PAGE_SIZE;
 
-    if ((unsigned)pwrite(fd_, data_aligned, bytes_per_write,
+    if ((unsigned)pwrite(fd_, data_aligned_write, bytes_per_write,
                                      current_ppa * PAGE_SIZE) != bytes_per_write) {
       //TODO: See if we can recover. Use another ppa + mark bad page in bitmap?
       NVM_ERROR("ERROR: Page no written\n");
@@ -1152,7 +1155,9 @@ size_t nvm_file::FlushBlock(struct nvm *nvm, char *data, size_t ppa_offset,
       goto out;
     }
 
-    data_aligned += bytes_per_write;
+    //moving data_aligned might cause an invalid free
+    //at free(data_aligned); in out label
+    data_aligned_write += bytes_per_write;
     left -= bytes_per_write;
     current_ppa += pages_per_write;
   }
@@ -1600,7 +1605,6 @@ Status NVMWritableFile::Flush() {
     return Status::IOError("out of ssd space");
   }
 #endif
-
   return Status::OK();
 }
 
