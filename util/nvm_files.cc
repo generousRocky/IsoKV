@@ -145,8 +145,7 @@ nvm_file::~nvm_file() {
     temp = temp1;
   }
 
-  struct nvm *nvm = parent->GetNVMApi();
-  PutAllBlocks(nvm);
+  FreeAllBlocks();
   vblocks_.clear();
 
   pthread_mutexattr_destroy(&page_update_mtx_attr);
@@ -1065,6 +1064,21 @@ void nvm_file::PutAllBlocks(struct nvm *nvm) {
 
   current_vblock_ = nullptr;
 }
+
+// Free all structures holding vblock information in memory, but do not return
+// the block to the block manager
+void nvm_file::FreeAllBlocks() {
+  std::vector<struct vblock *>::iterator it;
+
+  for (it = vblocks_.begin(); it != vblocks_.end(); it++) {
+    if (*it != nullptr) {
+      free(*it);
+      *it = nullptr;
+    }
+  }
+  current_vblock_ = nullptr;
+}
+
 
 // For the moment we assume that all pages in a block are good pages. In the
 // future we would have to check ppa_bitmap and come back to the memtable to

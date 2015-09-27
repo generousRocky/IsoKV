@@ -111,6 +111,7 @@ class nvm_file {
                                                       unsigned int block_idx);
     void PutBlock(struct nvm *nvm, struct vblock *vblock);
     void PutAllBlocks(struct nvm *nvm);
+    void FreeAllBlocks();
     size_t FlushBlock(struct nvm *nvm, char *data, size_t ppa_offset,
                                   const size_t data_len, bool page_aligned);
     size_t Read(struct nvm *nvm, size_t read_pointer, char *data,
