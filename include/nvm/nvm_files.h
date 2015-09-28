@@ -43,7 +43,7 @@ class nvm_file {
 
     // TODO: current_vblock_ is used to write, logic should move to WritableFile
     struct vblock *current_vblock_;
-    std::vector<struct vblock *>vblocks_;       //Vector of virtual flash blocks
+    std::deque<struct vblock *>vblocks_;       //Vector of virtual flash blocks
     std::vector<struct nvm_page *> pages;
 
     pthread_mutex_t write_lock;

@@ -1072,13 +1072,14 @@ next_meta:
     nvm_file* fd = root_dir->nvm_fopen(fname.c_str(), "a");
     struct vblock_meta *vblock_meta = (struct vblock_meta*)metadata;
     struct vblock *ptr = (struct vblock*)vblock_meta->encoded_vblocks;
-    struct vblock *new_vblock = (struct vblock*)malloc(sizeof(struct vblock));
-    if (!new_vblock) {
-      NVM_FATAL("Could not allocate memory\n");
-    }
+    struct vblock *new_vblock;
 
     uint64_t left = vblock_meta->len;
     while (left > 0) {
+      new_vblock = (struct vblock*)malloc(sizeof(struct vblock));
+      if (!new_vblock) {
+        NVM_FATAL("Could not allocate memory\n");
+      }
       memcpy(new_vblock, ptr, sizeof(struct vblock));
       // Add to vblock vector
       fd->vblocks_.push_back(new_vblock);

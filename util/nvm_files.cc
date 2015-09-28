@@ -37,7 +37,7 @@
 namespace rocksdb {
 
   void* NVMPrivateMetadata::GetMetadata(nvm_file *file) {
-  std::vector<struct vblock *>::iterator it;
+  std::deque<struct vblock *>::iterator it;
   std::string metadata;
 
   PutVarint32(&metadata, file->vblocks_.size());
@@ -1056,7 +1056,7 @@ void nvm_file::PutBlock(struct nvm *nvm, struct vblock *vblock) {
 }
 
 void nvm_file::PutAllBlocks(struct nvm *nvm) {
-  std::vector<struct vblock *>::iterator it;
+  std::deque<struct vblock *>::iterator it;
 
   for (it = vblocks_.begin(); it != vblocks_.end(); it++) {
     PutBlock(nvm, *it);
@@ -1068,7 +1068,7 @@ void nvm_file::PutAllBlocks(struct nvm *nvm) {
 // Free all structures holding vblock information in memory, but do not return
 // the block to the block manager
 void nvm_file::FreeAllBlocks() {
-  std::vector<struct vblock *>::iterator it;
+  std::deque<struct vblock *>::iterator it;
 
   for (it = vblocks_.begin(); it != vblocks_.end(); it++) {
     if (*it != nullptr) {
