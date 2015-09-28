@@ -284,8 +284,8 @@ Status FlushJob::WriteLevel0Table(const autovector<MemTable*>& mems,
     // Add file to L0
     edit->AddFile(0 /* level */, meta->fd.GetNumber(), meta->fd.GetPathId(),
                   meta->fd.GetFileSize(), meta->smallest, meta->largest,
-                  meta->smallest_seqno, meta->largest_seqno, meta->priv_meta,
-                  meta->marked_for_compaction);
+                  meta->smallest_seqno, meta->largest_seqno,
+                  meta->marked_for_compaction, meta->priv_meta);
   }
 
   InternalStats::CompactionStats stats(1);

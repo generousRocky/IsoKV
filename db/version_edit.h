@@ -201,8 +201,8 @@ class VersionEdit {
   void AddFile(int level, uint64_t file, uint32_t file_path_id,
                uint64_t file_size, const InternalKey& smallest,
                const InternalKey& largest, const SequenceNumber& smallest_seqno,
-               const SequenceNumber& largest_seqno, void *priv_meta,
-               bool marked_for_compaction) {
+               const SequenceNumber& largest_seqno, bool marked_for_compaction,
+               void *priv_meta = nullptr) {
     assert(smallest_seqno <= largest_seqno);
     FileMetaData f;
     f.fd = FileDescriptor(file, file_path_id, file_size);

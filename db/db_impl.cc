@@ -1321,8 +1321,8 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
   if (s.ok() && meta.fd.GetFileSize() > 0) {
     edit->AddFile(level, meta.fd.GetNumber(), meta.fd.GetPathId(),
                   meta.fd.GetFileSize(), meta.smallest, meta.largest,
-                  meta.smallest_seqno, meta.largest_seqno, meta.priv_meta,
-                  meta.marked_for_compaction);
+                  meta.smallest_seqno, meta.largest_seqno,
+                  meta.marked_for_compaction, meta.priv_meta);
   }
 
   InternalStats::CompactionStats stats(1);
@@ -1891,8 +1891,8 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
       edit.DeleteFile(level, f->fd.GetNumber());
       edit.AddFile(to_level, f->fd.GetNumber(), f->fd.GetPathId(),
                    f->fd.GetFileSize(), f->smallest, f->largest,
-                   f->smallest_seqno, f->largest_seqno, f->priv_meta,
-                   f->marked_for_compaction);
+                   f->smallest_seqno, f->largest_seqno,
+                   f->marked_for_compaction, f->priv_meta);
     }
     Log(InfoLogLevel::DEBUG_LEVEL, db_options_.info_log,
         "[%s] Apply version edit:\n%s",
@@ -2552,7 +2552,7 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress, JobContext* job_context,
         c->edit()->AddFile(c->output_level(), f->fd.GetNumber(),
                            f->fd.GetPathId(), f->fd.GetFileSize(), f->smallest,
                            f->largest, f->smallest_seqno, f->largest_seqno,
-                           f->priv_meta, f->marked_for_compaction);
+                           f->marked_for_compaction, f->priv_meta);
 
         LogToBuffer(log_buffer,
                     "[%s] Moving #%" PRIu64 " to level-%d %" PRIu64 " bytes\n",

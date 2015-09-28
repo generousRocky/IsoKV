@@ -2841,7 +2841,7 @@ Status VersionSet::WriteSnapshot(log::Writer* log) {
              cfd->current()->storage_info()->LevelFiles(level)) {
           edit.AddFile(level, f->fd.GetNumber(), f->fd.GetPathId(),
                        f->fd.GetFileSize(), f->smallest, f->largest,
-                       f->smallest_seqno, f->largest_seqno, nullptr,
+                       f->smallest_seqno, f->largest_seqno,
                        f->marked_for_compaction);
         }
       }
