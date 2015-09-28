@@ -1312,8 +1312,8 @@ Status NVMRandomAccessFile::Read(uint64_t offset, size_t n, Slice* result,
   if (offset + n > fd_->GetSize()) {
     NVM_DEBUG("offset is out of bounds. Filename: %s, offset: %lu, n: %lu, filesize: %lu\n",
                                 filename_.c_str(), offset, n, fd_->GetSize());
-    *result = Slice(scratch, 0);
-    return Status::OK();
+    // Read all that has been written to either the buffer or the dflash backend
+    n = fd_->GetSize() - offset;
   }
 
   struct nvm *nvm = dir_->GetNVMApi();
