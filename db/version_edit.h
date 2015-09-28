@@ -116,13 +116,12 @@ struct FileMetaData {
     priv_meta = handle->GetMetadata();
   }
 
-  bool EncodePrivateMetadata(std::string* dst) const {
-    return Env::EncodePrivateMetadata(dst, priv_meta);
+  void EncodePrivateMetadata(std::string* dst) const {
+    Env::EncodePrivateMetadata(dst, priv_meta);
   }
 
-  bool DecodePrivateMetadata(Slice* input) {
+  void DecodePrivateMetadata(Slice* input) {
     priv_meta = Env::DecodePrivateMetadata(input);
-    return true;
   }
 
   // TODO: Free private metadata
