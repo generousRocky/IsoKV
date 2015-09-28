@@ -784,9 +784,6 @@ int nvm_directory::DeleteFile(const char *filename) {
   list_node *file_node = node_look_up(filename, FileEntry);
 
   if (file_node) {
-    list_node *prev = file_node->GetPrev();
-    list_node *next = file_node->GetNext();
-
     nvm_entry *entry = (nvm_entry *)file_node->GetData();
     nvm_file *file = (nvm_file *)entry->GetData();
 
@@ -798,37 +795,20 @@ int nvm_directory::DeleteFile(const char *filename) {
       ret = file->Delete(filename, nvm_api);
     }
 
-    if (ret) {
-      NVM_DEBUG("NO MORE LINKS.. removing from list");
-
-      //we have no more link files
-      if (prev) {
-        NVM_DEBUG("Prev is not null");
-        prev->SetNext(next);
-      }
-
-      if (next) {
-        NVM_DEBUG("Next is not null");
-        next->SetPrev(prev);
-      }
-
-      if (prev == nullptr && next != nullptr) {
-        NVM_DEBUG("Moving head");
-        head = head->GetNext();
-      }
-
-      if (next == nullptr && prev == nullptr) {
-        NVM_DEBUG("Head becomes null");
-        head = nullptr;
-      }
-
+    if(ret) {
+      file->GetParent()->Remove(file);
+      
       delete entry;
       delete file_node;
-    }
+    }    
   }
 
   pthread_mutex_unlock(&list_update_mtx);
   return 0;
+}
+
+nvm_directory *nvm_directory::GetParent() {
+  return parent;
 }
 
 nvm_directory *nvm_directory::OpenParentDirectory(const char *filename) {
@@ -944,32 +924,13 @@ int nvm_directory::DeleteDirectory(const char *_name) {
     pthread_mutex_unlock(&list_update_mtx);
     return 0;
   }
-
-  list_node *prev = dir_node->GetPrev();
-  list_node *next = dir_node->GetNext();
-
-  if (prev) {
-    prev->SetNext(next);
-  }
-
-  if (next) {
-    next->SetPrev(prev);
-  }
-
-  if (prev == nullptr && next != nullptr) {
-    head = head->GetNext();
-  }
-
-  if (next == nullptr && prev == nullptr) {
-    head = nullptr;
-  }
-
-  pthread_mutex_unlock(&list_update_mtx);
-
-  NVM_DEBUG("deleting %s at %p", _name, dir_node);
-
+  
   nvm_entry *entry = (nvm_entry *)dir_node->GetData();
   nvm_directory *directory = (nvm_directory *)entry->GetData();
+
+  directory->GetParent()->Remove(directory);
+
+  pthread_mutex_unlock(&list_update_mtx);  
 
   directory->Delete(nvm_api);
 

@@ -36,6 +36,7 @@ class nvm_directory {
     nvm_file *open_file_if_exists(const char *filename);
     nvm_directory *OpenParentDirectory(const char *filename);
     nvm_directory *OpenDirectory(const char *name);
+    nvm_directory *GetParent();
     nvm_file *nvm_fopen(const char *filename, const char *mode);
     nvm_file *create_file(const char *filename);
 
