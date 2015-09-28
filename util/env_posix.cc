@@ -99,7 +99,7 @@ struct vblock_meta {
 // static uint32_t separator_ = 101;
 // std::vector<struct vblock *>vblocks_;
 
-bool Env::EncodePrivateMetadata(std::string *dst, void *metadata) {
+void Env::EncodePrivateMetadata(std::string *dst, void *metadata) {
 #if 0
   if (metadata == nullptr) {
     return true;
@@ -108,7 +108,6 @@ bool Env::EncodePrivateMetadata(std::string *dst, void *metadata) {
   struct vblock_meta *vblock_meta = (struct vblock_meta*)metadata;
   dst->append((const char*)vblock_meta->encoded_vblocks, vblock_meta->len);
 #endif
-  return true;
 }
 
 void* Env::DecodePrivateMetadata(Slice *input) {
