@@ -117,6 +117,7 @@ nvm_file::nvm_file(const char *_name, const int fd, nvm_directory *_parent) {
   seq_writable_file = nullptr;
   current_vblock_ = nullptr;
   next_vblock_ = nullptr;
+  nblocks_ = 0;
 
   pthread_mutexattr_init(&page_update_mtx_attr);
   pthread_mutexattr_settype(&page_update_mtx_attr, PTHREAD_MUTEX_RECURSIVE);
@@ -1015,6 +1016,7 @@ void nvm_file::GetBlock(struct nvm *nvm, unsigned int vlun_id) {
   pthread_mutex_lock(&page_update_mtx);
   vblocks_.push_back(new_vblock);
   current_vblock_ = new_vblock;
+  nblocks_++;
   pthread_mutex_unlock(&page_update_mtx);
 }
 
@@ -1034,6 +1036,7 @@ void nvm_file::PreallocateBlock(struct nvm* nvm, unsigned int vlun_id) {
   pthread_mutex_lock(&page_update_mtx);
   vblocks_.push_back(new_vblock);
   next_vblock_ = new_vblock;
+  nblocks_++;
   pthread_mutex_unlock(&page_update_mtx);
 }
 
@@ -1055,10 +1058,9 @@ void nvm_file::ReplaceBlock(struct nvm *nvm, unsigned int vlun_id,
   pthread_mutex_lock(&page_update_mtx);
   old_vblock = vblocks_[block_idx];
   vblocks_[block_idx] = new_vblock;
-
   current_vblock_ = new_vblock;
-
   pthread_mutex_unlock(&page_update_mtx);
+
   nvm->EraseBlock(old_vblock);
   free(old_vblock);
 }
@@ -1080,9 +1082,11 @@ void nvm_file::PutAllBlocks(struct nvm *nvm) {
 
   for (it = vblocks_.begin(); it != vblocks_.end(); it++) {
     PutBlock(nvm, *it);
+    nblocks_--;
   }
 
   current_vblock_ = nullptr;
+  assert(nblocks_ == 0);
 }
 
 // Free all structures holding vblock information in memory, but do not return
@@ -1094,9 +1098,11 @@ void nvm_file::FreeAllBlocks() {
     if (*it != nullptr) {
       free(*it);
       *it = nullptr;
+      nblocks_--;
     }
   }
   current_vblock_ = nullptr;
+  assert(nblocks_ == 0);
 }
 
 

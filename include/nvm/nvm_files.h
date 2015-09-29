@@ -44,6 +44,7 @@ class nvm_file {
     // TODO: current_vblock_ is used to write, logic should move to WritableFile
     struct vblock *current_vblock_;
     struct vblock *next_vblock_;
+    uint8_t nblocks_;
     std::deque<struct vblock *>vblocks_;       //Vector of virtual flash blocks
     std::vector<struct nvm_page *> pages;
 
