@@ -58,7 +58,8 @@ struct vblock_recov_meta {
 // This metadata is appended to each vblock when it is properly closed.
 struct vblock_close_meta {
   size_t written_bytes;         // Number of valid bytes written in block
-  size_t ppa_bitmap;            // Updated bitmap of valid pages;
+  size_t ppa_bitmap;            // Updated bitmap of valid pages
+  unsigned long next_block_id;  // ID of the next block. Used for recovery
   uint8_t flags;                // RDB_VBLOCK_* flags
 };
 

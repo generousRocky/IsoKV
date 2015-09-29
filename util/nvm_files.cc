@@ -116,6 +116,7 @@ nvm_file::nvm_file(const char *_name, const int fd, nvm_directory *_parent) {
 
   seq_writable_file = nullptr;
   current_vblock_ = nullptr;
+  next_vblock_ = nullptr;
 
   pthread_mutexattr_init(&page_update_mtx_attr);
   pthread_mutexattr_settype(&page_update_mtx_attr, PTHREAD_MUTEX_RECURSIVE);
@@ -1032,6 +1033,7 @@ void nvm_file::PreallocateBlock(struct nvm* nvm, unsigned int vlun_id) {
 
   pthread_mutex_lock(&page_update_mtx);
   vblocks_.push_back(new_vblock);
+  next_vblock_ = new_vblock;
   pthread_mutex_unlock(&page_update_mtx);
 }
 
@@ -1468,6 +1470,7 @@ bool NVMWritableFile::Flush(const bool force_flush) {
       vblock_meta.flags = VBLOCK_CLOSED;
       vblock_meta.written_bytes = buf_limit_;
       vblock_meta.ppa_bitmap = 0x0; //Use real bad page information
+      vblock_meta.next_block_id = fd_->GetNextBlockID();
       memcpy(mem_, &vblock_meta, meta_size);
       flush_len += meta_size;
     } else {
@@ -1569,7 +1572,7 @@ bool NVMWritableFile::PreallocateNewBlock(unsigned int vlun_id) {
 // Update pointers and reset buffers and sizes to start using a preallocated
 // block.
 bool NVMWritableFile::UseNewBlock() {
-  fd_->UpdateCurrentBlock();
+  fd_->IncreaseCurrentBlock();
   //Preserve until we implement double buffering
   assert(cursize_ == buf_limit_);
   assert(curflush_ == buf_limit_ + sizeof(struct vblock_close_meta));

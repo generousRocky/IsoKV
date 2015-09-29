@@ -43,6 +43,7 @@ class nvm_file {
 
     // TODO: current_vblock_ is used to write, logic should move to WritableFile
     struct vblock *current_vblock_;
+    struct vblock *next_vblock_;
     std::deque<struct vblock *>vblocks_;       //Vector of virtual flash blocks
     std::vector<struct nvm_page *> pages;
 
@@ -86,6 +87,10 @@ class nvm_file {
     void UpdateCurrentBlock() {
       current_vblock_ = vblocks_.back();
     }
+    void IncreaseCurrentBlock() {
+      current_vblock_ = next_vblock_;
+      next_vblock_ = nullptr;
+    }
     FilePrivateMetadata* GetMetadataHandle() {
       return metadata_handle_;
     }
@@ -100,6 +105,9 @@ class nvm_file {
     }
     unsigned long GetCurrentBlockNppas() {
       return current_vblock_->nppas;
+    }
+    unsigned long GetNextBlockID() {
+      return next_vblock_->id;
     }
 
     time_t GetLastModified();
