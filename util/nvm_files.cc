@@ -983,6 +983,13 @@ size_t nvm_file::Read(struct nvm *nvm, size_t read_pointer, char *data,
   }
 
   while (left > 0) {
+    // In the unlikely case that all vblock metadata is not loaded in memory,
+    // recover metadata from the current vblock
+retry:
+    if (UNLIKELY(block_offset + 1 > nblocks_)) {
+      RecoverAndLoadMetadata(nvm);
+      goto retry;
+    }
     bytes_left_block = ((nppas - ppa_offset) * PAGE_SIZE) - page_offset - meta_size;
     bytes_per_read = (left > bytes_left_block) ? bytes_left_block : left;
     size_t read = ReadBlock(nvm, block_offset, ppa_offset, page_offset,
@@ -1036,6 +1043,39 @@ void nvm_file::PreallocateBlock(struct nvm* nvm, unsigned int vlun_id) {
   pthread_mutex_lock(&page_update_mtx);
   vblocks_.push_back(new_vblock);
   next_vblock_ = new_vblock;
+  nblocks_++;
+  pthread_mutex_unlock(&page_update_mtx);
+}
+
+void nvm_file::RecoverAndLoadMetadata(struct nvm* nvm) {
+  if (UNLIKELY(current_vblock_ == nullptr)) {
+    NVM_DEBUG("Recovering metadata from an uninitialized nvm_file");
+  }
+  assert (current_vblock_ != nullptr);
+  // Recover metadata from last loaded vblock
+  size_t meta_size = sizeof(struct vblock_close_meta);
+  unsigned int block_offset = nblocks_ - 1;
+  size_t ppa_offset = current_vblock_->nppas - 1;
+  unsigned int page_offset = PAGE_SIZE - meta_size;
+  struct vblock_close_meta vblock_meta;
+  if (ReadBlock(nvm, block_offset, ppa_offset, page_offset,
+                          (char*)&vblock_meta, meta_size) != meta_size) {
+    NVM_FATAL("Error reading current block metadata\n");
+  }
+
+   //TODO: Make this better: mmap memory into device??
+  struct vblock *new_vblock = (struct vblock*)malloc(sizeof(struct vblock));
+  if (!new_vblock) {
+    NVM_FATAL("Could not allocate memory\n");
+  }
+
+  if (!nvm->GetBlockMeta(vblock_meta.next_vblock_id, new_vblock)) {
+    NVM_FATAL("could not get block metadata\n");
+  }
+
+  pthread_mutex_lock(&page_update_mtx);
+  vblocks_.push_back(new_vblock);
+  current_vblock_ = new_vblock;
   nblocks_++;
   pthread_mutex_unlock(&page_update_mtx);
 }
@@ -1452,7 +1492,7 @@ bool NVMWritableFile::Flush(const bool force_flush) {
   size_t ppa_flush_offset = CalculatePpaOffset(curflush_);
   struct vblock_close_meta vblock_meta;
   bool page_aligned = false;
-  
+
   if(fd_ == nullptr) {
     NVM_DEBUG("FILE WAS DELETED. DON'T FLUSH")
     return true;
@@ -1473,10 +1513,10 @@ bool NVMWritableFile::Flush(const bool force_flush) {
     // Append vblock medatada when closing a block.
     if (curflush_ + flush_len == buf_limit_) {
       unsigned int meta_size = sizeof(vblock_meta);
-      vblock_meta.flags = VBLOCK_CLOSED;
       vblock_meta.written_bytes = buf_limit_;
       vblock_meta.ppa_bitmap = 0x0; //Use real bad page information
-      vblock_meta.next_block_id = fd_->GetNextBlockID();
+      vblock_meta.next_vblock_id = fd_->GetNextBlockID();
+      vblock_meta.flags = VBLOCK_CLOSED;
       memcpy(mem_, &vblock_meta, meta_size);
       flush_len += meta_size;
     } else {

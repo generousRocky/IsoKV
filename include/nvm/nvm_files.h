@@ -69,7 +69,6 @@ class nvm_file {
 
   protected:
     friend class NVMPrivateMetadata;
-    friend class NVMEnv;
     friend class Env;
 
   public:
@@ -110,6 +109,10 @@ class nvm_file {
     unsigned long GetNextBlockID() {
       return next_vblock_->id;
     }
+    void LoadBlock(struct vblock* vblock) {
+      vblocks_.push_back(vblock);
+      nblocks_++;
+    }
 
     time_t GetLastModified();
     void UpdateFileModificationTime();
@@ -120,6 +123,7 @@ class nvm_file {
     size_t GetNextPos() { return vblocks_.size() + 1; }
     void GetBlock(struct nvm *nvm, unsigned int vlun_id);
     void PreallocateBlock(struct nvm *nvm, unsigned int vlun_id);
+    void RecoverAndLoadMetadata(struct nvm* nvm);
     void ReplaceBlock(struct nvm *nvm, unsigned int vlun_id,
                                                       unsigned int block_idx);
     void PutBlock(struct nvm *nvm, struct vblock *vblock);

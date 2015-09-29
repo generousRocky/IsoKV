@@ -1082,7 +1082,10 @@ next_meta:
       }
       memcpy(new_vblock, ptr, sizeof(struct vblock));
       // Add to vblock vector
-      fd->vblocks_.push_back(new_vblock);
+      if (fd == nullptr) {
+        NVM_FATAL("SOMETHING WAS FREED BEFORE TIME\n");
+      }
+      fd->LoadBlock(new_vblock);
       left--;
       ptr++;
     }

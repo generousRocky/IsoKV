@@ -59,7 +59,7 @@ struct vblock_recov_meta {
 struct vblock_close_meta {
   size_t written_bytes;         // Number of valid bytes written in block
   size_t ppa_bitmap;            // Updated bitmap of valid pages
-  unsigned long next_block_id;  // ID of the next block. Used for recovery
+  unsigned long next_vblock_id;  // ID of the next block. Used for recovery
   uint8_t flags;                // RDB_VBLOCK_* flags
 };
 
@@ -176,6 +176,7 @@ class nvm {
     void GarbageCollection();
 
     bool GetBlock(unsigned int vlun_id, struct vblock *vblock);
+    bool GetBlockMeta(unsigned long vblock_id, struct vblock *vblock);
     bool PutBlock(struct vblock *vblock);
     void EraseBlock(struct vblock *vblock);
     size_t GetNPagesBlock(unsigned int vlun_id);
