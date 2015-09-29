@@ -98,6 +98,9 @@ class nvm_file {
     NVMWritableFile* GetWritePointer() {
       return seq_writable_file;
     }
+    unsigned long GetCurrentBlockNppas() {
+      return current_vblock_->nppas;
+    }
 
     time_t GetLastModified();
     void UpdateFileModificationTime();
@@ -107,6 +110,7 @@ class nvm_file {
 
     size_t GetNextPos() { return vblocks_.size() + 1; }
     void GetBlock(struct nvm *nvm, unsigned int vlun_id);
+    void PreallocateBlock(struct nvm *nvm, unsigned int vlun_id);
     void ReplaceBlock(struct nvm *nvm, unsigned int vlun_id,
                                                       unsigned int block_idx);
     void PutBlock(struct nvm *nvm, struct vblock *vblock);
@@ -267,6 +271,8 @@ class NVMWritableFile : public WritableFile {
     size_t CalculatePpaOffset(size_t curflush);
     bool Flush(const bool closing);
     bool GetNewBlock();
+    bool PreallocateNewBlock(unsigned int vlun_id);
+    bool UseNewBlock();
     bool UpdateLastPage();
 
   public:

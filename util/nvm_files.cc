@@ -1017,6 +1017,24 @@ void nvm_file::GetBlock(struct nvm *nvm, unsigned int vlun_id) {
   pthread_mutex_unlock(&page_update_mtx);
 }
 
+// Get a new vblock and put it in the nvm_file vblock vector, but do not update
+// pointers
+void nvm_file::PreallocateBlock(struct nvm* nvm, unsigned int vlun_id) {
+  //TODO: Make this better: mmap memory into device??
+  struct vblock *new_vblock = (struct vblock*)malloc(sizeof(struct vblock));
+  if (!new_vblock) {
+    NVM_FATAL("Could not allocate memory\n");
+  }
+
+  if (!nvm->GetBlock(vlun_id, new_vblock)) {
+    NVM_FATAL("could not get a new block - ssd out of space\n");
+  }
+
+  pthread_mutex_lock(&page_update_mtx);
+  vblocks_.push_back(new_vblock);
+  pthread_mutex_unlock(&page_update_mtx);
+}
+
 void nvm_file::ReplaceBlock(struct nvm *nvm, unsigned int vlun_id,
                                                     unsigned int block_idx) {
   assert(block_idx < vblocks_.size());
@@ -1478,19 +1496,19 @@ bool NVMWritableFile::Flush(const bool force_flush) {
   return true;
 }
 
-// We preallocate a new block to store future flushes in flash memory. We also
+// Allocate a new block to store future flushes in flash memory. Also,
 // reset all buffer pointers and sizes; there is no need to maintain old
 // buffered data in cache.
 bool NVMWritableFile::GetNewBlock() {
   struct nvm *nvm = dir_->GetNVMApi();
   unsigned int vlun_id = 0;
-  
+
   if(fd_ == nullptr) {
     //file was deleted while a nvmwritablefile was still
     //pointing to it
     return false;
   }
-  
+
   fd_->GetBlock(nvm, vlun_id);
 
   //Preserve until we implement double buffering
@@ -1535,6 +1553,65 @@ bool NVMWritableFile::GetNewBlock() {
   return true;
 }
 
+// Preallocate a new block to store future flushes in flash memory.
+bool NVMWritableFile::PreallocateNewBlock(unsigned int vlun_id) {
+  struct nvm *nvm = dir_->GetNVMApi();
+
+  if(fd_ == nullptr) {
+    //file was deleted while a nvmwritablefile was still
+    //pointing to it
+    return false;
+  }
+  fd_->PreallocateBlock(nvm, vlun_id);
+  return true;
+}
+
+// Update pointers and reset buffers and sizes to start using a preallocated
+// block.
+bool NVMWritableFile::UseNewBlock() {
+  fd_->UpdateCurrentBlock();
+  //Preserve until we implement double buffering
+  assert(cursize_ == buf_limit_);
+  assert(curflush_ == buf_limit_ + sizeof(struct vblock_close_meta));
+  assert(flush_ == mem_ + sizeof(struct vblock_close_meta));
+
+  size_t new_real_buf_limit = fd_->GetCurrentBlockNppas() * PAGE_SIZE;
+  size_t new_buf_limit = new_real_buf_limit - sizeof(struct vblock_close_meta);
+
+  // No need to reallocate memory and aligned. We reuse the same buffer. If this
+  // becomes a security issues, we can zeroized the buffer before reusing it.
+  if (new_buf_limit != buf_limit_) {
+    NVM_DEBUG("Changing buf_limit to %lu\n", new_buf_limit);
+    buf_limit_ = new_buf_limit;
+    free(buf_);
+
+    buf_ = (char*)memalign(PAGE_SIZE, buf_limit_);
+    if (!buf_) {
+      NVM_FATAL("Could not allocate aligned memory\n");
+      return false;
+    }
+  }
+
+  mem_ = buf_;
+  flush_ = buf_;
+  cursize_ = 0;
+  curflush_ = 0;
+
+  //Write metadata to the internal buffer to enable recovery before giving it
+  //to the upper layers. The responsibility of when to flush that buffer is left
+  //to the upper layers.
+  struct vblock_recov_meta vblock_meta;
+  std::strcpy(vblock_meta.filename, filename_.c_str());
+  vblock_meta.pos = fd_->GetNextPos();
+
+  unsigned int meta_size = sizeof(vblock_meta);
+  memcpy(mem_, &vblock_meta, meta_size);
+  mem_ += meta_size;
+  cursize_ += meta_size;
+
+  return true;
+}
+
 // At this moment we buffer a whole block before syncing in normal operation.
 // TODO: We need to differentiate between the log and the memtable to use
 // different buffer sizes.
@@ -1542,7 +1619,7 @@ Status NVMWritableFile::Append(const Slice& data) {
   if (closed_) {
     return Status::IOError("file has been closed");
   }
-  
+
   if(fd_ == nullptr) {
     return Status::IOError("file has been deleted");
   }
@@ -1554,6 +1631,8 @@ Status NVMWritableFile::Append(const Slice& data) {
   // If the size of the appended data does not fit in one flash block, fill out
   // this block, get a new block and continue writing
   if (cursize_ + left > buf_limit_) {
+    unsigned int vlun_id = 0;
+    PreallocateNewBlock(vlun_id);
     size_t fits_in_buf = (buf_limit_ - cursize_);
     memcpy(mem_, src, fits_in_buf);
     mem_ += fits_in_buf;
@@ -1561,22 +1640,13 @@ Status NVMWritableFile::Append(const Slice& data) {
     if (Flush(true) == false) {
       return Status::IOError("out of ssd space");
     }
-
-    //This might not be necessary
-    if (l0_table) {
-      // TODO: Inform the caller to move non-flushed data to a new memtable.
-    } else {
-      if (!GetNewBlock()) {
-        Status::IOError("Cannot allocate new block from flash media\n");
-      }
-      offset = fits_in_buf;
-    }
+    UseNewBlock();
+    offset = fits_in_buf;
   }
-
   memcpy(mem_, src + offset, left - offset);
   mem_ += left - offset;
   cursize_ += left - offset;
-  
+
   return Status::OK();
 }
 
