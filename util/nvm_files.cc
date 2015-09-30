@@ -827,14 +827,14 @@ bool nvm_file::Delete(const char * filename, struct nvm *nvm_api) {
 
   if (link_files_left) {
     //we have link file pointing here.. don't delete
-
     return false;
   }
 
   NVM_DEBUG("Deleting all links");
-
   DeleteAllLinks(nvm_api);
 
+  // Put block back to BM
+  PutAllBlocks(nvm);
   return true;
 }
 
