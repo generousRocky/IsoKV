@@ -997,6 +997,9 @@ retry:
     bytes_per_read = (left > bytes_left_block) ? bytes_left_block : left;
     size_t read = ReadBlock(nvm, block_offset, ppa_offset, page_offset,
                                           data + total_read, bytes_per_read);
+    if (read != bytes_per_read) {
+      NVM_FATAL("Error reading vblock with data in offset: %lu\n", read_pointer);
+    }
 
     total_read += read;
     block_offset++;
