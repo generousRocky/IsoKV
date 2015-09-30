@@ -367,6 +367,9 @@ class Env {
   // Encode metadata used by the storage backend implementing Env
   virtual void DecodeAndLoadLogPrivateMetadata(Slice* dst, uint64_t log_number) {}
 
+  // Decode and load log metadata used by the storage backend implementing Env.
+  virtual void DiscoverAndLoadLogPrivateMetadata(uint64_t log_number) {}
+
   // Encode metadata used by the storage backend implementing Env
   static void EncodePrivateMetadata(std::string* dst, void* metadata);
 
