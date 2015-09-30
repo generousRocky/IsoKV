@@ -1167,31 +1167,33 @@ void nvm_file::PutBlock(struct nvm *nvm, struct vblock *vblock) {
 }
 
 void nvm_file::PutAllBlocks(struct nvm *nvm) {
-  std::deque<struct vblock *>::iterator it;
-
-  for (it = vblocks_.begin(); it != vblocks_.end(); it++) {
-    PutBlock(nvm, *it);
-    nblocks_--;
+  unsigned long i;
+  
+  for(i = 0; i < vblocks_.size(); ++i) {
+    if(vblocks_[i] != nullptr) {
+      PutBlock(nvm, vblocks_[i]);
+      vblocks_[i] = nullptr;
+    }
   }
 
+  nblocks_ = 0;  
   current_vblock_ = nullptr;
-  assert(nblocks_ == 0);
 }
 
 // Free all structures holding vblock information in memory, but do not return
 // the block to the block manager
 void nvm_file::FreeAllBlocks() {
-  std::deque<struct vblock *>::iterator it;
-
-  for (it = vblocks_.begin(); it != vblocks_.end(); it++) {
-    if (*it != nullptr) {
-      free(*it);
-      *it = nullptr;
-      nblocks_--;
+  unsigned long i;
+  
+  for(i = 0; i < vblocks_.size(); ++i) {
+    if(vblocks_[i] != nullptr) {
+      free(vblocks_[i]);
+      vblocks_[i] = nullptr;
     }
   }
+
+  nblocks_ = 0;  
   current_vblock_ = nullptr;
-  assert(nblocks_ == 0);
 }
 
 
