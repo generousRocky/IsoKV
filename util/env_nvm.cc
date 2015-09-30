@@ -802,8 +802,12 @@ class NVMEnv : public Env {
   }
 
   virtual Status UnlockFile(FileLock* lock) override {
-    return (lock->Unlock() ? Status::OK() : IOError("unlock", errno));
+    if (lock->Unlock()) {
+      delete lock;
+      return Status::OK();
+    }
     delete lock;
+    return IOError("unlock", errno);
   }
 
   virtual void Schedule(void (*function)(void* arg1), void* arg,
