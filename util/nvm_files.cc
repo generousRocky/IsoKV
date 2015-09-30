@@ -834,7 +834,7 @@ bool nvm_file::Delete(const char * filename, struct nvm *nvm_api) {
   DeleteAllLinks(nvm_api);
 
   // Put block back to BM
-  PutAllBlocks(nvm);
+  PutAllBlocks(parent->GetNVMApi());
   return true;
 }
 
