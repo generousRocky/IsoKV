@@ -75,7 +75,7 @@ bool VersionEdit::EncodeTo(std::string* dst, Env* env) const {
     PutVarint32(dst, kLogNumber);
     PutVarint64(dst, log_number_);
     // Encode storage backend WAL private metadata
-    if (env != nullptr) {
+    if (env != nullptr && log_number_ > 0) {
       env->EncodeLogPrivateMetadata(dst, log_number_, kPrivMeta);
     }
   }
