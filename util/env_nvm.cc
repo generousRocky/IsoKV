@@ -1373,6 +1373,16 @@ void* Env::DecodePrivateMetadata(Slice* input) {
   return (void*)vblock_meta;
 }
 
+void Env::FreePrivateMetadata(void* metadata) {
+  if (metadata == nullptr) {
+    return;
+  }
+
+  struct vblock_meta* vblock_meta = (struct vblock_meta*)metadata;
+  free(vblock_meta->encoded_vblocks);
+  free(vblock_meta);
+}
+
 }  // namespace rocksdb
 
 #endif
