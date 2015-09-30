@@ -761,7 +761,6 @@ class PosixWritableFile : public WritableFile {
 
   virtual Status Close() override {
     Status s;
-    printf("Filename %s - size: %lu\n", filename_.c_str(), filesize_);
     size_t block_size;
     size_t last_allocated_block;
     GetPreallocationStatus(&block_size, &last_allocated_block);
