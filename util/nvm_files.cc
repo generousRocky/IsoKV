@@ -900,8 +900,6 @@ size_t nvm_file::ReadBlock(struct nvm *nvm, unsigned int block_offset,
   unsigned long max_bytes_per_read = nvm->max_pages_in_io * PAGE_SIZE;
   unsigned long bytes_per_read;
   unsigned int meta_beg_size = sizeof(struct vblock_recov_meta);
-  size_t meta_size =
-            sizeof(struct vblock_recov_meta) + sizeof(struct vblock_close_meta);
   uint8_t pages_per_read;
 
   // Attempting to read an empty file
@@ -915,11 +913,10 @@ size_t nvm_file::ReadBlock(struct nvm *nvm, unsigned int block_offset,
   size_t left =
       ((((data_len + page_offset + meta_beg_size) / PAGE_SIZE) + x) * PAGE_SIZE);
 
-  NVM_DEBUG("READBLOCK. BO: %d, PPAO: %lu, PO:%d. To read from block: %lu, left:%lu, x:%d\n",
-            block_offset, ppa_offset, page_offset, data_len, left, x);
+  NVM_DEBUG("READBLOCK. BO: %d, PPAO: %lu, PO:%d. To read from block: %lu, left:%lu, blockid: %lu, current ppa: %lu, x:%d\n",
+            block_offset, ppa_offset, page_offset, data_len, left, current_vblock->id, current_ppa, x);
 
   assert(left <= (nppas * PAGE_SIZE));
-  assert(data_len <= (nppas * PAGE_SIZE) - meta_size);
   assert((left % PAGE_SIZE) == 0);
 
   char *page = (char*)memalign(PAGE_SIZE, left * PAGE_SIZE);
