@@ -360,12 +360,13 @@ class Env {
     return Status::OK();
   }
 
-  // Encode metadata used by the storage backend implementing Env
+  // Encode log metadata used by the storage backend implementing Env
   virtual void EncodeLogPrivateMetadata(std::string* dst, uint64_t log_number,
-                                                           uint8_t priv_type) {}
+                                        uint8_t priv_type) {}
 
-  // Encode metadata used by the storage backend implementing Env
-  virtual void DecodeAndLoadLogPrivateMetadata(Slice* dst, uint64_t log_number) {}
+  // Decode and load log metadata used by the storage backend implementing Env
+  virtual void DecodeAndLoadLogPrivateMetadata(Slice* dst,
+                                               uint64_t log_number) {}
 
   // Decode and load log metadata used by the storage backend implementing Env.
   virtual void DiscoverAndLoadLogPrivateMetadata(uint64_t log_number) {}
