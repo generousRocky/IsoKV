@@ -1022,6 +1022,7 @@ void nvm_file::SaveSpecialMetadata(std::string fname) {
   void* meta = NVMPrivateMetadata::GetMetadata(this);
   std::string encoded_meta;
   Env::EncodePrivateMetadata(&encoded_meta, meta);
+  Env::FreePrivateMetadata(meta);
   // TODO: Use PutVarint64 technique
   std::string len = std::to_string(encoded_meta.size());
   recovery_meta.append(len);

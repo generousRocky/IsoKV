@@ -122,6 +122,7 @@ struct FileMetaData {
   }
 
   void DecodePrivateMetadata(Slice* input) {
+    FreePrivateMetadata();
     priv_meta = Env::DecodePrivateMetadata(input);
   }
 
