@@ -61,6 +61,11 @@ namespace rocksdb {
   vblock_meta->encoded_vblocks = (char*)malloc(metadata_size);
 
   vblock_meta->len = metadata_size;
+  // At this point metadata has not been persisted yet, but it is given
+  // FileMetaData; in normal operation metadata will be persisted. In case of
+  // of RocksDB crushing before this happens, we can reconstruct this metadata
+  // from individual blocks in a recover phase.
+  file->blocks_meta_persisted_ = file->vblocks_.size();
   memcpy(vblock_meta->encoded_vblocks, metadata.c_str(), metadata_size);
   return (void*)vblock_meta;
 }
@@ -118,6 +123,7 @@ nvm_file::nvm_file(const char *_name, const int fd, nvm_directory *_parent) {
   current_vblock_ = nullptr;
   next_vblock_ = nullptr;
   nblocks_ = 0;
+  blocks_meta_persisted_ = 0;
 
   pthread_mutexattr_init(&page_update_mtx_attr);
   pthread_mutexattr_settype(&page_update_mtx_attr, PTHREAD_MUTEX_RECURSIVE);
@@ -1005,6 +1011,48 @@ retry:
   return total_read;
 }
 
+void nvm_file::SaveSpecialMetadata(std::string fname) {
+  // TODO: Get name from dbname
+  std::string recovery_location = "testingrocks/DFLASH_RECOVERY";
+
+  std::string recovery_meta = fname;
+  recovery_meta.append(":", 1);
+
+  //TODO: RETURN TO void*
+  void* meta = NVMPrivateMetadata::GetMetadata(this);
+  std::string encoded_meta;
+  Env::EncodePrivateMetadata(&encoded_meta, meta);
+  // TODO: Use PutVarint64 technique
+  std::string len = std::to_string(encoded_meta.size());
+  recovery_meta.append(len);
+  recovery_meta.append(encoded_meta);
+
+  int fd = open(recovery_location.c_str(), O_WRONLY | O_APPEND | O_CREAT, S_IWUSR);
+  if (fd < 0) {
+    NVM_DEBUG("Cannot create RECOVERY file\n");
+    return;
+  }
+
+  recovery_meta.append("\n", 1);
+  size_t left = recovery_meta.size();
+  const char* src = recovery_meta.c_str();
+  ssize_t done;
+  while (left > 0) {
+    done = write(fd, src, left);
+    if (done < 0) {
+      if (errno == EINTR) {
+        continue;
+      }
+      NVM_DEBUG("Unable to write private metadata in RECOVERY\n");
+      return;
+    }
+    left -=done;
+    src +=done;
+  }
+
+  close(fd);
+}
+
 //TODO: Javier: get list of vluns at initialization and ask for a vblock from
 //the right vlun at runtime. We still need to define how the BM and the FTL
 //will agree on which vlun is going to be used. To start with we have a single
@@ -1465,7 +1513,20 @@ NVMWritableFile::NVMWritableFile(const std::string& fname, nvm_file *fd,
 NVMWritableFile::~NVMWritableFile() {
   if(fd_) {
     fd_->SetSeqWritableFile(nullptr);
+
+    // TODO: This is for first prototype. This should be moved to SaveFTL, which
+    // should be called if a crush is detected. Even though we have a way to
+    // recover all metadata from individual blocks in case of a total crash (e.g.,
+    // power failure), this mechanism (which is cheaper) should be resistant to
+    // RocksDB internal crushes.
+    // TODO: Do not save special metadata for manifest
+    if ((fd_->GetNPersistentMetaBlocks() == 0) &&
+                                            (fd_->GetType() != kMetaDatabase)) {
+      NVM_DEBUG("Saving special metadata for file: %s\n", filename_.c_str());
+      fd_->SaveSpecialMetadata(filename_);
+    }
   }
+
   NVMWritableFile::Close();
 }
 

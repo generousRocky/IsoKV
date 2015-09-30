@@ -29,6 +29,7 @@ class NVMPrivateMetadata: public FilePrivateMetadata {
 class nvm_file {
   private:
     list_node *names;
+    FileType type_;
 
     pthread_mutexattr_t page_update_mtx_attr;
     pthread_mutex_t page_update_mtx;
@@ -44,8 +45,11 @@ class nvm_file {
     // TODO: current_vblock_ is used to write, logic should move to WritableFile
     struct vblock *current_vblock_;
     struct vblock *next_vblock_;
-    uint8_t nblocks_;
     std::deque<struct vblock *>vblocks_;       //Vector of virtual flash blocks
+    // Number of blocks loaded in memory
+    uint8_t nblocks_;
+    // Number of blocks whose metadata has been persisted
+    uint8_t blocks_meta_persisted_;
     std::vector<struct nvm_page *> pages;
 
     pthread_mutex_t write_lock;
@@ -84,6 +88,8 @@ class nvm_file {
     void ChangeName(const char *crt_name, const char *new_name);
     void EnumerateNames(std::vector<std::string>* result);
     void SetSeqWritableFile(NVMWritableFile *_writable_file);
+    void SetType(FileType type) { type_ = type; }
+    FileType GetType() { return type_; }
     void UpdateCurrentBlock() {
       current_vblock_ = vblocks_.back();
     }
@@ -112,6 +118,9 @@ class nvm_file {
     void LoadBlock(struct vblock* vblock) {
       vblocks_.push_back(vblock);
       nblocks_++;
+    }
+    uint8_t GetNPersistentMetaBlocks() {
+      return blocks_meta_persisted_;
     }
 
     time_t GetLastModified();
@@ -162,6 +171,9 @@ class nvm_file {
 
     Status Save(const int fd);
     Status Load(const int fd);
+
+    // Save metadata that is not present in the MANIFEST (e.g., the last log)
+    void SaveSpecialMetadata(std::string fname);
 };
 
 class NVMFileLock : public FileLock {
