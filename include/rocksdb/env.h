@@ -377,6 +377,9 @@ class Env {
   // Retrieve metadata
   static void* DecodePrivateMetadata(Slice* input);
 
+  // Free metadata
+  static void FreePrivateMetadata(void* metadata);
+
  protected:
   // The pointer to an internal structure that will update the
   // status of each thread.

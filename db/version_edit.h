@@ -108,6 +108,7 @@ struct FileMetaData {
         marked_for_compaction(false) {}
 
   void UpdatePrivateMetadataHandle(FilePrivateMetadata* handle) {
+    FreePrivateMetadata();
     if (handle == nullptr) {
       priv_meta = nullptr;
       return;
@@ -124,12 +125,13 @@ struct FileMetaData {
     priv_meta = Env::DecodePrivateMetadata(input);
   }
 
-  // TODO: Free private metadata
+  void SetPrivateMetadata(void* meta) {
+    FreePrivateMetadata();
+    priv_meta = meta;
+  }
+
   void FreePrivateMetadata() const {
-    if (priv_meta) {
-      printf("Freeing priv_meta\n");
-      free(priv_meta);
-    }
+    Env::FreePrivateMetadata(priv_meta);
   }
 };
 
@@ -209,7 +211,7 @@ class VersionEdit {
     f.largest = largest;
     f.smallest_seqno = smallest_seqno;
     f.largest_seqno = largest_seqno;
-    f.priv_meta = priv_meta;
+    f.SetPrivateMetadata(priv_meta);
     f.marked_for_compaction = marked_for_compaction;
     new_files_.push_back(std::make_pair(level, f));
   }

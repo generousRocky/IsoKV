@@ -1385,6 +1385,8 @@ Status DBImpl::FlushMemTableToOutputFile(
                            job_context->job_id);
   }
 #endif  // ROCKSDB_LITE
+
+  file_meta.FreePrivateMetadata();
   return s;
 }
 
