@@ -82,6 +82,11 @@ bool VersionEdit::EncodeTo(std::string* dst, Env* env) const {
   if (has_prev_log_number_) {
     PutVarint32(dst, kPrevLogNumber);
     PutVarint64(dst, prev_log_number_);
+    // Encode storage backend WAL private metadata
+    // TODO: Javier Is this necessary??
+    if (env != nullptr && prev_log_number_ > 0) {
+      env->EncodeLogPrivateMetadata(dst, prev_log_number_, kPrivMeta);
+    }
   }
   if (has_next_file_number_) {
     PutVarint32(dst, kNextFileNumber);
@@ -198,6 +203,7 @@ Status VersionEdit::DecodeFrom(const Slice& src, Env* env) {
       case kLogNumber:
         if (GetVarint64(&input, &log_number_)) {
           has_log_number_ = true;
+          // TODO: JAvier: check with the encoding part
           if (env != nullptr && LookupVarint32(&input, kPrivMeta)) {
               env->DecodeAndLoadLogPrivateMetadata(&input, log_number_);
           }
@@ -209,6 +215,9 @@ Status VersionEdit::DecodeFrom(const Slice& src, Env* env) {
       case kPrevLogNumber:
         if (GetVarint64(&input, &prev_log_number_)) {
           has_prev_log_number_ = true;
+          if (env != nullptr && LookupVarint32(&input, kPrivMeta)) {
+              env->DecodeAndLoadLogPrivateMetadata(&input, log_number_);
+          }
         } else {
           msg = "previous log number";
         }

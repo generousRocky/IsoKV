@@ -1142,7 +1142,7 @@ next_meta:
       }
     }
 
-    NVM_DEBUG("Discover and load log %s\n", log_name.c_str());
+    printf("Discover and load log %s\n", log_name.c_str());
     int fd = open(recovery_location.c_str(), O_RDONLY | S_IWUSR | S_IRUSR);
     if (fd < 0) {
       NVM_FATAL("Unable to open RECOVERY for reading\n");

@@ -42,7 +42,7 @@ namespace rocksdb {
 
   PutVarint32(&metadata, file->vblocks_.size());
   for (it = file->vblocks_.begin(); it != file->vblocks_.end(); it++) {
-    printf("METADATA: Writing(%lu):\nsep:%d,id:%lu\noid:%lu\nnppas:%lu\nbitmap:%lu\nbppa:%llu\nvlunid:%d\nflags:%d\n",
+    NVM_DEBUG("METADATA: Writing(%lu):\nsep:%d,id:%lu\noid:%lu\nnppas:%lu\nbitmap:%lu\nbppa:%llu\nvlunid:%d\nflags:%d\n",
       file->vblocks_.size(), separator_, (*it)->id, (*it)->owner_id, (*it)->nppas, (*it)->ppa_bitmap, (*it)->bppa,
       (*it)->vlun_id, (*it)->flags);
     PutVarint32(&metadata, separator_); //This might go away
@@ -1093,6 +1093,7 @@ void nvm_file::PreallocateBlock(struct nvm* nvm, unsigned int vlun_id) {
 }
 
 void nvm_file::RecoverAndLoadMetadata(struct nvm* nvm) {
+  printf("Recover and load metadata!!\n");
   if (UNLIKELY(current_vblock_ == nullptr)) {
     NVM_DEBUG("Recovering metadata from an uninitialized nvm_file");
   }
