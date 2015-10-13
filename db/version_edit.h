@@ -13,6 +13,7 @@
 #include <utility>
 #include <vector>
 #include <string>
+#include "rocksdb/env.h"
 #include "rocksdb/cache.h"
 #include "db/dbformat.h"
 #include "util/arena.h"
@@ -72,6 +73,9 @@ struct FileMetaData {
   // Needs to be disposed when refs becomes 0.
   Cache::Handle* table_reader_handle;
 
+  // Private metadata belonging to the storage backend
+  void* priv_meta;
+
   // Stats for compensating deletion entries during compaction
 
   // File size compensated by deletion entry.
@@ -96,6 +100,7 @@ struct FileMetaData {
         smallest_seqno(kMaxSequenceNumber),
         largest_seqno(0),
         table_reader_handle(nullptr),
+        priv_meta(nullptr),
         compensated_file_size(0),
         num_entries(0),
         num_deletions(0),
@@ -114,6 +119,31 @@ struct FileMetaData {
     smallest_seqno = std::min(smallest_seqno, seqno);
     largest_seqno = std::max(largest_seqno, seqno);
   }
+
+  void UpdatePrivateMetadataHandle(FilePrivateMetadata* handle) {
+    FreePrivateMetadata();
+    if (handle == nullptr) {
+      priv_meta = nullptr;
+      return;
+    }
+    priv_meta = handle->GetMetadata();
+  }
+
+  void EncodePrivateMetadata(std::string* priv) const {
+    Env::EncodePrivateMetadata(priv, priv_meta);
+  }
+
+  void DecodePrivateMetadata(Slice* input) {
+    FreePrivateMetadata();
+    priv_meta = Env::DecodePrivateMetadata(input);
+  }
+
+  void SetPrivateMetadata(void* meta) {
+    FreePrivateMetadata();
+    priv_meta = meta;
+  }
+
+  void FreePrivateMetadata() { Env::FreePrivateMetadata(priv_meta); }
 };
 
 // A compressed copy of file meta data that just contain
@@ -182,8 +212,8 @@ class VersionEdit {
   void AddFile(int level, uint64_t file, uint32_t file_path_id,
                uint64_t file_size, const InternalKey& smallest,
                const InternalKey& largest, const SequenceNumber& smallest_seqno,
-               const SequenceNumber& largest_seqno,
-               bool marked_for_compaction) {
+               const SequenceNumber& largest_seqno, bool marked_for_compaction,
+               void* priv_meta = nullptr) {
     assert(smallest_seqno <= largest_seqno);
     FileMetaData f;
     f.fd = FileDescriptor(file, file_path_id, file_size);
@@ -191,6 +221,7 @@ class VersionEdit {
     f.largest = largest;
     f.smallest_seqno = smallest_seqno;
     f.largest_seqno = largest_seqno;
+    f.SetPrivateMetadata(priv_meta);
     f.marked_for_compaction = marked_for_compaction;
     new_files_.emplace_back(level, f);
   }

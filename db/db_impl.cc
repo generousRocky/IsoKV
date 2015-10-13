@@ -1352,7 +1352,7 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
     edit->AddFile(level, meta.fd.GetNumber(), meta.fd.GetPathId(),
                   meta.fd.GetFileSize(), meta.smallest, meta.largest,
                   meta.smallest_seqno, meta.largest_seqno,
-                  meta.marked_for_compaction);
+                  meta.marked_for_compaction, meta.priv_meta);
   }
 
   InternalStats::CompactionStats stats(1);
@@ -1415,6 +1415,7 @@ Status DBImpl::FlushMemTableToOutputFile(
                            job_context->job_id, flush_job.GetTableProperties());
   }
 #endif  // ROCKSDB_LITE
+  file_meta.FreePrivateMetadata();
   return s;
 }
 
@@ -1948,7 +1949,7 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
       edit.AddFile(to_level, f->fd.GetNumber(), f->fd.GetPathId(),
                    f->fd.GetFileSize(), f->smallest, f->largest,
                    f->smallest_seqno, f->largest_seqno,
-                   f->marked_for_compaction);
+                   f->marked_for_compaction, f->priv_meta);
     }
     Log(InfoLogLevel::DEBUG_LEVEL, db_options_.info_log,
         "[%s] Apply version edit:\n%s", cfd->GetName().c_str(),
@@ -2702,7 +2703,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
         c->edit()->AddFile(c->output_level(), f->fd.GetNumber(),
                            f->fd.GetPathId(), f->fd.GetFileSize(), f->smallest,
                            f->largest, f->smallest_seqno, f->largest_seqno,
-                           f->marked_for_compaction);
+                           f->marked_for_compaction, f->priv_meta);
 
         LogToBuffer(log_buffer,
                     "[%s] Moving #%" PRIu64 " to level-%d %" PRIu64 " bytes\n",
@@ -3291,7 +3292,7 @@ Status DBImpl::AddFile(ColumnFamilyHandle* column_family,
       edit.AddFile(target_level, meta.fd.GetNumber(), meta.fd.GetPathId(),
                    meta.fd.GetFileSize(), meta.smallest, meta.largest,
                    meta.smallest_seqno, meta.largest_seqno,
-                   meta.marked_for_compaction);
+                   meta.marked_for_compaction, meta.priv_meta);
 
       status = versions_->LogAndApply(cfd, mutable_cf_options, &edit, &mutex_,
                                       directories_.GetDbDir());

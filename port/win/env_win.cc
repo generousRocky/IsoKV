@@ -40,6 +40,10 @@
 
 namespace rocksdb {
 
+void Env::EncodePrivateMetadata(std::string* priv, void* metadata) {}
+void* Env::DecodePrivateMetadata(Slice* input) { return nullptr; }
+void Env::FreePrivateMetadata(void* metadata) {}
+
 std::string GetWindowsErrSz(DWORD err) {
   LPSTR lpMsgBuf;
   FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM |

@@ -31,6 +31,10 @@
 
 namespace rocksdb {
 
+void Env::EncodePrivateMetadata(std::string* dst, void* metadata) {}
+void* Env::DecodePrivateMetadata(Slice* input) { return nullptr; }
+void Env::FreePrivateMetadata(void* metadata) {}
+
 namespace {
 
 // Log error message

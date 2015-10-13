@@ -77,6 +77,10 @@
 
 namespace rocksdb {
 
+void Env::EncodePrivateMetadata(std::string* priv, void* metadata) {}
+void* Env::DecodePrivateMetadata(Slice* input) { return nullptr; }
+void Env::FreePrivateMetadata(void* metadata) {}
+
 namespace {
 
 // A wrapper for fadvise, if the platform doesn't support fadvise,
