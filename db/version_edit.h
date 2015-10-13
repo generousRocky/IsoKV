@@ -273,8 +273,8 @@ class VersionEdit {
   }
 
   // return true on success.
-  bool EncodeTo(std::string* dst) const;
-  Status DecodeFrom(const Slice& src);
+  bool EncodeTo(std::string* dst, Env* env = nullptr) const;
+  Status DecodeFrom(const Slice& src, Env* env = nullptr);
 
   const char* DecodeNewFile4From(Slice* input);
 

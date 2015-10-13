@@ -212,6 +212,19 @@ inline bool GetFixed64(Slice* input, uint64_t* value) {
   return true;
 }
 
+// Check if the next 4 bytes match value. Move input pointer only if true
+inline bool LookupVarint32(Slice* input, uint32_t value) {
+  uint32_t read_value;
+  const char* p = input->data();
+  const char* limit = p + input->size();
+  const char* q = GetVarint32Ptr(p, limit, &read_value);
+  if ((q != nullptr) && (value == read_value)) {
+    *input = Slice(q, static_cast<size_t>(limit - q));
+    return true;
+  }
+  return false;
+}
+
 inline bool GetVarint32(Slice* input, uint32_t* value) {
   const char* p = input->data();
   const char* limit = p + input->size();
