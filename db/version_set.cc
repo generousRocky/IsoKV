@@ -2965,11 +2965,14 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
 }
 #endif  // ROCKSDB_LITE
 
-void VersionSet::MarkFileNumberUsedDuringRecovery(uint64_t number) {
+void VersionSet::MarkFileNumberUsedDuringRecovery(uint64_t number, Env* env) {
   // only called during recovery which is single threaded, so this works because
   // there can't be concurrent calls
   if (next_file_number_.load(std::memory_order_relaxed) <= number) {
     next_file_number_.store(number + 1, std::memory_order_relaxed);
+  }
+  if (env != nullptr) {
+    env->DiscoverAndLoadLogPrivateMetadata(number);
   }
 }
 

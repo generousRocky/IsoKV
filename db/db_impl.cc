@@ -1092,7 +1092,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
     // The previous incarnation may not have written any MANIFEST
     // records after allocating this log number.  So we manually
     // update the file number allocation counter in VersionSet.
-    versions_->MarkFileNumberUsedDuringRecovery(log_number);
+    versions_->MarkFileNumberUsedDuringRecovery(log_number, env_);
     // Open the log file
     std::string fname = LogFileName(db_options_.wal_dir, log_number);
     unique_ptr<SequentialFileReader> file_reader;
