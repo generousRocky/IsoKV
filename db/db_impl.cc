@@ -1495,6 +1495,7 @@ Status DBImpl::FlushMemTableToOutputFile(
                            job_context->job_id, flush_job.GetTableProperties());
   }
 #endif  // ROCKSDB_LITE
+  file_meta.FreePrivateMetadata();
   return s;
 }
 

@@ -41,6 +41,7 @@ class SequentialFile;
 class Slice;
 class WritableFile;
 class Directory;
+class FilePrivateMetadata;
 struct DBOptions;
 class RateLimiter;
 class ThreadStatusUpdater;
@@ -344,6 +345,11 @@ class Env {
   // Returns the ID of the current thread.
   virtual uint64_t GetThreadID() const;
 
+  // Load Env private metadata
+  virtual Status LoadPrivateMetadata(std::string fname, void* metadata) {
+    return Status::OK();
+  }
+
  protected:
   // The pointer to an internal structure that will update the
   // status of each thread.
@@ -353,6 +359,19 @@ class Env {
   // No copying allowed
   Env(const Env&);
   void operator=(const Env&);
+};
+
+class FilePrivateMetadata {
+ public:
+  FilePrivateMetadata() {}
+  virtual ~FilePrivateMetadata() {}
+
+  // Must return encoded metadata that can be appended to the MANIFEST. See
+  // VersionEdit::EncodeTo to see the encoding format.
+  virtual void* GetMetadata() { return nullptr; }
+  virtual void EncodePrivateMetadata(std::string* dst) {}
+  virtual void DecodePrivateMetadata(Slice* encoded_meta) {}
+  virtual void FreePrivateMetadata() {}
 };
 
 // The factory function to construct a ThreadStatusUpdater.  Any Env
@@ -595,6 +614,10 @@ class WritableFile {
       last_preallocated_block_ = new_last_preallocated_block;
     }
   }
+
+  // Returns a handle to the metadata used by the storage backend implementing
+  // WritableFile
+  virtual FilePrivateMetadata* GetMetadataHandle() { return nullptr; }
 
  protected:
   /*
