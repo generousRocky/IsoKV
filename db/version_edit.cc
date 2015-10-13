@@ -77,7 +77,7 @@ void VersionEdit::Clear() {
   column_family_name_.clear();
 }
 
-bool VersionEdit::EncodeTo(std::string* dst) const {
+bool VersionEdit::EncodeTo(std::string* dst, Env* env) const {
   if (has_comparator_) {
     PutVarint32(dst, kComparator);
     PutLengthPrefixedSlice(dst, comparator_);
@@ -85,6 +85,10 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
   if (has_log_number_) {
     PutVarint32(dst, kLogNumber);
     PutVarint64(dst, log_number_);
+    // Encode storage backend WAL private metadata
+    if (env != nullptr) {
+      env->EncodeLogPrivateMetadata(dst, log_number_, kPrivMeta);
+    }
   }
   if (has_prev_log_number_) {
     PutVarint32(dst, kPrevLogNumber);
@@ -293,7 +297,7 @@ const char* VersionEdit::DecodeNewFile4From(Slice* input) {
   return nullptr;
 }
 
-Status VersionEdit::DecodeFrom(const Slice& src) {
+Status VersionEdit::DecodeFrom(const Slice& src, Env* env) {
   Clear();
   Slice input = src;
   const char* msg = nullptr;
@@ -319,6 +323,9 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
       case kLogNumber:
         if (GetVarint64(&input, &log_number_)) {
           has_log_number_ = true;
+          if (env != nullptr && LookupVarint32(&input, kPrivMeta)) {
+              env->DecodeAndLoadLogPrivateMetadata(&input, log_number_);
+          }
         } else {
           msg = "log number";
         }

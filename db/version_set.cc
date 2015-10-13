@@ -2099,7 +2099,7 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
     if (s.ok()) {
       for (auto& e : batch_edits) {
         std::string record;
-        if (!e->EncodeTo(&record)) {
+        if (!e->EncodeTo(&record, env_)) {
           s = Status::Corruption(
               "Unable to Encode VersionEdit:" + e->DebugString(true));
           break;
@@ -2354,7 +2354,7 @@ Status VersionSet::Recover(
     std::string scratch;
     while (reader.ReadRecord(&record, &scratch) && s.ok()) {
       VersionEdit edit;
-      s = edit.DecodeFrom(record);
+      s = edit.DecodeFrom(record, env_);
       if (!s.ok()) {
         break;
       }
