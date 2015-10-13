@@ -2286,6 +2286,7 @@ Status VersionSet::Recover(
   if (!s.ok()) {
     return s;
   }
+  env_->RetrieveSuperblockMetadata(&manifest_filename);
   if (manifest_filename.empty() ||
       manifest_filename.back() != '\n') {
     return Status::Corruption("CURRENT file does not end with newline");
