@@ -346,7 +346,7 @@ class Env {
     return Status::OK();
   }
 
-  // Encode metadata used by the storage backend implementing Env
+  // Encode log metadata used by the storage backend implementing Env
   virtual void EncodeLogPrivateMetadata(std::string* dst, uint64_t log_number,
                                         uint8_t priv_type) {}
 
@@ -359,6 +359,9 @@ class Env {
   // enough. This function must return the format of the original CURRENT
   // content: name of the current manifest followed by newline (\n).
   virtual void RetrieveSuperblockMetadata(std::string* meta) const {}
+
+  // Decode and load log metadata used by the storage backend implementing Env.
+  virtual void DiscoverAndLoadLogPrivateMetadata(uint64_t log_number) {}
 
   // Encode private metadata used by the storage backed implementing Env
   static void EncodePrivateMetadata(std::string* priv, void* metadata);
