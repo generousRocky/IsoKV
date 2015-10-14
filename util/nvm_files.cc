@@ -1,9 +1,10 @@
 #ifdef ROCKSDB_PLATFORM_NVM
 
-#include "nvm/nvm.h"
+#include <cstring>
 #include "malloc.h"
 #include "util/coding.h"
-#include <cstring>
+#include "nvm/nvm.h"
+#include "posix/lib_posix.h"
 
 // Get nano time includes
 #if defined(OS_LINUX) || defined(OS_FREEBSD)
@@ -1451,16 +1452,6 @@ size_t NVMRandomAccessFile::GetUniqueId(char* id, size_t max_size) const {
 }
 #endif
 
-// A wrapper for fadvise, if the platform doesn't support fadvise,
-// it will simply return Status::NotSupport.
-int Fadvise(int fd, off_t offset, size_t len, int advice) {
-#ifdef OS_LINUX
-  return posix_fadvise(fd, offset, len, advice);
-#else
-  return 0;  // simply do nothing.
-#endif
-}
-
 void NVMRandomAccessFile::Hint(AccessPattern pattern) {
 }
 
@@ -2027,6 +2018,7 @@ Status NVMDirectory::Fsync() {
   return Status::OK();
 }
 
+#if 0
 // Posix implementation. Copied from env_posix.
 // This is a momentary solution until we decouple posix file implementations
 // from the posix environment
@@ -2704,6 +2696,6 @@ Status PosixRandomRWFile::Allocate(off_t offset, off_t len) {
 }
 #endif
 #endif
+#endif
 } // namespace rocksdb
-
 #endif

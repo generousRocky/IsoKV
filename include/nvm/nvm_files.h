@@ -325,6 +325,7 @@ class NVMWritableFile : public WritableFile {
 #endif
 };
 
+#if 0
 #if 0 //RandomRWFile removed from RocksDB
 class NVMRandomRWFile : public RandomRWFile {
   private:
@@ -544,6 +545,8 @@ class PosixDirectory : public Directory {
   int fd_;
 };
 
+#endif
+// Implementation of PosixFileLock that can unlock itself.
 class PosixFileLock : public FileLock {
  public:
   int fd_;
@@ -551,7 +554,6 @@ class PosixFileLock : public FileLock {
 
   bool Unlock();
 };
-
 } //rocksdb namespace
 
 #endif // _NVM_FILES_

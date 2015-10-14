@@ -12,6 +12,7 @@
 #include "db/filename.h"
 #include "nvm/nvm.h"
 #include "util/string_util.h"
+#include "posix/lib_posix.h"
 
 namespace rocksdb {
 
