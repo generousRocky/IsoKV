@@ -93,6 +93,7 @@ LIB_SOURCES =                                                   \
   util/env.cc                                                   \
   util/env_hdfs.cc                                              \
   util/env_posix.cc                                             \
+  util/lib_posix.cc                                             \
   util/env_nvm.cc                                               \
   util/nvm.cc                                                   \
   util/nvm_files.cc                                             \
