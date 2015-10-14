@@ -1317,7 +1317,7 @@ Env* Env::Default() {
 
 // Static method encoding sstable metadata for DFlash backend
 // See comment above NVM:PrivateMetadata::GetMetadata()
-void Env::EncodePrivateMetadata(std::string *dst, void *metadata) {
+void Env::EncodePrivateMetadata(std::string *priv, void *metadata) {
   if (metadata == nullptr) {
     return;
   }
@@ -1325,7 +1325,7 @@ void Env::EncodePrivateMetadata(std::string *dst, void *metadata) {
   // metadata already contains the encoded data. See comment in
   // NVMPrivateMetadata::GetMetadata()
   struct vblock_meta *vblock_meta = (struct vblock_meta*)metadata;
-  dst->append((const char*)vblock_meta->encoded_vblocks, vblock_meta->len);
+  priv->append((const char*)vblock_meta->encoded_vblocks, vblock_meta->len);
   return;
 }
 
