@@ -920,7 +920,7 @@ size_t nvm_file::ReadBlock(struct nvm *nvm, unsigned int block_offset,
   assert(left <= (nppas * PAGE_SIZE));
   assert((left % PAGE_SIZE) == 0);
 
-  char *page = (char*)memalign(PAGE_SIZE, left * PAGE_SIZE);
+  char *page = (char*)memalign(PAGE_SIZE, left);
   if (!data) {
     NVM_FATAL("Cannot allocate aligned memory of length: %lu\n",
                                                             nppas * PAGE_SIZE);
@@ -934,8 +934,9 @@ retry:
     bytes_per_read = (left > max_bytes_per_read) ? max_bytes_per_read : left;
     pages_per_read = bytes_per_read / PAGE_SIZE;
 
-    if ((unsigned)pread(fd_, read_iter, bytes_per_read, current_ppa * PAGE_SIZE)
-                                                          != bytes_per_read) {
+    ssize_t read = pread(fd_, read_iter, bytes_per_read,
+                         current_ppa * PAGE_SIZE);
+    if (read != (ssize_t)bytes_per_read) {
       if (errno == EINTR) {
         goto retry;
       }
