@@ -1078,9 +1078,10 @@ next_meta:
 
   Status LoadPrivateMetadata(std::string fname, void* metadata) override {
     if (metadata == nullptr) {
-      NVM_FATAL("METADATA NOT LOADED!!!!!!!!!!!!!!\n");
+      printf("METADATA NOT LOADED for file %s!!!!!!!!!!!!!!\n", fname.c_str());
       // TODO: Load from RECOVERY - the metadata did not make it to the MANIFEST
       // in the past RocksDB instance
+      return Status::OK();
     }
     nvm_file* fd = root_dir->nvm_fopen(fname.c_str(), "a");
     struct vblock_meta *vblock_meta = (struct vblock_meta*)metadata;
@@ -1145,7 +1146,7 @@ next_meta:
       }
     }
 
-    printf("Discover and load log %s\n", log_name.c_str());
+    // printf("Discover and load log %s\n", log_name.c_str());
     int fd = open(recovery_location.c_str(), O_RDONLY | S_IWUSR | S_IRUSR);
     if (fd < 0) {
       NVM_FATAL("Unable to open RECOVERY for reading\n");

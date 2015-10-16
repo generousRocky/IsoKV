@@ -35,6 +35,15 @@ struct vblock {
 };
 // Florin: size + number of pages maybe?
 
+// TODO: Do we need a flag field a masks for valid, invalid, etc?
+struct page_cache {
+  unsigned int vblock_offset;
+  unsigned int  bppa_cached;    // Offset of the ppa within the block
+  size_t bytes_cached;
+  // unsigned long nppas_cached;
+  char* cache;
+};
+
 // Metadata stored in MANIFEST.See comment in NVM:PrivateMetadata::GetMetadata()
 struct vblock_meta {
   uint64_t len;
@@ -53,7 +62,7 @@ struct vblock_recov_meta {
   char filename[100];           // Filename to which the vblock belongs to.
                                 // Filenames are used by RocksDB as GUIs
   size_t pos;                   // Position of the block in the nvm_file;
-};
+}; //112 bytes
 
 // This metadata is appended to each vblock when it is properly closed.
 struct vblock_close_meta {
@@ -61,7 +70,7 @@ struct vblock_close_meta {
   size_t ppa_bitmap;            // Updated bitmap of valid pages
   unsigned long next_vblock_id;  // ID of the next block. Used for recovery
   uint8_t flags;                // RDB_VBLOCK_* flags
-};
+}; //32 bytes
 
 // This metadata is used to keep track of where to write in a partially written
 // nvm_block. This metadata allows also to keep track of the write pointer when

@@ -134,21 +134,23 @@ class nvm_file {
     void PreallocateBlock(struct nvm *nvm, unsigned int vlun_id);
     void RecoverAndLoadMetadata(struct nvm* nvm);
     void ReplaceBlock(struct nvm *nvm, unsigned int vlun_id,
-                                                      unsigned int block_idx);
+                      unsigned int block_idx);
     void PutBlock(struct nvm *nvm, struct vblock *vblock);
     void PutAllBlocks(struct nvm *nvm);
     void FreeAllBlocks();
     size_t FlushBlock(struct nvm *nvm, char *data, size_t ppa_offset,
-                                  const size_t data_len, bool page_aligned);
+                      const size_t data_len, bool page_aligned);
     size_t Read(struct nvm *nvm, size_t read_pointer, char *data,
-                                                              size_t data_len);
+                size_t data_len, struct page_cache *cache);
 
     size_t ReadBlock(struct nvm *nvm, unsigned int block_offset,
-                                   size_t ppa_offset, unsigned int page_offset,
-                                                  char *data, size_t data_len);
+                     size_t ppa_offset, unsigned int page_offset, char *data,
+                     size_t data_len, struct page_cache *cache = nullptr,
+                     uint8_t read_flags = 0);
     struct nvm_page *GetNVMPage(const unsigned long idx);
     struct nvm_page *GetLastPage(unsigned long *page_idx);
     bool SetPage(const unsigned long page_idx, nvm_page *page);
+    void CleanPageCache(struct page_cache *cache);
 
     struct nvm_page *RequestPage(nvm *nvm_api);
     struct nvm_page *RequestPage(nvm *nvm_api, const unsigned long lun_id,
@@ -196,6 +198,10 @@ class NVMSequentialFile: public SequentialFile {
 
     nvm_directory *dir_;
     size_t read_pointer_;
+    // Caches the data read in the last submitted I/O. This is not necessarily a
+    // page. A NVMe command supports up to 64 ppas, meaning that this cache can
+    // be up to 64 * 4KB = 256KB in size.
+    struct page_cache page_cache_;
 
     //TODO: Implement this. Only cache the page that is left half read. We need
     //to keep track of it when skiping too.
@@ -225,6 +231,11 @@ class NVMRandomAccessFile: public RandomAccessFile {
       nvm_file *fd_;
       int posix_fd_;
     };
+
+    // Caches the data read in the last submitted I/O. This is not necessarily a
+    // page. A NVMe command supports up to 64 ppas, meaning that this cache can
+    // be up to 64 * 4KB = 256KB in size.
+    mutable struct page_cache page_cache_;
 
     nvm_directory *dir_;
     unsigned long channel;
