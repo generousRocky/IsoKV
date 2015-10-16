@@ -320,7 +320,7 @@ void w_block_test_3() {
     }
 
     if (data_read[0] != data[i]) {
-      NVM_FATAL("");
+      NVM_FATAL("%lu\n", i);
     }
   }
 
@@ -472,10 +472,9 @@ void w_block_test_4() {
 
   for (long i = 0; i < 8 * 4096; i++) {
     if (data_read[i] != data[(128 * 4096) + i]) {
-      NVM_FATAL("");
+      NVM_FATAL("%lu", (128 * 4096) + i);
     }
   }
-
 
   NVMRandomAccessFile *rr_file;
   ALLOC_CLASS(rr_file, NVMRandomAccessFile("test2.c", srfd, dir));
@@ -656,6 +655,9 @@ void w_block_test_6() {
       if (data[(i * chunk_size) + j] != data_read[j]) {
         NVM_FATAL("%lu\n", (i * chunk_size) + j);
       }
+      // if ((i * chunk_size) + j == 524032) {
+        // NVM_FATAL("%lu\n", (i * chunk_size) + j);
+      // }
     }
   }
   delete sr_file;
