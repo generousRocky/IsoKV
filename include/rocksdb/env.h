@@ -366,6 +366,9 @@ class Env {
   // Decode and load log metadata used by the storage backend implementing Env.
   virtual void DiscoverAndLoadLogPrivateMetadata(uint64_t log_number) {}
 
+  // JAVIER: Not sure this belongs here...
+  virtual bool LoadSpecialMetadata(std::string fname) { return true; }
+
   // Encode private metadata used by the storage backed implementing Env
   static void EncodePrivateMetadata(std::string* priv, void* metadata);
 

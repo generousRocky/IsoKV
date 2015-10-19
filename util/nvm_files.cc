@@ -611,24 +611,6 @@ bool nvm_file::CanOpen(const char *mode) {
   return ret;
 }
 
-#ifdef NVM_DEBUG_ENABLED
-void nvm_file::PrintNames() {
-  pthread_mutex_lock(&meta_mtx);
-
-  list_node *name_node = names;
-
-  while (name_node) {
-    char *_name = (char *)name_node->GetData();
-    NVM_DEBUG("%s\n", _name);
-    name_node = name_node->GetNext();
-  }
-
-  pthread_mutex_unlock(&meta_mtx);
-}
-#else
-void nvm_file::PrintNames() {}
-#endif
-
 void nvm_file::EnumerateNames(std::vector<std::string>* result) {
   pthread_mutex_lock(&meta_mtx);
 
@@ -922,6 +904,36 @@ void nvm_file::CleanPageCache(struct page_cache *cache) {
   cache->vblock_offset = 0;
   cache->bppa_cached = 0;
   cache->bytes_cached = 0;
+}
+
+// TODO: Try cache here too
+size_t nvm_file::ReadBlockClosingMetadata(struct nvm *nvm,
+                                          unsigned int block_offset,
+                                          char *data) {
+  size_t meta_size = sizeof(struct vblock_close_meta);
+  size_t ppa_offset = current_vblock_->nppas - 1;
+  unsigned int page_offset = PAGE_SIZE - meta_size;
+
+  char *page = (char*)memalign(PAGE_SIZE, PAGE_SIZE);
+  if (!data) {
+    NVM_FATAL("Cannot allocate aligned memory of length: %d\n", PAGE_SIZE);
+    return -1;
+  }
+  char *read_iter = page;
+
+retry:
+  ssize_t read = pread(fd_, read_iter, PAGE_SIZE, ppa_offset * PAGE_SIZE);
+  if (read != (ssize_t)PAGE_SIZE) {
+    if (errno == EINTR) {
+      goto retry;
+    }
+    free(page);
+    return -1;
+  }
+
+  memcpy(data, page + page_offset, meta_size);
+  free(page);
+  return meta_size;
 }
 
 // ReadBlock populates cache with the latests block. ReadBlock caller is
@@ -1244,21 +1256,29 @@ void nvm_file::PreallocateBlock(struct nvm* nvm, unsigned int vlun_id) {
   next_vblock_ = new_vblock;
   nblocks_++;
   pthread_mutex_unlock(&page_update_mtx);
+  NVM_DEBUG("Preallocated block: id: %lu, ownerid: %lu\n", next_vblock_->id,
+            next_vblock_->owner_id);
 }
 
 void nvm_file::RecoverAndLoadMetadata(struct nvm* nvm) {
   if (UNLIKELY(current_vblock_ == nullptr)) {
     NVM_DEBUG("Recovering metadata from an uninitialized nvm_file");
-    PrintNames();
+    std::vector<std::string> _names;
+    EnumerateNames(&_names);
+    uint8_t i = 0;
+    while(!nvm->LoadSpecialMetadata(_names[i])) {
+      i++;
+      if (i > _names.size()) {
+        NVM_FATAL("Cannot recover file metadata\n");
+      }
+    }
   }
   // Recover metadata from last loaded vblock
   size_t meta_size = sizeof(struct vblock_close_meta);
   unsigned int block_offset = nblocks_ - 1;
-  size_t ppa_offset = current_vblock_->nppas - 1;
-  unsigned int page_offset = PAGE_SIZE - meta_size;
   struct vblock_close_meta vblock_meta;
-  if (ReadBlock(nvm, block_offset, ppa_offset, page_offset,
-                          (char*)&vblock_meta, meta_size) != meta_size) {
+  if (ReadBlockClosingMetadata(
+        nvm, block_offset, (char*)&vblock_meta) != meta_size) {
     NVM_FATAL("Error reading current block metadata\n");
   }
 
@@ -1267,6 +1287,8 @@ void nvm_file::RecoverAndLoadMetadata(struct nvm* nvm) {
   if (!new_vblock) {
     NVM_FATAL("Could not allocate memory\n");
   }
+
+  NVM_DEBUG("GetBlockMeta: id: %lu\n", vblock_meta.next_vblock_id);
 
   if (!nvm->GetBlockMeta(vblock_meta.next_vblock_id, new_vblock)) {
     NVM_FATAL("could not get block metadata\n");
@@ -1728,9 +1750,14 @@ bool NVMWritableFile::Flush(const bool force_flush) {
   assert (curflush_ + flush_len <= buf_limit_);
 
   if (force_flush) {
-    NVM_DEBUG("FORCED FLUSH IN FILE %s. this: %pref: %p\n", filename_.c_str(), this, fd_);
+    NVM_DEBUG("FORCED FLUSH IN FILE %s. this: %p ref: %p\n",
+          filename_.c_str(), this, fd_);
     // Append vblock medatada when closing a block.
+    // TODO: If a file is forced to be flushed and not all metadata has been
+    // stored on the MANIFEST, by not saving closing metadata, we do cannot
+    // reconstruct the DFLash file when reading; this will trigger an error.
     if (curflush_ + flush_len == buf_limit_) {
+      NVM_DEBUG("Next blockid: %lu\n", fd_->GetNextBlockID());
       unsigned int meta_size = sizeof(vblock_meta);
       vblock_meta.written_bytes = buf_limit_;
       vblock_meta.ppa_bitmap = 0x0; //Use real bad page information

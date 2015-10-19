@@ -86,7 +86,6 @@ class nvm_file {
     bool ClearLastPage(nvm *nvm_api);
     bool HasName(const char *name, const int n);
     void ChangeName(const char *crt_name, const char *new_name);
-    void PrintNames();
     void EnumerateNames(std::vector<std::string>* result);
     void SetSeqWritableFile(NVMWritableFile *_writable_file);
     void SetType(FileType type) { type_ = type; }
@@ -123,6 +122,9 @@ class nvm_file {
     uint8_t GetNPersistentMetaBlocks() {
       return blocks_meta_persisted_;
     }
+    uint8_t GetNTotalBlocks() {
+      return vblocks_.size();;
+    }
 
     time_t GetLastModified();
     void UpdateFileModificationTime();
@@ -143,11 +145,12 @@ class nvm_file {
                       const size_t data_len, bool page_aligned);
     size_t Read(struct nvm *nvm, size_t read_pointer, char *data,
                 size_t data_len, struct page_cache *cache);
-
     size_t ReadBlock(struct nvm *nvm, unsigned int block_offset,
                      size_t ppa_offset, unsigned int page_offset, char *data,
                      size_t data_len, struct page_cache *cache = nullptr,
                      uint8_t read_flags = 0);
+    size_t ReadBlockClosingMetadata(struct nvm *nvm, unsigned int block_offset,
+                                    char *data);
     struct nvm_page *GetNVMPage(const unsigned long idx);
     struct nvm_page *GetLastPage(unsigned long *page_idx);
     bool SetPage(const unsigned long page_idx, nvm_page *page);

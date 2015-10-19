@@ -1107,7 +1107,7 @@ next_meta:
     }
   }
 
-  bool LoadSpecialMetadata(std::string fname) {
+  bool LoadSpecialMetadata(std::string fname) override {
     std::string recovery_location = "testingrocks/DFLASH_RECOVERY";
 
     int fd = open(recovery_location.c_str(), O_RDONLY | S_IWUSR | S_IRUSR);
