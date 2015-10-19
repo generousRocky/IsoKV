@@ -611,6 +611,24 @@ bool nvm_file::CanOpen(const char *mode) {
   return ret;
 }
 
+#ifdef NVM_DEBUG_ENABLED
+void nvm_file::PrintNames() {
+  pthread_mutex_lock(&meta_mtx);
+
+  list_node *name_node = names;
+
+  while (name_node) {
+    char *_name = (char *)name_node->GetData();
+    NVM_DEBUG("%s\n", _name);
+    name_node = name_node->GetNext();
+  }
+
+  pthread_mutex_unlock(&meta_mtx);
+}
+#else
+void nvm_file::PrintNames() {}
+#endif
+
 void nvm_file::EnumerateNames(std::vector<std::string>* result) {
   pthread_mutex_lock(&meta_mtx);
 
@@ -626,6 +644,7 @@ void nvm_file::EnumerateNames(std::vector<std::string>* result) {
 
   pthread_mutex_unlock(&meta_mtx);
 }
+
 
 bool nvm_file::HasName(const char *name, const int n) {
   int i;
@@ -1078,7 +1097,6 @@ size_t nvm_file::Read(struct nvm *nvm, size_t read_pointer, char *data,
       IOSTATS_ADD(bytes_read, data_len);
       return data_len;
     } else {
-      printf("HERE!\n");
       // NVM_DEBUG("READ WHAT YOU CAN!!!!!!!!!!!!!!!!!!!!!!!!! beg_meta: %lu, end_meta:%lu\n",
           // sizeof(struct vblock_recov_meta), sizeof(vblock_close_meta));
       // Read all we can from the page cache
@@ -1229,11 +1247,10 @@ void nvm_file::PreallocateBlock(struct nvm* nvm, unsigned int vlun_id) {
 }
 
 void nvm_file::RecoverAndLoadMetadata(struct nvm* nvm) {
-  printf("Recover and load metadata!!\n");
   if (UNLIKELY(current_vblock_ == nullptr)) {
     NVM_DEBUG("Recovering metadata from an uninitialized nvm_file");
+    PrintNames();
   }
-  assert (current_vblock_ != nullptr);
   // Recover metadata from last loaded vblock
   size_t meta_size = sizeof(struct vblock_close_meta);
   unsigned int block_offset = nblocks_ - 1;

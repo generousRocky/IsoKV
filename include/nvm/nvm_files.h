@@ -86,6 +86,7 @@ class nvm_file {
     bool ClearLastPage(nvm *nvm_api);
     bool HasName(const char *name, const int n);
     void ChangeName(const char *crt_name, const char *new_name);
+    void PrintNames();
     void EnumerateNames(std::vector<std::string>* result);
     void SetSeqWritableFile(NVMWritableFile *_writable_file);
     void SetType(FileType type) { type_ = type; }

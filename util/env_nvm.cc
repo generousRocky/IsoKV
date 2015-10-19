@@ -1036,6 +1036,37 @@ class NVMEnv : public Env {
     return optimized;
   }
 
+  bool load_private_metadata(std::string fname, void* metadata) {
+    nvm_file* fd = root_dir->nvm_fopen(fname.c_str(), "a");
+    struct vblock_meta *vblock_meta = (struct vblock_meta*)metadata;
+    struct vblock *ptr = (struct vblock*)vblock_meta->encoded_vblocks;
+    struct vblock *new_vblock;
+
+    uint64_t left = vblock_meta->len;
+    while (left > 0) {
+      new_vblock = (struct vblock*)malloc(sizeof(struct vblock));
+      if (!new_vblock) {
+        NVM_FATAL("Could not allocate memory\n");
+      }
+      memcpy(new_vblock, ptr, sizeof(struct vblock));
+        NVM_DEBUG("Load file: %s - Decoding: id: %lu, ownerid: %lu, nppas: %lu, ppa_bitmap: %lu, bppa: %llu, vlun_id: %d, flags: %d\n",
+        fname.c_str(), new_vblock->id, new_vblock->owner_id, new_vblock->nppas, new_vblock->ppa_bitmap,
+        new_vblock->bppa, new_vblock->vlun_id, new_vblock->flags);
+
+      // Add to vblock vector
+      if (fd == nullptr) {
+        NVM_FATAL("SOMETHING WAS FREED BEFORE TIME\n");
+      }
+      fd->LoadBlock(new_vblock);
+      left--;
+      ptr++;
+    }
+    fd->UpdateCurrentBlock();
+    free(vblock_meta->encoded_vblocks);
+    free(vblock_meta);
+    return true;
+  }
+
   void LoadSuperblockMetadata(std::string* fname, Slice* super_meta) {
     void* meta = Env::DecodePrivateMetadata(super_meta);
     if (LoadPrivateMetadata(*fname, meta) != Status::OK()) {
@@ -1076,40 +1107,102 @@ next_meta:
     }
   }
 
+  bool LoadSpecialMetadata(std::string fname) {
+    std::string recovery_location = "testingrocks/DFLASH_RECOVERY";
+
+    int fd = open(recovery_location.c_str(), O_RDONLY | S_IWUSR | S_IRUSR);
+    if (fd < 0) {
+      NVM_FATAL("Unable to open RECOVERY for reading\n");
+    }
+
+    char* recovery = new char[100]; //TODO: Can file names be larger?
+    size_t offset = 0;
+    ssize_t r = -1;
+    int count = 0;
+retry:
+    size_t name_len = 0;
+    char* ptr = recovery;
+    while (1) {
+      r = pread(fd, ptr, 1, offset);
+      if (r <= 0) {
+        if (errno == EINTR) {
+          continue;
+        } else if (errno == EOF) {
+          NVM_DEBUG("File %s not found in RECOVERY\n", fname.c_str());
+        }
+        NVM_FATAL("Error reading RECOVERY\n");
+        return false;
+      }
+      if (ptr[0] == ':') {
+        break;
+      }
+      ptr += r;
+      offset += r;
+      name_len +=r;
+    }
+
+    offset += 1;
+    if (fname.compare(0, fname.size(), recovery, name_len) != 0) {
+      int len;
+      char aux[2];
+      if (pread(fd, &aux, 2, offset) != 2) {
+        NVM_FATAL("Error reading RECOVERY file\n");
+      }
+      len = atoi(aux);
+
+      lseek(fd, offset + len + 2 + 1, SEEK_SET);
+      offset += len + 2 + 1; // aux + \n in RECOVERY format
+      count ++;
+      goto retry;
+    }
+
+    NVM_DEBUG("Found metadata in RECOVERY for file: %s\n", fname.c_str());
+    int len;
+    char aux[2];
+    if (pread(fd, &aux, 2, offset) != 2) {
+      NVM_FATAL("Error reading RECOVERY file\n");
+    }
+    len = atoi(aux);
+    offset += 2; // aux
+
+    char* read_meta = (char*)malloc(len * sizeof(char));
+    if (!read_meta) {
+      NVM_FATAL("Could not allocate memory\n");
+    }
+
+    if (pread(fd, read_meta, len, offset) != len) {
+      NVM_FATAL("Error reading RECOVERY file\n");
+    }
+
+    Slice recovery_meta = Slice(read_meta, len);
+    void* meta = DecodePrivateMetadata(&recovery_meta);
+    if (!load_private_metadata(fname, meta)) {
+      NVM_DEBUG("Could not load metadata from RECOVERY\n");
+    }
+
+    free(read_meta);
+    close(fd);
+    return true;
+  }
+
   Status LoadPrivateMetadata(std::string fname, void* metadata) override {
     if (metadata == nullptr) {
-      printf("METADATA NOT LOADED for file %s!!!!!!!!!!!!!!\n", fname.c_str());
-      // TODO: Load from RECOVERY - the metadata did not make it to the MANIFEST
-      // in the past RocksDB instance
-      return Status::IOError("Metadada not loaded for file");
-    }
-    nvm_file* fd = root_dir->nvm_fopen(fname.c_str(), "a");
-    struct vblock_meta *vblock_meta = (struct vblock_meta*)metadata;
-    struct vblock *ptr = (struct vblock*)vblock_meta->encoded_vblocks;
-    struct vblock *new_vblock;
-
-    uint64_t left = vblock_meta->len;
-    while (left > 0) {
-      new_vblock = (struct vblock*)malloc(sizeof(struct vblock));
-      if (!new_vblock) {
-        NVM_FATAL("Could not allocate memory\n");
+      NVM_DEBUG("Metada for %s not in MANIFEST\n", fname.c_str());
+      // Try reading metadata from DFLassh private metadata (metadata that did
+      // not make it to the MANIFEST before last instance was closed.
+      if (!LoadSpecialMetadata(fname)) {
+        NVM_DEBUG("Metadata not loaded for file: %s\n", fname.c_str());
+        return Status::IOError("Metadada not loaded for file");
       }
-      memcpy(new_vblock, ptr, sizeof(struct vblock));
-        NVM_DEBUG("Load file: %s - Decoding: id: %lu, ownerid: %lu, nppas: %lu, ppa_bitmap: %lu, bppa: %llu, vlun_id: %d, flags: %d\n",
-        fname.c_str(), new_vblock->id, new_vblock->owner_id, new_vblock->nppas, new_vblock->ppa_bitmap,
-        new_vblock->bppa, new_vblock->vlun_id, new_vblock->flags);
-
-      // Add to vblock vector
-      if (fd == nullptr) {
-        NVM_FATAL("SOMETHING WAS FREED BEFORE TIME\n");
-      }
-      fd->LoadBlock(new_vblock);
-      left--;
-      ptr++;
+      NVM_DEBUG("Metadata loaded: %s\n", fname.c_str());
+      return Status::OK();
     }
-    fd->UpdateCurrentBlock();
-    free(vblock_meta->encoded_vblocks);
-    free(vblock_meta);
+
+    if (!load_private_metadata(fname, metadata)) {
+      NVM_DEBUG("Metadata not loaded for file: %s\n", fname.c_str());
+      return Status::IOError("Error while loading metadata");
+    }
+    NVM_DEBUG("Metadata loaded: %s\n", fname.c_str());
     return Status::OK();
   }
 
@@ -1133,7 +1226,6 @@ next_meta:
   // (DFLASH_RECOVERY). If this file does not exist we need to scan all blocks
   // and reconstruct DFLASH metadata.
   void DiscoverAndLoadLogPrivateMetadata(uint64_t log_number) {
-    std::string recovery_location = "testingrocks/DFLASH_RECOVERY";
     std::string log_name = LogFileName("testingrocks", log_number);
 
     // Check if the file has already been loaded from MANIFEST
@@ -1146,82 +1238,7 @@ next_meta:
       }
     }
 
-    // printf("Discover and load log %s\n", log_name.c_str());
-    int fd = open(recovery_location.c_str(), O_RDONLY | S_IWUSR | S_IRUSR);
-    if (fd < 0) {
-      NVM_FATAL("Unable to open RECOVERY for reading\n");
-    }
-
-    char* recovery = new char[100]; //TODO: Can file names be larger?
-    size_t offset = 0;
-    ssize_t r = -1;
-    int count = 0;
-retry:
-    if (count > 10) {
-      NVM_FATAL("");
-    }
-    size_t name_len = 0;
-    char* ptr = recovery;
-    while (1) {
-      r = pread(fd, ptr, 1, offset);
-      if (r <= 0) {
-        if (errno == EINTR) {
-          continue;
-        } else if (errno == EOF) {
-          NVM_DEBUG("Log %s not found in RECOVERY\n", log_name.c_str());
-        }
-        NVM_FATAL("Error reading RECOVERY\n");
-        return;
-      }
-      if (ptr[0] == ':') {
-        break;
-      }
-      ptr += r;
-      offset += r;
-      name_len +=r;
-    }
-
-    offset += 1;
-    if (log_name.compare(0, log_name.size(), recovery, name_len) != 0) {
-      int len;
-      char aux[2];
-      if (pread(fd, &aux, 2, offset) != 2) {
-        NVM_FATAL("Error reading RECOVERY file\n");
-      }
-      len = atoi(aux);
-
-      lseek(fd, offset + len + 2 + 1, SEEK_SET);
-      offset += len + 2 + 1; // aux + \n in RECOVERY format
-      count ++;
-      goto retry;
-    }
-
-    NVM_DEBUG("Found metadata in RECOVERY for log: %s\n", log_name.c_str());
-    int len;
-    char aux[2];
-    if (pread(fd, &aux, 2, offset) != 2) {
-      NVM_FATAL("Error reading RECOVERY file\n");
-    }
-    len = atoi(aux);
-    offset += 2; // aux
-
-    char* read_meta = (char*)malloc(len * sizeof(char));
-    if (!read_meta) {
-      NVM_FATAL("Could not allocate memory\n");
-    }
-
-    if (pread(fd, read_meta, len, offset) != len) {
-      NVM_FATAL("Error reading RECOVERY file\n");
-    }
-
-    Slice recovery_meta = Slice(read_meta, len);
-    void* meta = DecodePrivateMetadata(&recovery_meta);
-    if (LoadPrivateMetadata(log_name, meta) != Status::OK()) {
-      NVM_DEBUG("Could not load metadata from RECOVERY\n");
-    }
-
-    free(read_meta);
-    close(fd);
+    LoadSpecialMetadata(log_name);
   }
 
   void DecodeAndLoadLogPrivateMetadata(Slice* input, uint64_t log_number) {
