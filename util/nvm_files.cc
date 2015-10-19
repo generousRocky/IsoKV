@@ -1238,6 +1238,111 @@ void nvm_file::GetBlock(struct nvm *nvm, unsigned int vlun_id) {
   pthread_mutex_unlock(&page_update_mtx);
 }
 
+bool nvm_file::LoadPrivateMetadata(std::string fname, void* metadata) {
+  struct vblock_meta *vblock_meta = (struct vblock_meta*)metadata;
+  struct vblock *ptr = (struct vblock*)vblock_meta->encoded_vblocks;
+  struct vblock *new_vblock;
+
+  uint64_t left = vblock_meta->len;
+  while (left > 0) {
+    new_vblock = (struct vblock*)malloc(sizeof(struct vblock));
+    if (!new_vblock) {
+      NVM_FATAL("Could not allocate memory\n");
+    }
+    memcpy(new_vblock, ptr, sizeof(struct vblock));
+    NVM_DEBUG("Load file: %s - Decoding: id: %lu, ownerid: %lu, nppas: %lu, ppa_bitmap: %lu, bppa: %llu, vlun_id: %d, flags: %d\n",
+              fname.c_str(), new_vblock->id, new_vblock->owner_id, new_vblock->nppas, new_vblock->ppa_bitmap,
+              new_vblock->bppa, new_vblock->vlun_id, new_vblock->flags);
+
+    // Add to vblock vector
+    LoadBlock(new_vblock);
+    left--;
+    ptr++;
+  }
+  UpdateCurrentBlock();
+  free(vblock_meta->encoded_vblocks);
+  free(vblock_meta);
+  return true;
+}
+
+bool nvm_file::LoadSpecialMetadata(std::string fname) {
+  std::string recovery_location = "testingrocks/DFLASH_RECOVERY";
+
+  int fd = open(recovery_location.c_str(), O_RDONLY | S_IWUSR | S_IRUSR);
+  if (fd < 0) {
+    NVM_FATAL("Unable to open RECOVERY for reading\n");
+  }
+
+  char* recovery = new char[100]; //TODO: Can file names be larger?
+  size_t offset = 0;
+  ssize_t r = -1;
+  int count = 0;
+retry:
+  size_t name_len = 0;
+  char* ptr = recovery;
+  while (1) {
+    r = pread(fd, ptr, 1, offset);
+    if (r <= 0) {
+      if (errno == EINTR) {
+        continue;
+      } else if (errno == EOF) {
+        NVM_DEBUG("File %s not found in RECOVERY\n", fname.c_str());
+      }
+      NVM_FATAL("Error reading RECOVERY\n");
+      return false;
+    }
+    if (ptr[0] == ':') {
+      break;
+    }
+    ptr += r;
+    offset += r;
+    name_len +=r;
+  }
+
+  offset += 1;
+  if (fname.compare(0, fname.size(), recovery, name_len) != 0) {
+    int len;
+    char aux[2];
+    if (pread(fd, &aux, 2, offset) != 2) {
+      NVM_FATAL("Error reading RECOVERY file\n");
+    }
+    len = atoi(aux);
+
+    lseek(fd, offset + len + 2 + 1, SEEK_SET);
+    offset += len + 2 + 1; // aux + \n in RECOVERY format
+    count ++;
+    goto retry;
+  }
+
+  NVM_DEBUG("Found metadata in RECOVERY for file: %s\n", fname.c_str());
+  int len;
+  char aux[2];
+  if (pread(fd, &aux, 2, offset) != 2) {
+    NVM_FATAL("Error reading RECOVERY file\n");
+  }
+  len = atoi(aux);
+  offset += 2; // aux
+
+  char* read_meta = (char*)malloc(len * sizeof(char));
+  if (!read_meta) {
+    NVM_FATAL("Could not allocate memory\n");
+  }
+
+  if (pread(fd, read_meta, len, offset) != len) {
+    NVM_FATAL("Error reading RECOVERY file: len: %d\n", len);
+  }
+
+  Slice recovery_meta = Slice(read_meta, len);
+  void* meta = Env::DecodePrivateMetadata(&recovery_meta);
+  if (!LoadPrivateMetadata(fname, meta)) {
+    NVM_DEBUG("Could not load metadata from RECOVERY\n");
+  }
+
+  free(read_meta);
+  close(fd);
+  return true;
+}
+
 // Get a new vblock and put it in the nvm_file vblock vector, but do not update
 // pointers
 void nvm_file::PreallocateBlock(struct nvm* nvm, unsigned int vlun_id) {
@@ -1266,7 +1371,7 @@ void nvm_file::RecoverAndLoadMetadata(struct nvm* nvm) {
     std::vector<std::string> _names;
     EnumerateNames(&_names);
     uint8_t i = 0;
-    while(!nvm->LoadSpecialMetadata(_names[i])) {
+    while(LoadSpecialMetadata(_names[i])) {
       i++;
       if (i > _names.size()) {
         NVM_FATAL("Cannot recover file metadata\n");

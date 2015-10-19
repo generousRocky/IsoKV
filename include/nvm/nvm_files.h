@@ -135,6 +135,8 @@ class nvm_file {
     size_t GetNextPos() { return vblocks_.size() + 1; }
     void GetBlock(struct nvm *nvm, unsigned int vlun_id);
     void PreallocateBlock(struct nvm *nvm, unsigned int vlun_id);
+    bool LoadPrivateMetadata(std::string fname, void* metadata);
+    bool LoadSpecialMetadata(std::string fname);
     void RecoverAndLoadMetadata(struct nvm* nvm);
     void ReplaceBlock(struct nvm *nvm, unsigned int vlun_id,
                       unsigned int block_idx);
