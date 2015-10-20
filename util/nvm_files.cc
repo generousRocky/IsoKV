@@ -1551,9 +1551,9 @@ size_t nvm_file::FlushBlock(struct nvm *nvm, char *data, size_t ppa_offset,
   //TODO: Use libaio instead of pread/pwrite
   //TODO: Write in out of bound area when API is ready (per_page_meta and
   //last_page_meta
-  
+
   char *data_aligned_write = data_aligned;
-  
+
   while (left > 0) {
     // left is guaranteed to be a multiple of PAGE_SIZE
     bytes_per_write = (left > max_bytes_per_write) ? max_bytes_per_write : left;
@@ -1562,7 +1562,7 @@ size_t nvm_file::FlushBlock(struct nvm *nvm, char *data, size_t ppa_offset,
     if ((unsigned)pwrite(fd_, data_aligned_write, bytes_per_write,
                                      current_ppa * PAGE_SIZE) != bytes_per_write) {
       //TODO: See if we can recover. Use another ppa + mark bad page in bitmap?
-      NVM_ERROR("ERROR: Page no written\n");
+      NVM_ERROR("ERROR: Page not written\n");
       ret = 0;
       goto out;
     }
@@ -1903,8 +1903,10 @@ bool NVMWritableFile::Flush(const bool force_flush) {
 // Allocate a new block to store future flushes in flash memory. Also,
 // reset all buffer pointers and sizes; there is no need to maintain old
 // buffered data in cache.
+// XXX: This method is deprecated
 bool NVMWritableFile::GetNewBlock() {
   struct nvm *nvm = dir_->GetNVMApi();
+  // TODO: Maintain a global state for LUN usage
   unsigned int vlun_id = 0;
 
   if(fd_ == nullptr) {
