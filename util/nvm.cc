@@ -606,8 +606,8 @@ int nvm::open_nvm_device(const char *file) {
     return fd;
   }
 
-  std::string cmd = std::string("echo \"a nvme0n1 ") + std::string(file) +
-        std::string(" nba 0:0\" > /sys/module/lnvm/parameters/configure_debug");
+  std::string cmd = std::string("echo \"a nexus0n1 ") + std::string(file) +
+        std::string(" nba 0:3\" > /sys/module/lnvm/parameters/configure_debug");
 
   if (system(cmd.c_str())) {
     return -1;
