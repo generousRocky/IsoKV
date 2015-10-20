@@ -1344,14 +1344,18 @@ retry:
 }
 
 // Get a new vblock and put it in the nvm_file vblock vector, but do not update
-// pointers
-void nvm_file::PreallocateBlock(struct nvm* nvm, unsigned int vlun_id) {
+// pointers. PreallocateBlock will try to exploit parallelism on the device
+// for this db instance (write), but also for future read instances by
+// allocating blocks from different LUNs withing the same DFlash file
+void nvm_file::PreallocateBlock(struct nvm* nvm) {
   //TODO: Make this better: mmap memory into device??
   struct vblock *new_vblock = (struct vblock*)malloc(sizeof(struct vblock));
   if (!new_vblock) {
     NVM_FATAL("Could not allocate memory\n");
   }
 
+  // Enable to use as many LUNs in parallel as possible.
+  unsigned int vlun_id = vblocks_.size() % nvm->nr_luns;
   if (!nvm->GetBlock(vlun_id, new_vblock)) {
     NVM_FATAL("could not get a new block - ssd out of space\n");
   }
@@ -1361,8 +1365,8 @@ void nvm_file::PreallocateBlock(struct nvm* nvm, unsigned int vlun_id) {
   next_vblock_ = new_vblock;
   nblocks_++;
   pthread_mutex_unlock(&page_update_mtx);
-  NVM_DEBUG("Preallocated block: id: %lu, ownerid: %lu\n", next_vblock_->id,
-            next_vblock_->owner_id);
+  NVM_DEBUG("Preallocated block: id: %lu, lunid: %d, ownerid: %lu\n",
+            next_vblock_->id, next_vblock_->vlun_id, next_vblock_->owner_id);
 }
 
 void nvm_file::RecoverAndLoadMetadata(struct nvm* nvm) {
@@ -1954,7 +1958,7 @@ bool NVMWritableFile::GetNewBlock() {
 }
 
 // Preallocate a new block to store future flushes in flash memory.
-bool NVMWritableFile::PreallocateNewBlock(unsigned int vlun_id) {
+bool NVMWritableFile::PreallocateNewBlock() {
   struct nvm *nvm = dir_->GetNVMApi();
 
   if(fd_ == nullptr) {
@@ -1962,7 +1966,7 @@ bool NVMWritableFile::PreallocateNewBlock(unsigned int vlun_id) {
     //pointing to it
     return false;
   }
-  fd_->PreallocateBlock(nvm, vlun_id);
+  fd_->PreallocateBlock(nvm);
   return true;
 }
 
@@ -2031,8 +2035,7 @@ Status NVMWritableFile::Append(const Slice& data) {
   // If the size of the appended data does not fit in one flash block, fill out
   // this block, get a new block and continue writing
   if (cursize_ + left > buf_limit_) {
-    unsigned int vlun_id = 0;
-    PreallocateNewBlock(vlun_id);
+    PreallocateNewBlock();
     size_t fits_in_buf = (buf_limit_ - cursize_);
     memcpy(mem_, src, fits_in_buf);
     mem_ += fits_in_buf;

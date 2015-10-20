@@ -134,7 +134,7 @@ class nvm_file {
 
     size_t GetNextPos() { return vblocks_.size() + 1; }
     void GetBlock(struct nvm *nvm, unsigned int vlun_id);
-    void PreallocateBlock(struct nvm *nvm, unsigned int vlun_id);
+    void PreallocateBlock(struct nvm *nvm);
     bool LoadPrivateMetadata(std::string fname, void* metadata);
     bool LoadSpecialMetadata(std::string fname);
     void RecoverAndLoadMetadata(struct nvm* nvm);
@@ -313,14 +313,14 @@ class NVMWritableFile : public WritableFile {
     size_t CalculatePpaOffset(size_t curflush);
     bool Flush(const bool closing);
     bool GetNewBlock();
-    bool PreallocateNewBlock(unsigned int vlun_id);
+    bool PreallocateNewBlock();
     bool UseNewBlock();
     bool UpdateLastPage();
 
   public:
     NVMWritableFile(const std::string& fname, nvm_file *fd, nvm_directory *dir);
     ~NVMWritableFile();
-    
+
     void FileDeletedEvent();
 
     virtual Status Append(const Slice& data) override;
