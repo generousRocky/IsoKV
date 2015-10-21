@@ -965,7 +965,8 @@ void ReadBlock(struct nvm *nvm, int fd, struct vblock *current_vblock,
   unsigned long max_bytes_per_read = nvm->max_pages_in_io * PAGE_SIZE;
   unsigned long bytes_per_read;
   uint8_t pages_per_read = 0;
-  unsigned int meta_beg_size = (flags == 1) ? 0 : sizeof(struct vblock_recov_meta);
+  unsigned int meta_beg_size = (flags && READBLOCK_COUNT_METADATA) ?
+                sizeof(struct vblock_recov_meta) : 0;
 
   // buf and block_cache are mutually exclusive.
   char *data = (buf == nullptr) ? block_cache->cache : buf;
@@ -985,17 +986,20 @@ void ReadBlock(struct nvm *nvm, int fd, struct vblock *current_vblock,
   assert(left <= (nppas * PAGE_SIZE));
   assert((left % PAGE_SIZE) == 0);
 
+  NVM_DEBUG("mem-before\n");
   // TODO: JAVIER: Only allocate for max_bytes_per_read and test performance
   char *page = (char*)memalign(PAGE_SIZE, left);
   if (!page) {
     NVM_FATAL("Cannot allocate aligned memory of length: %lu\n",
                                                             nppas * PAGE_SIZE);
   }
+  NVM_DEBUG("mem-after\n");
 
   char *read_iter = page;
 
   while (left > 0) {
 retry:
+    NVM_DEBUG("Loop; Lef: %lu\n", left);
     bytes_per_read = (left > max_bytes_per_read) ? max_bytes_per_read : left;
     pages_per_read = bytes_per_read / PAGE_SIZE;
 
@@ -1021,17 +1025,24 @@ retry:
     left -= bytes_per_read;
   }
 
+  // XXX: DEBUGGING
+  if (block_cache != nullptr) {
+    NVM_DEBUG("Cache after reading: state:%d, bytes:%lu, cache:%p data:%p\n",
+              block_cache->state, block_cache->bytes_cached, block_cache->cache,
+              data);
+  }
   // Account for crash recovery metadata at the beginning of the block
+  // TODO: Spare this memory copy when caching data - memory alread aligned
   read_offset = page_offset + meta_beg_size;
   memcpy(data, page + read_offset, data_len);
 
   IOSTATS_ADD(bytes_read, data_len);
-  if (cache != nullptr) {
-    cache = page;
-    page = nullptr;
-  } else {
-    free(page);
-  }
+  // if (cache != nullptr) {
+    // cache = page;
+    // page = nullptr;
+  // } else {
+    // free(page);
+  // }
   if (total_read != nullptr) {
     *total_read = data_len - left;
   }
@@ -1047,23 +1058,26 @@ size_t nvm_file::ReadCache(unsigned int block_offset, size_t ppa_offset,
   size_t left = data_len;
   size_t total_read = 0;
 
-  NVM_DEBUG("Reading from cache: %lu bytes\n", data_len);
+  NVM_DEBUG("Read cache. BO:%d PPAO:%lu, PO:%d. To read from block: %lu, left:%lu\n",
+            block_offset, ppa_offset, page_offset, data_len, left);
   while (left > 0) {
     // size_t bytes_left_block =
                    // ((nppas - ppa_offset) * PAGE_SIZE) - page_offset - meta_size;
     // size_t bytes_per_read = (left > bytes_left_block) ? bytes_left_block : left;
     size_t cache_offset = (ppa_offset * PAGE_SIZE) + page_offset;
     size_t cached_data = block_cache_[block_offset].bytes_cached - cache_offset;
+    size_t to_read = (cached_data < data_len) ? cached_data : data_len;
 
-    NVM_DEBUG("Loop cache: %lu of %lu\n", cached_data, left);
+    NVM_DEBUG("Loop cache. read:%lu left:%lu total:%lu, coffset:%lu\n",
+          to_read, left, total_read, cache_offset);
     memcpy(data + total_read, block_cache_[block_offset].cache + cache_offset,
-           cached_data);
+           to_read);
     // if (cached_data == data_len) {
       // return cached_data;
     // }
 
-    total_read += cached_data;
-    left -= cached_data;
+    total_read += to_read;
+    left -= to_read;
     block_offset++;
     ppa_offset = 0;
     page_offset = 0;
@@ -1091,7 +1105,7 @@ size_t nvm_file::Read(struct nvm *nvm, size_t read_pointer, char *data,
   size_t bytes_left_block;
   size_t bytes_per_read;
   size_t total_read = 0;
-  uint8_t read_flags = 0;
+  uint8_t read_flags = READBLOCK_COUNT_METADATA;
   size_t ppa_offset =
           ((read_pointer - (block_offset * bytes_per_block)) / PAGE_SIZE) %
           (bytes_per_block);
@@ -1169,7 +1183,7 @@ size_t nvm_file::Read(struct nvm *nvm, size_t read_pointer, char *data,
       // Update read pointers
       left -= valid_cached_bytes - cache_page_offset;
       total_read += valid_cached_bytes - cache_page_offset;
-      read_flags = 1;
+      read_flags = READBLOCK_INIT;
       page_offset = 0;
       ppa_offset = cache_ppa_offset + valid_cached_bytes / PAGE_SIZE;
       if (ppa_offset >= nppas) {
@@ -1187,7 +1201,7 @@ size_t nvm_file::Read(struct nvm *nvm, size_t read_pointer, char *data,
 
 continue1:
   // Page cache is invalid. Clean and submit an I/O
-  CleanPageCache(cache);
+  // CleanPageCache(cache);
 
   // TODO: When we have vblocks comming from different LUNs we can read all
   // vblocks in parallel, so we would not need to iterate.
@@ -1210,10 +1224,16 @@ retry:
       // Try block cache
       if ((block_offset < block_cache_.size()) &&
                      (block_cache_[block_offset].state == BLOCK_CACHE_VALID)) {
+        NVM_DEBUG("Directly into cache\n");
+        NVM_DEBUG("Cache: state:%d bytes:%lu cache%p\n",
+            block_cache_[block_offset].state,
+            block_cache_[block_offset].bytes_cached,
+            block_cache_[block_offset].cache);
         return ReadCache(block_offset, ppa_offset, page_offset, data, data_len);
       }
 
-      NVM_DEBUG("Sequential reads. Setting up parallel read threads\n");
+      NVM_DEBUG("Sequential reads. Setting up parallel read threads. nblocks_: %d\n",
+                nblocks_);
       for (int i = 0; i < nblocks_; i++) {
         char *new_cache =
                 (char*)memalign(PAGE_SIZE, PAGE_SIZE * vblocks_[i]->nppas);
@@ -1230,31 +1250,36 @@ retry:
         unsigned int c_block_offset = block_offset;
         size_t c_ppa_offset = ppa_offset;
         unsigned int c_page_offset = page_offset;
-        size_t c_left = left;
-        size_t c_bytes_per_read = bytes_per_read;
+        // size_t c_left = left;
+        // size_t c_bytes_per_read = bytes_per_read;
         // TODO: Look at thread priorities - First thread should have highest
         // priority to return the requested data transparently from the
         // prefetching strategy to the upper layers
         // TODO (performance): Send data on a first thread, and read all you can
         // from thre to avoid an extra memory copy
+        NVM_DEBUG("BEFORE\n");
         std::thread t([&] { ReadBlock(nvm, fd_, vblocks_[c_block_offset],
                                       c_ppa_offset, c_page_offset,
                                       nullptr, &block_cache_[i],
-                                      c_bytes_per_read, nullptr, cache->cache,
+                                      size_, nullptr, cache->cache,
                                       read_flags); });
         // threads_.emplace_back(t); //Not sure we need this...
+        NVM_DEBUG("AFTER\n");
+        t.join();
 
         // Prefetch complete blocks
         c_block_offset++;
         c_ppa_offset = 0;
         c_page_offset = 0;
-        c_left -= bytes_per_read;
+        // c_left -= bytes_per_read;
         read_flags = 0;
 
-        bytes_left_block =
-                  ((nppas - ppa_offset) * PAGE_SIZE) - page_offset - meta_size;
-        c_bytes_per_read = (left > bytes_left_block) ? bytes_left_block : left;
+        // bytes_left_block =
+                  // ((nppas - ppa_offset) * PAGE_SIZE) - page_offset - meta_size;
+        // c_bytes_per_read = (c_left > bytes_left_block) ? bytes_left_block : c_left;
+        NVM_DEBUG("END\n");
       }
+      NVM_DEBUG("Cache...\n");
       return ReadCache(block_offset, ppa_offset, page_offset,
                        data, data_len);
     } else {
@@ -1770,7 +1795,7 @@ NVMSequentialFile::NVMSequentialFile(const std::string& fname, nvm_file *fd,
 }
 
 NVMSequentialFile::~NVMSequentialFile() {
-  fd_->CleanPageCache(&page_cache_);
+  // fd_->CleanPageCache(&page_cache_);
   dir_->nvm_fclose(fd_, "r");
 }
 
@@ -1793,7 +1818,7 @@ Status NVMSequentialFile::Read(size_t n, Slice* result, char* scratch) {
   // DFlash_file knows how data is spread across vblocks. Thus we let it recover
   // data from the page cache or update the pointer to the most recent read
   // pages.
-  if (fd_->Read(nvm, read_pointer_, scratch, n, &page_cache_, READ_RAND) != n) {
+  if (fd_->Read(nvm, read_pointer_, scratch, n, &page_cache_, READ_SEQ) != n) {
     return Status::IOError("Unable to read\n");
   }
 
@@ -1836,7 +1861,7 @@ NVMRandomAccessFile::NVMRandomAccessFile(const std::string& fname, nvm_file *f,
 }
 
 NVMRandomAccessFile::~NVMRandomAccessFile() {
-  fd_->CleanPageCache(&page_cache_);
+  // fd_->CleanPageCache(&page_cache_);
   dir_->nvm_fclose(fd_, "r");
 }
 

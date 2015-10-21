@@ -95,6 +95,11 @@ struct vpage_meta {
 #define BLOCK_CACHE_INVALID  0x0
 #define BLOCK_CACHE_VALID    0x1
 #define BLOCK_CACHE_OUTDATED 0x2
+
+#define READBLOCK_INIT           0x0
+#define READBLOCK_COUNT_METADATA 0x1
+#define READBLOCK_READ_ALL       0x2
+
 struct block_cache {
   uint8_t state;
   size_t bytes_cached;
