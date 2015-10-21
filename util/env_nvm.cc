@@ -29,7 +29,7 @@ static void* StartThreadWrapper(void* arg) {
   StartThreadState* state = reinterpret_cast<StartThreadState*>(arg);
   state->user_function(state->arg);
 
-  delete state;
+  // delete state;
   return nullptr;
 }
 

@@ -896,6 +896,12 @@ struct nvm_page *nvm_file::GetNVMPage(const unsigned long idx) {
 //TODO: REFACTOR FROM HERE UP!!
 
 void nvm_file::ClearBlockCache() {
+  for (auto& t : threads_) {
+    if (t.joinable()) {
+      t.join();
+    }
+  }
+
   for (unsigned int i = 0; i < block_cache_.size(); i++) {
     if (block_cache_[i].cache != nullptr) {
       free(block_cache_[i].cache);
@@ -1025,16 +1031,18 @@ retry:
     left -= bytes_per_read;
   }
 
-  // XXX: DEBUGGING
-  if (block_cache != nullptr) {
-    NVM_DEBUG("Cache after reading: state:%d, bytes:%lu, cache:%p data:%p\n",
-              block_cache->state, block_cache->bytes_cached, block_cache->cache,
-              data);
-  }
   // Account for crash recovery metadata at the beginning of the block
   // TODO: Spare this memory copy when caching data - memory alread aligned
   read_offset = page_offset + meta_beg_size;
   memcpy(data, page + read_offset, data_len);
+
+  // XXX: DEBUGGING
+  if (block_cache != nullptr) {
+    block_cache->state = BLOCK_CACHE_VALID;
+    NVM_DEBUG("Cache after reading: state:%d, bytes:%lu, cache:%p data:%p\n",
+              block_cache->state, block_cache->bytes_cached, block_cache->cache,
+              data);
+  }
 
   IOSTATS_ADD(bytes_read, data_len);
   // if (cache != nullptr) {
@@ -1058,9 +1066,18 @@ size_t nvm_file::ReadCache(unsigned int block_offset, size_t ppa_offset,
   size_t left = data_len;
   size_t total_read = 0;
 
+  NVM_DEBUG("Cache: state:%d bytes:%lu cache%p\n",
+            block_cache_[block_offset].state,
+            block_cache_[block_offset].bytes_cached,
+            block_cache_[block_offset].cache);
   NVM_DEBUG("Read cache. BO:%d PPAO:%lu, PO:%d. To read from block: %lu, left:%lu\n",
             block_offset, ppa_offset, page_offset, data_len, left);
   while (left > 0) {
+    if (block_cache_[block_offset].state != BLOCK_CACHE_VALID) {
+      threads_[block_offset].join();
+      NVM_DEBUG("Joining thread %d\n",block_offset);
+      // NVM_DEBUG("cache state:%d\n", block_cache_[block_offset].state);
+    }
     // size_t bytes_left_block =
                    // ((nppas - ppa_offset) * PAGE_SIZE) - page_offset - meta_size;
     // size_t bytes_per_read = (left > bytes_left_block) ? bytes_left_block : left;
@@ -1225,10 +1242,6 @@ retry:
       if ((block_offset < block_cache_.size()) &&
                      (block_cache_[block_offset].state == BLOCK_CACHE_VALID)) {
         NVM_DEBUG("Directly into cache\n");
-        NVM_DEBUG("Cache: state:%d bytes:%lu cache%p\n",
-            block_cache_[block_offset].state,
-            block_cache_[block_offset].bytes_cached,
-            block_cache_[block_offset].cache);
         return ReadCache(block_offset, ppa_offset, page_offset, data, data_len);
       }
 
@@ -1242,7 +1255,7 @@ retry:
                   PAGE_SIZE * vblocks_[i]->nppas);
         }
         struct block_cache new_element;
-        new_element.state = BLOCK_CACHE_VALID;
+        new_element.state = BLOCK_CACHE_INVALID;
         new_element.bytes_cached = 0;
         new_element.cache = new_cache;
         block_cache_.push_back(new_element);
@@ -1257,15 +1270,13 @@ retry:
         // prefetching strategy to the upper layers
         // TODO (performance): Send data on a first thread, and read all you can
         // from thre to avoid an extra memory copy
-        NVM_DEBUG("BEFORE\n");
-        std::thread t([&] { ReadBlock(nvm, fd_, vblocks_[c_block_offset],
+        threads_.emplace_back(ReadBlock, nvm, fd_, vblocks_[c_block_offset],
                                       c_ppa_offset, c_page_offset,
                                       nullptr, &block_cache_[i],
                                       size_, nullptr, cache->cache,
-                                      read_flags); });
-        // threads_.emplace_back(t); //Not sure we need this...
-        NVM_DEBUG("AFTER\n");
-        t.join();
+                                      read_flags);
+        // threads_.emplace_back(move(t)); //Not sure we need this...
+        // t.join();
 
         // Prefetch complete blocks
         c_block_offset++;
@@ -1277,9 +1288,7 @@ retry:
         // bytes_left_block =
                   // ((nppas - ppa_offset) * PAGE_SIZE) - page_offset - meta_size;
         // c_bytes_per_read = (c_left > bytes_left_block) ? bytes_left_block : c_left;
-        NVM_DEBUG("END\n");
       }
-      NVM_DEBUG("Cache...\n");
       return ReadCache(block_offset, ppa_offset, page_offset,
                        data, data_len);
     } else {
@@ -1289,10 +1298,9 @@ retry:
       assert (vblocks_.size() != 0);
 
       size_t bytes_read;
-      std::thread t([&] { ReadBlock(nvm, fd_, vblocks_[block_offset], ppa_offset,
+      ReadBlock(nvm, fd_, vblocks_[block_offset], ppa_offset,
                     page_offset, data + total_read, nullptr, bytes_per_read,
-                    &bytes_read, cache->cache, read_flags); });
-      t.join();
+                    &bytes_read, cache->cache, read_flags);
 
       // TODO: Do we need this check?
       if (LIKELY(cache != nullptr)) {
@@ -1707,7 +1715,8 @@ size_t nvm_file::FlushBlock(struct nvm *nvm, char *data, size_t ppa_offset,
     if ((unsigned)pwrite(fd_, data_aligned_write, bytes_per_write,
                                      current_ppa * PAGE_SIZE) != bytes_per_write) {
       //TODO: See if we can recover. Use another ppa + mark bad page in bitmap?
-      NVM_ERROR("ERROR: Page not written\n");
+      NVM_ERROR("ERROR: Page not written. Bytes:%lu, ppa:%lu\n", bytes_per_write,
+                current_ppa);
       ret = 0;
       goto out;
     }
