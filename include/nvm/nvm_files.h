@@ -3,6 +3,7 @@
 
 #include "db/filename.h"
 #include <errno.h>
+#include <thread>
 
 namespace rocksdb {
 
@@ -46,10 +47,16 @@ class nvm_file {
     struct vblock *current_vblock_;
     struct vblock *next_vblock_;
     std::deque<struct vblock *>vblocks_;       //Vector of virtual flash blocks
-    // Number of blocks loaded in memory
+
+    // Number of blocks composing the DFlash file
     uint8_t nblocks_;
     // Number of blocks whose metadata has been persisted
     uint8_t blocks_meta_persisted_;
+
+    std::vector<struct block_cache>block_cache_;
+    std::vector<std::thread> threads_;
+
+    // TODO: This will go
     std::vector<struct nvm_page *> pages;
 
     pthread_mutex_t write_lock;
@@ -146,17 +153,16 @@ class nvm_file {
     size_t FlushBlock(struct nvm *nvm, char *data, size_t ppa_offset,
                       const size_t data_len, bool page_aligned);
     size_t Read(struct nvm *nvm, size_t read_pointer, char *data,
-                size_t data_len, struct page_cache *cache);
-    size_t ReadBlock(struct nvm *nvm, unsigned int block_offset,
-                     size_t ppa_offset, unsigned int page_offset, char *data,
-                     size_t data_len, struct page_cache *cache = nullptr,
-                     uint8_t read_flags = 0);
+                size_t data_len, struct page_cache *cache, uint8_t flags);
     size_t ReadBlockClosingMetadata(struct nvm *nvm, unsigned int block_offset,
                                     char *data);
+    size_t ReadCache(unsigned int block_offset, size_t ppa_offset,
+                     unsigned int page_offset, char *data, size_t data_len);
     struct nvm_page *GetNVMPage(const unsigned long idx);
     struct nvm_page *GetLastPage(unsigned long *page_idx);
     bool SetPage(const unsigned long page_idx, nvm_page *page);
     void CleanPageCache(struct page_cache *cache);
+    void ClearBlockCache();
 
     struct nvm_page *RequestPage(nvm *nvm_api);
     struct nvm_page *RequestPage(nvm *nvm_api, const unsigned long lun_id,

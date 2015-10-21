@@ -4,6 +4,8 @@
 // TODO: We should get this using and ioctl that tells us gran_read, gran_write,
 // and gran_erase for each lun.
 #define PAGE_SIZE 4096
+#define READ_RAND 0x0
+#define READ_SEQ  0x1
 
 typedef unsigned long long sector_t;
 
@@ -88,6 +90,15 @@ struct vblock_partial_meta {
 struct vpage_meta {
   size_t valid_bytes;           // Valid bytes in page from its start
   uint8_t flags;                // Flags to determine the state of the page
+};
+
+#define BLOCK_CACHE_INVALID  0x0
+#define BLOCK_CACHE_VALID    0x1
+#define BLOCK_CACHE_OUTDATED 0x2
+struct block_cache {
+  uint8_t state;
+  size_t bytes_cached;
+  char *cache;
 };
 
 struct nvm_channel {
