@@ -1348,7 +1348,7 @@ retry:
       block_offset++;
       ppa_offset = 0;
       page_offset = 0;
-      read_flags = 0;
+      // read_flags = 0; XXX: This cache will go either way
     }
   }
 
