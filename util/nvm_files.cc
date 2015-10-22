@@ -1260,8 +1260,8 @@ retry:
                 " nblocks_: %d, to_read:%lu, left:%lu, leftblock:%lu\n", nblocks_,
                 bytes_per_read, left, bytes_left_block);
 
-      size_t c_bytes_left_block = bytes_per_block;
-      size_t c_bytes_per_read = bytes_per_read;
+      size_t c_bytes_left_block;
+      size_t c_bytes_per_read = bytes_left_block;
       unsigned int c_block_offset = block_offset;
       size_t c_ppa_offset = ppa_offset;
       unsigned int c_page_offset = page_offset;
@@ -1290,13 +1290,13 @@ retry:
             i, c_bytes_per_read, c_block_offset, vblocks_[c_block_offset]->id,
             block_cache_[c_block_offset].cache);
 
-        std::thread t1(&ReadBlock, nvm, fd_, vblocks_[c_block_offset],
+        std::thread t(&ReadBlock, nvm, fd_, vblocks_[c_block_offset],
                                         c_ppa_offset, c_page_offset,
                                         nullptr, &(block_cache_[c_block_offset]),
                                         c_bytes_per_read, nullptr, cache->cache,
                                         read_flags);
-        // threads_.emplace_back(read_block);
-        t1.join();
+        // threads_.push_back(move(t));
+        t.join();
 
         // Prefetch complete blocks
         c_block_offset++;
