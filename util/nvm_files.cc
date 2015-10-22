@@ -1508,7 +1508,8 @@ void nvm_file::PreallocateBlock(struct nvm* nvm) {
   }
 
   // Enable to use as many LUNs in parallel as possible.
-  unsigned int vlun_id = vblocks_.size() % nvm->nr_luns;
+  // unsigned int vlun_id = vblocks_.size() % nvm->nr_luns;
+  unsigned int vlun_id = 0;
   if (!nvm->GetBlock(vlun_id, new_vblock)) {
     NVM_FATAL("could not get a new block - ssd out of space\n");
   }

@@ -209,8 +209,8 @@ bool nvm::GetBlock(unsigned int vlun_id, struct vblock *vblock) {
     return false;
   }
 
-  NVM_DEBUG("Getting new block from lun: %d - block_id:%lu\n",
-                                                vblock->vlun_id, vblock->id);
+  NVM_DEBUG("Getting new block from lun: %d - block_id:%lu, bppa:%llu\n",
+                                   vblock->vlun_id, vblock->id, vblock->bppa);
 
   return true;
 }
