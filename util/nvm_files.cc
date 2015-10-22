@@ -1,6 +1,7 @@
 #ifdef ROCKSDB_PLATFORM_NVM
 
 #include <cstring>
+#include <thread>
 #include "malloc.h"
 #include "util/coding.h"
 #include "nvm/nvm.h"
@@ -984,6 +985,11 @@ void ReadBlock(struct nvm *nvm, int fd, struct vblock *current_vblock,
   size_t left =
       ((((data_len + page_offset + meta_beg_size) / PAGE_SIZE) + x) * PAGE_SIZE);
 
+  NVM_DEBUG("READ BLOCK - Cache: state:%d bytes:%lu cache%p\n",
+            block_cache->state,
+            block_cache->bytes_cached,
+            block_cache->cache);
+
   NVM_DEBUG("READBLOCK. PPAO: %lu, PO:%d. To read from block: %lu, left:%lu, "
             "blockid: %lu, current ppa: %lu, x:%d, meta_beg:%d\n",
             ppa_offset, page_offset, data_len, left,
@@ -1003,9 +1009,12 @@ void ReadBlock(struct nvm *nvm, int fd, struct vblock *current_vblock,
 
   char *read_iter = page;
 
+  block_cache->bytes_cached = 0;
   while (left > 0) {
 retry:
-    NVM_DEBUG("Loop; Lef: %lu\n", left);
+    NVM_DEBUG("Loop - block:%lu Lef: %lu, cache:%p, bytes_cached:%lu\n",
+              current_vblock->id, left, block_cache->cache,
+              block_cache->bytes_cached);
     bytes_per_read = (left > max_bytes_per_read) ? max_bytes_per_read : left;
     pages_per_read = bytes_per_read / PAGE_SIZE;
 
@@ -1025,6 +1034,10 @@ retry:
     if (block_cache != nullptr) {
       block_cache->bytes_cached += bytes_per_read;
     }
+
+    NVM_DEBUG("block_id: %lu, bpr: %lu, bytes_cache: %lu\n", current_vblock->id,
+              bytes_per_read,
+              block_cache->bytes_cached);
 
     current_ppa += pages_per_read;
     read_iter += bytes_per_read;
@@ -1066,25 +1079,30 @@ size_t nvm_file::ReadCache(unsigned int block_offset, size_t ppa_offset,
   size_t left = data_len;
   size_t total_read = 0;
 
+  NVM_DEBUG("TACHAAAAAN!!!\n");
   NVM_DEBUG("Cache: state:%d bytes:%lu cache%p\n",
             block_cache_[block_offset].state,
             block_cache_[block_offset].bytes_cached,
             block_cache_[block_offset].cache);
   NVM_DEBUG("Read cache. BO:%d PPAO:%lu, PO:%d. To read from block: %lu, left:%lu\n",
             block_offset, ppa_offset, page_offset, data_len, left);
-  while (left > 0) {
-    if (block_cache_[block_offset].state != BLOCK_CACHE_VALID) {
-      threads_[block_offset].join();
-      NVM_DEBUG("Joining thread %d\n",block_offset);
+  // if (block_cache_[block_offset].state != BLOCK_CACHE_VALID) {
+      // threads_[block_offset].join();
+      // NVM_DEBUG("Joining thread %d\n",block_offset);
       // NVM_DEBUG("cache state:%d\n", block_cache_[block_offset].state);
-    }
-    // size_t bytes_left_block =
+  // }
+  while (left > 0) {
+        // size_t bytes_left_block =
                    // ((nppas - ppa_offset) * PAGE_SIZE) - page_offset - meta_size;
     // size_t bytes_per_read = (left > bytes_left_block) ? bytes_left_block : left;
     size_t cache_offset = (ppa_offset * PAGE_SIZE) + page_offset;
     size_t cached_data = block_cache_[block_offset].bytes_cached - cache_offset;
     size_t to_read = (cached_data < data_len) ? cached_data : data_len;
 
+    NVM_DEBUG("Loop cache. BO: %d, ppao: %lu\n", block_offset, ppa_offset);
+    NVM_DEBUG("cache: %p Cached bytes: %lu\n",
+              block_cache_[block_offset].cache,
+              block_cache_[block_offset].bytes_cached);
     NVM_DEBUG("Loop cache. read:%lu left:%lu total:%lu, coffset:%lu\n",
           to_read, left, total_read, cache_offset);
     memcpy(data + total_read, block_cache_[block_offset].cache + cache_offset,
@@ -1245,9 +1263,19 @@ retry:
         return ReadCache(block_offset, ppa_offset, page_offset, data, data_len);
       }
 
-      NVM_DEBUG("Sequential reads. Setting up parallel read threads. nblocks_: %d\n",
-                nblocks_);
-      for (int i = 0; i < nblocks_; i++) {
+      NVM_DEBUG("Sequential reads. Setting up parallel read threads. "
+                " nblocks_: %d, to_read:%lu, left:%lu, leftblock:%lu\n", nblocks_,
+                bytes_per_read, left, bytes_left_block);
+
+      size_t c_bytes_left_block = bytes_per_block;
+      size_t c_bytes_per_read = bytes_per_read;
+      unsigned int c_block_offset = block_offset;
+      size_t c_ppa_offset = ppa_offset;
+      unsigned int c_page_offset = page_offset;
+      size_t c_left = left;
+      assert(nblocks_ >= block_offset);
+      ssize_t blocks_left = nblocks_ - block_offset;
+      for (int i = 0; i < blocks_left; i++) {
         char *new_cache =
                 (char*)memalign(PAGE_SIZE, PAGE_SIZE * vblocks_[i]->nppas);
         if (!new_cache) {
@@ -1260,34 +1288,39 @@ retry:
         new_element.cache = new_cache;
         block_cache_.push_back(new_element);
 
-        unsigned int c_block_offset = block_offset;
-        size_t c_ppa_offset = ppa_offset;
-        unsigned int c_page_offset = page_offset;
-        // size_t c_left = left;
-        // size_t c_bytes_per_read = bytes_per_read;
-        // TODO: Look at thread priorities - First thread should have highest
+       // TODO: Look at thread priorities - First thread should have highest
         // priority to return the requested data transparently from the
         // prefetching strategy to the upper layers
         // TODO (performance): Send data on a first thread, and read all you can
         // from thre to avoid an extra memory copy
-        threads_.emplace_back(ReadBlock, nvm, fd_, vblocks_[c_block_offset],
+        NVM_DEBUG("thread;%d, data_len:%lu, block_off:%d, id:%lu, cache:%p\n",
+            i, c_bytes_per_read, c_block_offset, vblocks_[c_block_offset]->id,
+            block_cache_[c_block_offset].cache);
+        threads_.emplace_back(&ReadBlock, nvm, fd_, vblocks_[c_block_offset],
                                       c_ppa_offset, c_page_offset,
-                                      nullptr, &block_cache_[i],
-                                      size_, nullptr, cache->cache,
+                                      nullptr, &(block_cache_[c_block_offset]),
+                                      c_bytes_per_read, nullptr, cache->cache,
                                       read_flags);
-        // threads_.emplace_back(move(t)); //Not sure we need this...
-        // t.join();
-
         // Prefetch complete blocks
         c_block_offset++;
         c_ppa_offset = 0;
         c_page_offset = 0;
-        // c_left -= bytes_per_read;
+        c_left -= c_bytes_per_read;
         read_flags = 0;
 
-        // bytes_left_block =
-                  // ((nppas - ppa_offset) * PAGE_SIZE) - page_offset - meta_size;
-        // c_bytes_per_read = (c_left > bytes_left_block) ? bytes_left_block : c_left;
+        c_bytes_left_block =
+                  ((nppas - c_ppa_offset) * PAGE_SIZE) - c_page_offset - meta_size;
+        c_bytes_per_read = (c_left > c_bytes_left_block) ? c_bytes_left_block : c_left;
+      }
+
+      uint8_t i = 0;
+      for (auto& t : threads_) {
+        if (t.joinable()) {
+          NVM_DEBUG("Joining thread: %d\n", i);
+          t.join();
+          NVM_DEBUG("Joined: %d!\n", i);
+          i++;
+       }
       }
       return ReadCache(block_offset, ppa_offset, page_offset,
                        data, data_len);
