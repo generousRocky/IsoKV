@@ -975,8 +975,10 @@ void ReadBlock(struct nvm *nvm, int fd, struct vblock *current_vblock,
   unsigned int meta_beg_size = (flags && READBLOCK_COUNT_METADATA) ?
                 sizeof(struct vblock_recov_meta) : 0;
 
+  NVM_DEBUG("HERE!\n");
   // buf and block_cache are mutually exclusive.
   char *data = (buf == nullptr) ? block_cache->cache : buf;
+  NVM_DEBUG("HERE2!\n");
 
   // Always read at a page granurality
   // TODO: Put this calculation in a helper function
@@ -984,11 +986,6 @@ void ReadBlock(struct nvm *nvm, int fd, struct vblock *current_vblock,
             ((data_len + page_offset + meta_beg_size) % PAGE_SIZE == 0) ? 0 : 1;
   size_t left =
       ((((data_len + page_offset + meta_beg_size) / PAGE_SIZE) + x) * PAGE_SIZE);
-
-  NVM_DEBUG("READ BLOCK - Cache: state:%d bytes:%lu cache%p\n",
-            block_cache->state,
-            block_cache->bytes_cached,
-            block_cache->cache);
 
   NVM_DEBUG("READBLOCK. PPAO: %lu, PO:%d. To read from block: %lu, left:%lu, "
             "blockid: %lu, current ppa: %lu, x:%d, meta_beg:%d\n",
@@ -1009,12 +1006,8 @@ void ReadBlock(struct nvm *nvm, int fd, struct vblock *current_vblock,
 
   char *read_iter = page;
 
-  block_cache->bytes_cached = 0;
   while (left > 0) {
 retry:
-    NVM_DEBUG("Loop - block:%lu Lef: %lu, cache:%p, bytes_cached:%lu\n",
-              current_vblock->id, left, block_cache->cache,
-              block_cache->bytes_cached);
     bytes_per_read = (left > max_bytes_per_read) ? max_bytes_per_read : left;
     pages_per_read = bytes_per_read / PAGE_SIZE;
 
@@ -1031,13 +1024,10 @@ retry:
       return;
     }
 
-    if (block_cache != nullptr) {
-      block_cache->bytes_cached += bytes_per_read;
-    }
-
-    NVM_DEBUG("block_id: %lu, bpr: %lu, bytes_cache: %lu\n", current_vblock->id,
-              bytes_per_read,
-              block_cache->bytes_cached);
+    // XXX: This is a way to do it concurrent - not working now
+    // if (block_cache != nullptr) {
+      // block_cache->bytes_cached += bytes_per_read;
+    // }
 
     current_ppa += pages_per_read;
     read_iter += bytes_per_read;
@@ -1051,6 +1041,8 @@ retry:
 
   // XXX: DEBUGGING
   if (block_cache != nullptr) {
+    // block_cache->bytes_cached -= meta_beg_size + page_offset;
+    block_cache->bytes_cached = data_len;
     block_cache->state = BLOCK_CACHE_VALID;
     NVM_DEBUG("Cache after reading: state:%d, bytes:%lu, cache:%p data:%p\n",
               block_cache->state, block_cache->bytes_cached, block_cache->cache,
@@ -1076,7 +1068,7 @@ size_t nvm_file::ReadCache(unsigned int block_offset, size_t ppa_offset,
   // unsigned int meta_beg_size = sizeof(struct vblock_recov_meta);
   // unsigned int meta_end_size = sizeof(struct vblock_close_meta);
   // size_t meta_size = meta_beg_size + meta_end_size;
-  size_t left = data_len;
+  ssize_t left = data_len;
   size_t total_read = 0;
 
   NVM_DEBUG("TACHAAAAAN!!!\n");
@@ -1097,7 +1089,8 @@ size_t nvm_file::ReadCache(unsigned int block_offset, size_t ppa_offset,
     // size_t bytes_per_read = (left > bytes_left_block) ? bytes_left_block : left;
     size_t cache_offset = (ppa_offset * PAGE_SIZE) + page_offset;
     size_t cached_data = block_cache_[block_offset].bytes_cached - cache_offset;
-    size_t to_read = (cached_data < data_len) ? cached_data : data_len;
+    // size_t to_read = (cached_data < data_len) ? cached_data : data_len;
+    size_t to_read = (cached_data < (size_t)left) ? cached_data : left;
 
     NVM_DEBUG("Loop cache. BO: %d, ppao: %lu\n", block_offset, ppa_offset);
     NVM_DEBUG("cache: %p Cached bytes: %lu\n",
@@ -1296,32 +1289,35 @@ retry:
         NVM_DEBUG("thread;%d, data_len:%lu, block_off:%d, id:%lu, cache:%p\n",
             i, c_bytes_per_read, c_block_offset, vblocks_[c_block_offset]->id,
             block_cache_[c_block_offset].cache);
-        threads_.emplace_back(&ReadBlock, nvm, fd_, vblocks_[c_block_offset],
-                                      c_ppa_offset, c_page_offset,
-                                      nullptr, &(block_cache_[c_block_offset]),
-                                      c_bytes_per_read, nullptr, cache->cache,
-                                      read_flags);
+
+        std::thread t1(&ReadBlock, nvm, fd_, vblocks_[c_block_offset],
+                                        c_ppa_offset, c_page_offset,
+                                        nullptr, &(block_cache_[c_block_offset]),
+                                        c_bytes_per_read, nullptr, cache->cache,
+                                        read_flags);
+        // threads_.emplace_back(read_block);
+        t1.join();
+
         // Prefetch complete blocks
         c_block_offset++;
         c_ppa_offset = 0;
         c_page_offset = 0;
         c_left -= c_bytes_per_read;
-        read_flags = 0;
 
         c_bytes_left_block =
                   ((nppas - c_ppa_offset) * PAGE_SIZE) - c_page_offset - meta_size;
         c_bytes_per_read = (c_left > c_bytes_left_block) ? c_bytes_left_block : c_left;
       }
 
-      uint8_t i = 0;
-      for (auto& t : threads_) {
-        if (t.joinable()) {
-          NVM_DEBUG("Joining thread: %d\n", i);
-          t.join();
-          NVM_DEBUG("Joined: %d!\n", i);
-          i++;
-       }
-      }
+      // uint8_t i = 0;
+      // for (auto& t : threads_) {
+        // if (t.joinable()) {
+          // NVM_DEBUG("Joining thread: %d\n", i);
+          // t.join();
+          // NVM_DEBUG("Joined: %d!\n", i);
+          // i++;
+       // }
+      //}
       return ReadCache(block_offset, ppa_offset, page_offset,
                        data, data_len);
     } else {

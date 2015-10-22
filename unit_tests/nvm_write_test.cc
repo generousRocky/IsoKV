@@ -701,7 +701,7 @@ int main(int argc, char **argv) {
   w_block_test_3();
   w_block_test_4();
   w_block_test_5();
-  // w_block_test_6();
+  w_block_test_6();
 
   return 0;
 }
