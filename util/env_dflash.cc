@@ -12,6 +12,8 @@
 #include "db/filename.h"
 #include "util/string_util.h"
 #include "util/io_posix.h"
+#include "util/io_dflash.h"
+#include "util/fs_dflash.h"
 
 namespace rocksdb {
 
