@@ -10,7 +10,8 @@ namespace rocksdb {
 nvm_file::nvm_file(const char *_name, const int fd, nvm_directory *_parent) {
   char *name;
 
-  DFLASH_DEBUG("constructing file %s in %s", _name, _parent == nullptr ? "NULL" : _parent->GetName());
+  DFLASH_DEBUG("constructing file %s in %s",
+                _name, _parent == nullptr ? "NULL" : _parent->GetName());
 
   int name_len = strlen(_name);
 
@@ -23,45 +24,30 @@ nvm_file::nvm_file(const char *_name, const int fd, nvm_directory *_parent) {
     names = nullptr;
   }
 
-  size_ = 0;
+  filesize_ = 0;
   fd_ = fd;
-  metadata_handle_ = new DFlashPrivateMetadata(this);
-
-  last_modified = time(nullptr);
-  vblocks_.clear();
-  ClearBlockCache();
-  block_cache_.clear();
-  pages.clear();
-
-  opened_for_write = false;
-
   parent = _parent;
 
-  seq_writable_file = nullptr;
-  current_vblock_ = nullptr;
-  next_vblock_ = nullptr;
-  nblocks_ = 0;
-  blocks_meta_persisted_ = 0;
+  metadata_handle_ = new DFlashPrivateMetadata(this);
+  last_modified_ = time(nullptr);
 
-  pthread_mutexattr_init(&page_update_mtx_attr);
-  pthread_mutexattr_settype(&page_update_mtx_attr, PTHREAD_MUTEX_RECURSIVE);
-
-  pthread_mutex_init(&page_update_mtx, &page_update_mtx_attr);
-  pthread_mutex_init(&meta_mtx, &page_update_mtx_attr);
-  pthread_mutex_init(&write_lock, &page_update_mtx_attr);
-  pthread_mutex_init(&file_lock, &page_update_mtx_attr);
+  // opened_for_write = false;
+  // seq_writable_file = nullptr;
 }
 
 nvm_file::~nvm_file() {
-  DFLASH_DEBUG("Destroy nvm_file\n");
+  list_node *temp = names;
+
+#if 0
   if (seq_writable_file) {
     //flush any existing buffers
     seq_writable_file->Close();
     seq_writable_file = nullptr;
   }
+#endif
 
+  DFLASH_DEBUG("Destroy nvm_file - fd:%d\n", fd_);
   delete metadata_handle_;
-  list_node *temp = names;
   while (temp != nullptr) {
     list_node *temp1 = temp->GetNext();
 
@@ -70,26 +56,13 @@ nvm_file::~nvm_file() {
 
     temp = temp1;
   }
-
-  FreeAllBlocks();
-  vblocks_.clear();
-
-  ClearBlockCache();
-  block_cache_.clear();
-
-  pthread_mutexattr_destroy(&page_update_mtx_attr);
-  pthread_mutex_destroy(&page_update_mtx);
-  pthread_mutex_destroy(&meta_mtx);
-  pthread_mutex_destroy(&write_lock);
-  pthread_mutex_destroy(&file_lock);
 }
 
 //JAVIER: NECESSARY?
-void nvm_file::SetSeqWritableFile(DFlashWritableFile *_writable_file) {
-  seq_writable_file = _writable_file;
-}
+// void nvm_file::SetSeqWritableFile(DFlashWritableFile *_writable_file) {
+  // seq_writable_file = _writable_file;
+// }
 
-//JAVIER: NECESSARY?
 void nvm_file::SetParent(nvm_directory *_parent) {
   parent = _parent;
 }
@@ -98,17 +71,16 @@ nvm_directory *nvm_file::GetParent() {
   return parent;
 }
 
-int nvm_file::LockFile() {
-  return pthread_mutex_lock(&file_lock);
-}
+// int nvm_file::LockFile() {
+  // return pthread_mutex_lock(&file_lock);
+// }
 
-void nvm_file::UnlockFile() {
-  pthread_mutex_unlock(&file_lock);
-}
+// void nvm_file::UnlockFile() {
+  // pthread_mutex_unlock(&file_lock);
+// }
 
 Status nvm_file::Load(const int fd) {
   std::string _name;
-
   char readIn;
 
   DFLASH_DEBUG("loading file %p", this);
@@ -124,7 +96,6 @@ Status nvm_file::Load(const int fd) {
   }
 
   //load names
-
   _name = "";
 
   do {
@@ -165,7 +136,7 @@ Status nvm_file::Load(const int fd) {
 
   //load last modified
 
-  last_modified = 0;
+  last_modified_ = 0;
 
   do {
     if (read(fd, &readIn, 1) != 1) {
@@ -173,7 +144,7 @@ Status nvm_file::Load(const int fd) {
     }
 
     if (readIn >= '0' && readIn <= '9') {
-      last_modified = last_modified * 10 + readIn - '0';
+      last_modified_ = last_modified_ * 10 + readIn - '0';
     }
   } while (readIn >= '0' && readIn <= '9');
 
@@ -319,24 +290,28 @@ Status nvm_file::Save(const int fd) {
 }
 
 //JAVIER: NECESSARY??
-time_t nvm_file::GetLastModified() {
-  time_t ret;
-
-  pthread_mutex_lock(&meta_mtx);
-  ret = last_modified;
-  pthread_mutex_unlock(&meta_mtx);
-
-  return ret;
-}
-
 void nvm_file::Close(const char *mode) {
   if (mode[0] == 'r' || mode[0] == 'l') {
     return;
   }
 
-  opened_for_write = false;
+  // opened_for_write = false;
 }
 
+
+#if 0
+time_t nvm_file::GetLastModified() {
+  time_t ret;
+
+  pthread_mutex_lock(&meta_mtx);
+  ret = last_modified_;
+  pthread_mutex_unlock(&meta_mtx);
+
+  return ret;
+}
+#endif
+
+#if 0
 bool nvm_file::CanOpen(const char *mode) {
   bool ret = true;
 
@@ -356,23 +331,7 @@ bool nvm_file::CanOpen(const char *mode) {
   pthread_mutex_unlock(&meta_mtx);
   return ret;
 }
-
-void nvm_file::EnumerateNames(std::vector<std::string>* result) {
-  pthread_mutex_lock(&meta_mtx);
-
-  list_node *name_node = names;
-
-  while (name_node) {
-    char *_name = (char *)name_node->GetData();
-
-    result->push_back(_name);
-
-    name_node = name_node->GetNext();
-  }
-
-  pthread_mutex_unlock(&meta_mtx);
-}
-
+#endif
 
 bool nvm_file::HasName(const char *name, const int n) {
   int i;
@@ -396,18 +355,15 @@ bool nvm_file::HasName(const char *name, const int n) {
     }
 
 next:
-
     name_node = name_node->GetNext();
   }
 
   pthread_mutex_unlock(&meta_mtx);
-
   return false;
 }
 
 void nvm_file::AddName(const char *name) {
   list_node *name_node;
-
   char *_name;
 
   SAFE_ALLOC(_name, char[strlen(name) + 1]);
@@ -461,17 +417,20 @@ void nvm_file::ChangeName(const char *crt_name, const char *new_name) {
   pthread_mutex_unlock(&meta_mtx);
 }
 
-int nvm_file::GetFD() {
-  return fd_;
-}
+void nvm_file::EnumerateNames(std::vector<std::string>* result) {
+  pthread_mutex_lock(&meta_mtx);
 
-unsigned long nvm_file::GetPersistentSize() {
-  unsigned long ret;
+  list_node *name_node = names;
 
-  pthread_mutex_lock(&page_update_mtx);
-  ret = size_;
-  pthread_mutex_unlock(&page_update_mtx);
-  return ret;
+  while (name_node) {
+    char *_name = (char *)name_node->GetData();
+
+    result->push_back(_name);
+
+    name_node = name_node->GetNext();
+  }
+
+  pthread_mutex_unlock(&meta_mtx);
 }
 
 unsigned long nvm_file::GetSize() {
@@ -490,9 +449,7 @@ unsigned long nvm_file::GetSize() {
 
 void nvm_file::UpdateFileModificationTime() {
   pthread_mutex_lock(&meta_mtx);
-
-  last_modified = time(nullptr);
-
+  last_modified_ = time(nullptr);
   pthread_mutex_unlock(&meta_mtx);
 }
 
@@ -585,56 +542,25 @@ bool nvm_file::Delete(const char * filename, struct nvm *nvm_api) {
   PutAllBlocks(parent->GetDFlashApi());
   return true;
 }
-//TODO: REFACTOR FROM HERE UP!!
 
-//JAVIER: Reimplement using liblightnvm
+/*
+ * DFlashFile: I/O operations - uses liblightnvm
+ */
+size_t nvm_file::Append() {
+
+}
+
 size_t nvm_file::Read(struct nvm *nvm, size_t read_pointer, char *data,
                       size_t data_len, struct page_cache *cache, uint8_t flags) {
 }
 
-void nvm_file::SaveSpecialMetadata(std::string fname) {
-  // TODO: Get name from dbname
-  std::string recovery_location = "testingrocks/DFLASH_RECOVERY";
+bool nvm_file::Sync() {
 
-  std::string recovery_meta = fname;
-  recovery_meta.append(":", 1);
-
-  //TODO: RETURN TO void*
-  void* meta = DFlashPrivateMetadata::GetMetadata(this);
-  std::string encoded_meta;
-  Env::EncodePrivateMetadata(&encoded_meta, meta);
-  Env::FreePrivateMetadata(meta);
-  // TODO: Use PutVarint64 technique
-  std::string len = std::to_string(encoded_meta.size());
-  recovery_meta.append(len);
-  recovery_meta.append(encoded_meta);
-
-  int fd = open(recovery_location.c_str(), O_WRONLY | O_APPEND | O_CREAT, S_IWUSR);
-  if (fd < 0) {
-    DFLASH_DEBUG("Cannot create RECOVERY file\n");
-    return;
-  }
-
-  recovery_meta.append("\n", 1);
-  size_t left = recovery_meta.size();
-  const char* src = recovery_meta.c_str();
-  ssize_t done;
-  while (left > 0) {
-    done = write(fd, src, left);
-    if (done < 0) {
-      if (errno == EINTR) {
-        continue;
-      }
-      DFLASH_DEBUG("Unable to write private metadata in RECOVERY\n");
-      return;
-    }
-    left -=done;
-    src +=done;
-  }
-
-  close(fd);
 }
 
+/*
+ * DFlashFile: Metadata operations - will use liblightnvm
+ */
 bool nvm_file::LoadPrivateMetadata(std::string fname, void* metadata) {
   struct vblock_meta *vblock_meta = (struct vblock_meta*)metadata;
   struct vblock *ptr = (struct vblock*)vblock_meta->encoded_vblocks;
@@ -781,23 +707,51 @@ void nvm_file::RecoverAndLoadMetadata(struct nvm* nvm) {
   pthread_mutex_unlock(&page_update_mtx);
 }
 
-// For the moment we assume that all pages in a block are good pages. In the
-// future we would have to check ppa_bitmap and come back to the memtable to
-// move the KV pairs that do not fit in the block assigned to it to create the
-// sstable. This will require to send a ppa_list down to LightNVM to enable
-// multipage writes - at the moment multipage assumes sequential ppas
-//
-// Note that data_len is the real length of the data to be flushed to the flash
-// block. FlushBlock takes care of working on PAGE_SIZE chunks
-// JAVIER: Reimplement using liblightnvm - Rename to sync? - NECESSARY?
-size_t nvm_file::FlushBlock(struct nvm *nvm, char *data, size_t ppa_offset,
-                                        size_t data_len, bool page_aligned) {
-  return ret;
+void nvm_file::SaveSpecialMetadata(std::string fname) {
+  // TODO: Get name from dbname
+  std::string recovery_location = "testingrocks/DFLASH_RECOVERY";
+
+  std::string recovery_meta = fname;
+  recovery_meta.append(":", 1);
+
+  //TODO: RETURN TO void*
+  void* meta = DFlashPrivateMetadata::GetMetadata(this);
+  std::string encoded_meta;
+  Env::EncodePrivateMetadata(&encoded_meta, meta);
+  Env::FreePrivateMetadata(meta);
+  // TODO: Use PutVarint64 technique
+  std::string len = std::to_string(encoded_meta.size());
+  recovery_meta.append(len);
+  recovery_meta.append(encoded_meta);
+
+  int fd = open(recovery_location.c_str(), O_WRONLY | O_APPEND | O_CREAT, S_IWUSR);
+  if (fd < 0) {
+    DFLASH_DEBUG("Cannot create RECOVERY file\n");
+    return;
+  }
+
+  recovery_meta.append("\n", 1);
+  size_t left = recovery_meta.size();
+  const char* src = recovery_meta.c_str();
+  ssize_t done;
+  while (left > 0) {
+    done = write(fd, src, left);
+    if (done < 0) {
+      if (errno == EINTR) {
+        continue;
+      }
+      DFLASH_DEBUG("Unable to write private metadata in RECOVERY\n");
+      return;
+    }
+    left -=done;
+    src +=done;
+  }
+
+  close(fd);
 }
 
-
 /*
- * DFlashDIrectory implementation
+ * DFLashDIrectory implementation
  */
 nvm_directory::nvm_directory(const char *_name, const int n, nvm *_nvm_api,
                              nvm_directory *_parent) {

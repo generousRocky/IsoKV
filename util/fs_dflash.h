@@ -27,83 +27,74 @@ class dflash_file {
   list_node* names;
   FileType type_;
 
-  unsigned long size_;
   int fd_;
+  dflash_dir* parent;
+  unsigned long filesize_;
 
   // Private metadata
   DFlashPrivateMetadata* metadata_handle_;
 
-  // time_t last_modified; //TODO: Check
-  // pthread_mutex_t meta_mtx; //TODO Check
+  time_t last_modified; //TODO: Check
   // pthread_mutex_t file_lock; //TODO: Check
-
   // bool opened_for_write; //TODO: Check
-
-  dflash_dir* parent;
-  DFlashWritableFile *seq_writable_file;
+  // DFlashWritableFile *seq_writable_file; //TODO: Check
 
  public:
   dflash_file(const char* _name, const int fd, dflash_dir* _parent);
   ~dflash_file();
 
+  void SetParent(dflash_dir* _parent);
+  dflash_dir* GetParent();
+
+  void Close(const char *mode);
+  int GetFD() { return fd_; }
+  unsigned long GetSize();
+
+  void UpdateFileModificationTime();
+  // time_t GetLastModified(); //TODO: Check
+
   // Used by DFlashDirectory
-  bool CanOpen(const char* mode);
+  // bool CanOpen(const char* mode);
   bool HasName(const char* name, const int n);
+  void AddName(const char* name);
   void ChangeName(const char* crt_name, const char* new_name);
   void EnumerateNames(std::vector<std::string>* result);
-  dflash_dir* GetParent(); // TODO: Check
-  void SetParent(dflash_dir* _parent); //TODO: Check
   // void SetSeqWritableFile(DFlashWritableFile *_writable_file);
-
-  void SetType(FileType type) { type_ = type; }
-  FileType GetType() { return type_; }
-
-  // TODO: Check this
-  FilePrivateMetadata* GetMetadataHandle() {
-    return metadata_handle_;
-  }
-  void* GetMetadata() {
-    return metadata_handle_->GetMetadata(this);
-  }
-
-  unsigned long GetSize();
-  DFlashWritableFile* GetWritePointer() {
-    return seq_writable_file;
-  }
-
-  // time_t GetLastModified(); //TODO: Check
-  void UpdateFileModificationTime();
-  void Close(const char *mode);
-
-  int GetFD();
 
   bool LoadPrivateMetadata(std::string fname, void* metadata);
   bool LoadSpecialMetadata(std::string fname);
   void RecoverAndLoadMetadata(struct nvm* nvm);
 
+  // Save metadata that is not present in the MANIFEST (e.g., the last log)
+  void SaveSpecialMetadata(std::string fname);
+
+  void SetType(FileType type) { type_ = type; }
+  FileType GetType() { return type_; }
+
+  // TODO: Check this
+  FilePrivateMetadata* GetMetadataHandle() { return metadata_handle_; }
+  void* GetMetadata() { return metadata_handle_->GetMetadata(this); }
+
+  DFlashWritableFile* GetWritePointer() {
+    return seq_writable_file;
+  }
+
   // liglightnvm
   // append
-  // read (sequential)
-  // read (random)
+  // read (sequential, random)
+  // sync
 
   // TODO: Check both
-  // bool Delete(const char* filename, struct nvm* nvm_api);
-  // void DeleteAllLinks(struct nvm* _nvm_api);
+  bool Delete(const char* filename, struct nvm* nvm_api);
+  void DeleteAllLinks(struct nvm* _nvm_api);
 
   // TODO: Check
-  int LockFile();
-  void UnlockFile();
-
-  // TODO: Check
-  void AddName(const char* name);
+  // int LockFile();
+  // void UnlockFile();
 
   // FTL operations - TODO: Check
   Status Save(const int fd);
   Status Load(const int fd);
-
-  // TODO: Check
-  // Save metadata that is not present in the MANIFEST (e.g., the last log)
-  void SaveSpecialMetadata(std::string fname);
 };
 
 class dflash_dir {
