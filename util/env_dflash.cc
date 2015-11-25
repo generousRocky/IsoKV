@@ -111,7 +111,7 @@ static int DFlashLockOrUnlock(const std::string& fname, dflash_file *fd,
   return 0;
 }
 
-bool PosixFileLock::Unlock() {
+static bool PosixFileLock::Unlock() {
   if (PosixLockOrUnlock(filename, fd_, false) == -1) {
     return false;
   }
@@ -119,7 +119,7 @@ bool PosixFileLock::Unlock() {
   return true;
 }
 
-bool DFlashFileLock::Unlock() {
+static bool DFlashFileLock::Unlock() {
   if (DFlashLockOrUnlock(filename, fd_, false) == -1) {
     return false;
   }
@@ -186,10 +186,7 @@ class DFlashEnv : public Env {
   }
 
   virtual Status GarbageCollect() override {
-    DFlash_DEBUG("doing garbage collect");
-
     nvm_api->GarbageCollection();
-
     return Status::OK();
   }
 
@@ -286,6 +283,7 @@ class DFlashEnv : public Env {
   virtual Status NewSequentialFile(const std::string& fname,
                                    unique_ptr<SequentialFile>* result,
                                    const EnvOptions& options) override {
+
     result->reset();
     FileType type;
     if (!ParseType(fname, &type)) {
@@ -293,10 +291,9 @@ class DFlashEnv : public Env {
                              fname.c_str());
     }
 
-    if (type == kInfoLogFile ||
-        type == kCurrentFile ||
-        type == kDBLockFile ||
+    if (type == kInfoLogFile || type == kCurrentFile || type == kDBLockFile ||
         type == kIdentityFile) {
+      // Metadata - Use Posix backend
       FILE* f = nullptr;
       do {
         IOSTATS_TIMER_GUARD(open_nanos);
@@ -312,8 +309,9 @@ class DFlashEnv : public Env {
         return Status::OK();
       }
     } else {
-      dflash_file *f = root_dir->nvm_fopen(fname.c_str(), "r");
-
+      // Fast IO path - Use DFlash backend
+      int beam = 0; //TODO: Use beam 0 for now.
+      dflash_file *f = root_dir->dflash_fopen(fname.c_str(), beam, "r");
       if (f == nullptr) {
         *result = nullptr;
         DFlash_DEBUG("unable to open file for read %s", fname.c_str());
@@ -335,8 +333,9 @@ class DFlashEnv : public Env {
                              fname.c_str());
     }
 
-    if (type == kInfoLogFile || type == kCurrentFile ||
-        type == kDBLockFile || type == kIdentityFile) {
+    if (type == kInfoLogFile || type == kCurrentFile || type == kDBLockFile ||
+        type == kIdentityFile) {
+      // Metadata - Use Posix backend
       Status s;
       int fd;
       {
@@ -367,7 +366,9 @@ class DFlashEnv : public Env {
       }
       return s;
     } else {
-      dflash_file *f = root_dir->nvm_fopen(fname.c_str(), "r");
+      // Fast IO path - use DFlash backend
+      int beam = 0; //TODO: Use beam 0 for now.
+      dflash_file *f = root_dir->dflash_fopen(fname.c_str(), beam, "r");
       if (f == nullptr) {
         *result = nullptr;
         DFlash_DEBUG("unable to open file for read %s", fname.c_str());
@@ -388,17 +389,10 @@ class DFlashEnv : public Env {
                              fname.c_str());
     }
 
-    // For LOG, CURRENT, LOCK, and IDENTITY use the filesystem partition where
-    // RocksDB code is code. Use normal posix for these.
-    // TODO: This copy is taken from env_posix.cc. Since it makes sense to
-    // combine posix with other storage backends, decouple this part of the code
-    // form the posix environment so that PosixXFile classes can be used
-    // simultaneously with a different storage backend.
-    if (type == kInfoLogFile ||
-        type == kCurrentFile ||
-        type == kDBLockFile ||
-        type == kIdentityFile ||
-        options.type == kCurrentFile) {
+    // JAVIER: Necessary options.type??
+    if (type == kInfoLogFile || type == kCurrentFile || type == kDBLockFile ||
+        type == kIdentityFile || options.type == kCurrentFile) {
+      // Metadata - Use Posix backend
       Status s;
       int fd = -1;
       do {
@@ -431,7 +425,9 @@ class DFlashEnv : public Env {
       }
       // For data and metadata use DFlash backend interfacing an Open-Channel SSD
     } else {
-      dflash_file *fd = root_dir->nvm_fopen(fname.c_str(), "a");
+      // Fast IO path - Use Dflash backend
+      int beam = 0; //TODO: Use beam 0 for now.
+      dflash_file *fd = root_dir->dflash_fopen(fname.c_str(), beam, "a");
 
       if (fd == nullptr) {
         *result = nullptr;
@@ -748,7 +744,7 @@ class DFlashEnv : public Env {
       }
       return result;
     } else {
-      dflash_file *f = root_dir->nvm_fopen(fname.c_str(), "l");
+      dflash_file *f = root_dir->dflash_fopen(fname.c_str(), "l");
       if (DFlashLockOrUnlock(fname, f, true) == -1) {
         root_dir->nvm_fclose(f, "l");
         return Status::IOError("unable to lock file");
@@ -1016,7 +1012,7 @@ next_meta:
   }
 
   Status LoadPrivateMetadata(std::string fname, void* metadata) {
-    dflash_file* fd = root_dir->nvm_fopen(fname.c_str(), "a");
+    dflash_file* fd = root_dir->dflash_fopen(fname.c_str(), "a");
     if (fd == nullptr) {
       DFlash_FATAL("Cannot open DFlash file: %s\n", fname.c_str());
     }
@@ -1042,7 +1038,7 @@ next_meta:
   }
 
   Status LoadPrivateMetadata(std::string fname) override {
-    dflash_file* fd = root_dir->nvm_fopen(fname.c_str(), "a");
+    dflash_file* fd = root_dir->dflash_fopen(fname.c_str(), "a");
     if (fd == nullptr) {
       DFlash_FATAL("Cannot open DFlash file\n");
     }

@@ -3,19 +3,93 @@
 #include "nvm/nvm.h"
 #include <liblightnvm.h>
 
+
+list_node::list_node(void *_data) {
+  data = _data;
+
+  next = nullptr;
+  prev = nullptr;
+}
+
+list_node::~list_node() {
+}
+
+list_node *list_node::GetNext() {
+  return next;
+}
+
+list_node *list_node::GetPrev() {
+  return prev;
+}
+
+void *list_node::GetData() {
+  return data;
+}
+
+void *list_node::SetData(void *_data) {
+  void *ret = data;
+
+  data = _data;
+  return ret;
+}
+
+void *list_node::SetNext(list_node *_next) {
+  void *ret = next;
+
+  next = _next;
+  return ret;
+}
+
+void *list_node::SetPrev(list_node *_prev) {
+  void *ret = prev;
+
+  prev = _prev;
+  return ret;
+}
+
 namespace rocksdb {
+
+/*
+ * DFlashEntry implmementation
+ */
+dflash_entry::dflash_entry(const dflash_entry_type _type, void *_data) {
+    type = _type;
+    data = _data;
+}
+
+dflash_entry::~dflash_entry() {
+  switch (type) {
+    case FileEntry:
+      delete (dflash_file *)data;
+      break;
+    case DirectoryEntry:
+      delete (dflash_dir *)data;
+      break;
+    default:
+      DFLASH_FATAL("unknown entry type!!");
+      break;
+    }
+}
+
+void *dflash_entry::GetData() {
+    return data;
+}
+
+dflash_entry_type dflash_entry::GetType() {
+    return type;
+}
 
 /*
  * DFlashFile implementation
  */
-dflash_file::dflash_file(const char *_name, const int fd, dflash_directory *_parent) {
+dflash_file::dflash_file(const char *_name, const int fd, const int beam,
+                         dflash_dir *_parent) {
   char *name;
 
   DFLASH_DEBUG("constructing file %s in %s",
                 _name, _parent == nullptr ? "NULL" : _parent->GetName());
 
   int name_len = strlen(_name);
-
   if (name_len != 0) {
     SAFE_ALLOC(name, char[name_len + 1]);
     strcpy(name, _name);
@@ -64,11 +138,11 @@ dflash_file::~dflash_file() {
   // seq_writable_file = _writable_file;
 // }
 
-void dflash_file::SetParent(dflash_directory *_parent) {
+void dflash_file::SetParent(dflash_dir *_parent) {
   parent = _parent;
 }
 
-dflash_directory *dflash_file::GetParent() {
+dflash_dir *dflash_file::GetParent() {
   return parent;
 }
 
@@ -754,8 +828,8 @@ void dflash_file::SaveSpecialMetadata(std::string fname) {
 /*
  * DFLashDIrectory implementation
  */
-dflash_directory::dflash_directory(const char *_name, const int n, nvm *_nvm_api,
-                             dflash_directory *_parent) {
+dflash_dir::dflash_dir(const char *_name, const int n, nvm *_nvm_api,
+                             dflash_dir *_parent) {
   DFLASH_DEBUG("constructing directory %s in %s", _name,
             _parent == nullptr ? "NULL" : _parent->GetName());
 
@@ -774,7 +848,7 @@ dflash_directory::dflash_directory(const char *_name, const int n, nvm *_nvm_api
   pthread_mutex_init(&list_update_mtx, &list_update_mtx_attr);
 }
 
-dflash_directory::~dflash_directory() {
+dflash_dir::~dflash_dir() {
   DFLASH_DEBUG("free directory %s", name);
 
   delete[] name;
@@ -795,7 +869,7 @@ dflash_directory::~dflash_directory() {
   }
 }
 
-void dflash_directory::ChangeName(const char *_name, const int n) {
+void dflash_dir::ChangeName(const char *_name, const int n) {
   char *temp = name;
 
   SAFE_ALLOC(name, char[n + 1]);
@@ -806,15 +880,15 @@ void dflash_directory::ChangeName(const char *_name, const int n) {
   delete[] temp;
 }
 
-char *dflash_directory::GetName() {
+char *dflash_dir::GetName() {
   return name;
 }
 
-void dflash_directory::EnumerateNames(std::vector<std::string>* result) {
+void dflash_dir::EnumerateNames(std::vector<std::string>* result) {
   result->push_back(name);
 }
 
-bool dflash_directory::HasName(const char *_name, const int n) {
+bool dflash_dir::HasName(const char *_name, const int n) {
   int i;
 
   for (i = 0; i < n; ++i) {
@@ -825,7 +899,7 @@ bool dflash_directory::HasName(const char *_name, const int n) {
   return (name[i] == '\0');
 }
 
-Status dflash_directory::Load(const int fd) {
+Status dflash_dir::Load(const int fd) {
   std::string _name;
   char readIn;
 
@@ -868,8 +942,8 @@ Status dflash_directory::Load(const int fd) {
 
     switch (readIn) {
     case 'd': {
-      dflash_directory *load_dir =
-        (dflash_directory *)create_node("d", DirectoryEntry);
+      dflash_dir *load_dir =
+        (dflash_dir *)create_node("d", DirectoryEntry);
 
       if (!load_dir->Load(fd).ok()) {
         DFLASH_DEBUG("directory %p reported corruption", load_dir);
@@ -898,7 +972,7 @@ Status dflash_directory::Load(const int fd) {
   return Status::OK();
 }
 
-Status dflash_directory::Save(const int fd) {
+Status dflash_dir::Save(const int fd) {
   if (write(fd, "d:", 2) != 2) {
     return Status::IOError("Error writing 1");
   }
@@ -932,7 +1006,7 @@ Status dflash_directory::Save(const int fd) {
       break;
     }
     case DirectoryEntry: {
-      dflash_directory *process_directory = (dflash_directory *)entry->GetData();
+      dflash_dir *process_directory = (dflash_dir *)entry->GetData();
 
       if (!process_directory->Save(fd).ok()) {
         return Status::IOError("Error writing 5");
@@ -955,7 +1029,7 @@ Status dflash_directory::Save(const int fd) {
 }
 
 //Check if the node exists
-list_node *dflash_directory::node_look_up(list_node *prev,
+list_node *dflash_dir::node_look_up(list_node *prev,
                                        const char *look_up_name) {
   list_node *temp;
   int i = 0;
@@ -999,7 +1073,7 @@ list_node *dflash_directory::node_look_up(list_node *prev,
       break;
     }
     case DirectoryEntry: {
-      dflash_directory *process_directory = (dflash_directory *)entry->GetData();
+      dflash_dir *process_directory = (dflash_dir *)entry->GetData();
 
       if (process_directory->HasName(look_up_name, i) == false) {
         break;
@@ -1026,7 +1100,7 @@ list_node *dflash_directory::node_look_up(list_node *prev,
 }
 
 //Check if the node with a specific type exists
-list_node *dflash_directory::node_look_up(const char *look_up_name,
+list_node *dflash_dir::node_look_up(const char *look_up_name,
                                        const dflash_entry_type type) {
   list_node *temp = node_look_up(nullptr, look_up_name);
 
@@ -1044,18 +1118,18 @@ list_node *dflash_directory::node_look_up(const char *look_up_name,
 }
 
 //Check if the directory exists
-dflash_directory *dflash_directory::directory_look_up(const char *directory_name) {
+dflash_dir *dflash_dir::directory_look_up(const char *directory_name) {
   list_node *temp = node_look_up(directory_name, DirectoryEntry);
 
   if (temp == nullptr) {
     return nullptr;
   }
 
-  return (dflash_directory *)(((dflash_entry *)temp->GetData())->GetData());
+  return (dflash_dir *)(((dflash_entry *)temp->GetData())->GetData());
 }
 
 //Check if the file exists
-dflash_file *dflash_directory::file_look_up(const char *filename) {
+dflash_file *dflash_dir::file_look_up(const char *filename) {
   list_node *temp = node_look_up(filename, FileEntry);
 
   if (temp == nullptr) {
@@ -1065,10 +1139,10 @@ dflash_file *dflash_directory::file_look_up(const char *filename) {
   return (dflash_file *)(((dflash_entry *)temp->GetData())->GetData());
 }
 
-void *dflash_directory::create_node(const char *look_up_name,
+void *dflash_dir::create_node(const char *look_up_name,
                                  const dflash_entry_type type) {
   dflash_file *fd;
-  dflash_directory *dd;
+  dflash_dir *dd;
   dflash_entry *entry;
 
   list_node *file_node;
@@ -1110,7 +1184,7 @@ void *dflash_directory::create_node(const char *look_up_name,
       goto out;
     }
     case DirectoryEntry: {
-      dd = (dflash_directory *)entry->GetData();
+      dd = (dflash_dir *)entry->GetData();
 
       if (dd->HasName(look_up_name, i) == false) {
         break;
@@ -1146,7 +1220,7 @@ void *dflash_directory::create_node(const char *look_up_name,
       break;
     }
     case DirectoryEntry: {
-      ALLOC_CLASS(dd, dflash_directory(look_up_name, strlen(look_up_name),
+      ALLOC_CLASS(dd, dflash_dir(look_up_name, strlen(look_up_name),
                                     nvm_api, this));
       ALLOC_CLASS(entry, dflash_entry(DirectoryEntry, dd));
 
@@ -1160,7 +1234,7 @@ void *dflash_directory::create_node(const char *look_up_name,
 
     ALLOC_CLASS(file_node, list_node(entry));
   } else {
-    ALLOC_CLASS(dd, dflash_directory(look_up_name, i, nvm_api, this));
+    ALLOC_CLASS(dd, dflash_dir(look_up_name, i, nvm_api, this));
     ALLOC_CLASS(entry, dflash_entry(DirectoryEntry, dd));
     ALLOC_CLASS(file_node, list_node(entry));
 
@@ -1180,11 +1254,13 @@ out:
   return ret;
 }
 
-dflash_file *dflash_directory::create_file(const char *filename) {
+dflash_file *dflash_dir::create_file(const char *filename, const int beam) {
+  //JAVIER: Need to decouple node creation and implement all file functionality
+  //here
   return (dflash_file *)create_node(filename, FileEntry);
 }
 
-int dflash_directory::CreateDirectory(const char *directory_name) {
+int dflash_dir::CreateDirectory(const char *directory_name) {
   if (create_node(directory_name, DirectoryEntry) != nullptr) {
     return 0;
   }
@@ -1192,18 +1268,18 @@ int dflash_directory::CreateDirectory(const char *directory_name) {
   return -1;
 }
 
-dflash_file *dflash_directory::open_file_if_exists(const char *filename) {
+dflash_file *dflash_dir::open_file_if_exists(const char *filename) {
   return file_look_up(filename);
 }
 
-//Open existing file or create a new one
-dflash_file *dflash_directory::nvm_fopen(const char *filename, const char *mode) {
+dflash_file *dflash_dir::dflash_fopen(const char *filename, const int beam,
+                                      const char *mode) {
   dflash_file *fd;
 
   if (mode[0] != 'a' && mode[0] != 'w' && mode[0] != 'l') {
     fd = open_file_if_exists(filename);
   } else {
-    fd = create_file(filename);
+    fd = create_file(filename, beam);
   }
 
   if (fd->CanOpen(mode)) {
@@ -1213,7 +1289,7 @@ dflash_file *dflash_directory::nvm_fopen(const char *filename, const char *mode)
   }
 }
 
-int dflash_directory::GetFileSize(const char *filename, unsigned long *size) {
+int dflash_dir::GetFileSize(const char *filename, unsigned long *size) {
   dflash_file *fd = file_look_up(filename);
 
   if (fd) {
@@ -1225,7 +1301,7 @@ int dflash_directory::GetFileSize(const char *filename, unsigned long *size) {
   return 1;
 }
 
-int dflash_directory::GetFileModificationTime(const char *filename, time_t *mtime) {
+int dflash_dir::GetFileModificationTime(const char *filename, time_t *mtime) {
   dflash_file *fd = file_look_up(filename);
 
   if (fd) {
@@ -1237,21 +1313,21 @@ int dflash_directory::GetFileModificationTime(const char *filename, time_t *mtim
   return 1;
 }
 
-bool dflash_directory::FileExists(const char *_name) {
+bool dflash_dir::FileExists(const char *_name) {
   return (node_look_up(nullptr, _name) != nullptr);
 }
 
-nvm *dflash_directory::GetNVMApi() {
+nvm *dflash_dir::GetNVMApi() {
   return nvm_api;
 }
 
-void dflash_directory::nvm_fclose(dflash_file *file, const char *mode) {
+void dflash_dir::nvm_fclose(dflash_file *file, const char *mode) {
   DFLASH_DEBUG("closing file at %p with %s", file, mode);
 
   file->Close(mode);
 }
 
-int dflash_directory::LinkFile(const char *src, const char *target) {
+int dflash_dir::LinkFile(const char *src, const char *target) {
   pthread_mutex_lock(&list_update_mtx);
 
   dflash_file *fd = file_look_up(target);
@@ -1272,7 +1348,7 @@ int dflash_directory::LinkFile(const char *src, const char *target) {
   return -1;
 }
 
-void dflash_directory::Remove(dflash_directory *fd) {
+void dflash_dir::Remove(dflash_dir *fd) {
   pthread_mutex_lock(&list_update_mtx);
   struct list_node *iterator = head;
 
@@ -1284,7 +1360,7 @@ void dflash_directory::Remove(dflash_directory *fd) {
       continue;
     }
 
-    dflash_directory *file = (dflash_directory *)entry->GetData();
+    dflash_dir *file = (dflash_dir *)entry->GetData();
 
     if (file != fd) {
       iterator = iterator->GetNext();
@@ -1318,7 +1394,7 @@ void dflash_directory::Remove(dflash_directory *fd) {
   pthread_mutex_unlock(&list_update_mtx);
 }
 
-void dflash_directory::Add(dflash_directory *fd) {
+void dflash_dir::Add(dflash_dir *fd) {
   pthread_mutex_lock(&list_update_mtx);
   struct list_node *node;
 
@@ -1338,7 +1414,7 @@ void dflash_directory::Add(dflash_directory *fd) {
   pthread_mutex_unlock(&list_update_mtx);
 }
 
-void dflash_directory::Remove(dflash_file *fd) {
+void dflash_dir::Remove(dflash_file *fd) {
   pthread_mutex_lock(&list_update_mtx);
 
   struct list_node *iterator = head;
@@ -1383,7 +1459,7 @@ void dflash_directory::Remove(dflash_file *fd) {
   pthread_mutex_unlock(&list_update_mtx);
 }
 
-void dflash_directory::Add(dflash_file *fd) {
+void dflash_dir::Add(dflash_file *fd) {
   pthread_mutex_lock(&list_update_mtx);
 
   struct list_node *node;
@@ -1402,12 +1478,12 @@ void dflash_directory::Add(dflash_file *fd) {
   pthread_mutex_unlock(&list_update_mtx);
 }
 
-int dflash_directory::RenameDirectory(const char *crt_filename,
+int dflash_dir::RenameDirectory(const char *crt_filename,
                                    const char *new_filename) {
-  dflash_directory *fd;
+  dflash_dir *fd;
 
-  dflash_directory *crt_parent_dir;
-  dflash_directory *new_parent_dir;
+  dflash_dir *crt_parent_dir;
+  dflash_dir *new_parent_dir;
 
   pthread_mutex_lock(&list_update_mtx);
 
@@ -1464,11 +1540,11 @@ int dflash_directory::RenameDirectory(const char *crt_filename,
   return 0;
 }
 
-int dflash_directory::RenameFile(const char *crt_filename, const char *new_filename) {
+int dflash_dir::RenameFile(const char *crt_filename, const char *new_filename) {
   pthread_mutex_lock(&list_update_mtx);
 
   dflash_file *fd;
-  dflash_directory *dir = OpenParentDirectory(new_filename);
+  dflash_dir *dir = OpenParentDirectory(new_filename);
 
   if (dir == nullptr) {
     pthread_mutex_unlock(&list_update_mtx);
@@ -1518,7 +1594,7 @@ int dflash_directory::RenameFile(const char *crt_filename, const char *new_filen
   return 0;
 }
 
-int dflash_directory::DeleteFile(const char *filename) {
+int dflash_dir::DeleteFile(const char *filename) {
   unsigned char last_slash = 0;
 
   for (unsigned int i = 0; i < strlen(filename); ++i) {
@@ -1557,11 +1633,11 @@ int dflash_directory::DeleteFile(const char *filename) {
   return 0;
 }
 
-dflash_directory *dflash_directory::GetParent() {
+dflash_dir *dflash_dir::GetParent() {
   return parent;
 }
 
-dflash_directory *dflash_directory::OpenParentDirectory(const char *filename) {
+dflash_dir *dflash_dir::OpenParentDirectory(const char *filename) {
   int i = 0;
   int last_slash = 0;
 
@@ -1583,18 +1659,18 @@ dflash_directory *dflash_directory::OpenParentDirectory(const char *filename) {
   memcpy(_name, filename, last_slash);
   _name[last_slash] = '\0';
 
-  dflash_directory *ret = OpenDirectory(_name);
+  dflash_dir *ret = OpenDirectory(_name);
 
   delete _name;
 
   return ret;
 }
 
-dflash_directory *dflash_directory::OpenDirectory(const char *_name) {
+dflash_dir *dflash_dir::OpenDirectory(const char *_name) {
   return directory_look_up(_name);
 }
 
-void dflash_directory::Delete(nvm *_nvm_api) {
+void dflash_dir::Delete(nvm *_nvm_api) {
   DFLASH_DEBUG("delete %s", name);
 
   //delete all files in the directory
@@ -1605,7 +1681,7 @@ void dflash_directory::Delete(nvm *_nvm_api) {
 
     switch (entry->GetType()) {
     case DirectoryEntry: {
-      dflash_directory *dir = (dflash_directory *)entry->GetData();
+      dflash_dir *dir = (dflash_dir *)entry->GetData();
       dir->Delete(_nvm_api);
       break;
     }
@@ -1623,7 +1699,7 @@ void dflash_directory::Delete(nvm *_nvm_api) {
   }
 }
 
-void dflash_directory::GetChildren(std::vector<std::string>* result) {
+void dflash_dir::GetChildren(std::vector<std::string>* result) {
   list_node *temp;
 
   pthread_mutex_lock(&list_update_mtx);
@@ -1635,7 +1711,7 @@ void dflash_directory::GetChildren(std::vector<std::string>* result) {
 
     switch (entry->GetType()) {
     case DirectoryEntry: {
-      dflash_directory *dir = (dflash_directory *)entry->GetData();
+      dflash_dir *dir = (dflash_dir *)entry->GetData();
       dir->EnumerateNames(result);
       break;
     }
@@ -1653,9 +1729,9 @@ void dflash_directory::GetChildren(std::vector<std::string>* result) {
   }
 }
 
-int dflash_directory::GetChildren(const char *_name,
+int dflash_dir::GetChildren(const char *_name,
                                std::vector<std::string>* result) {
-  dflash_directory *dir = directory_look_up(_name);
+  dflash_dir *dir = directory_look_up(_name);
 
   if (dir == nullptr) {
     return -1;
@@ -1665,7 +1741,7 @@ int dflash_directory::GetChildren(const char *_name,
   return 0;
 }
 
-int dflash_directory::DeleteDirectory(const char *_name) {
+int dflash_dir::DeleteDirectory(const char *_name) {
   pthread_mutex_lock(&list_update_mtx);
 
   list_node *dir_node = node_look_up(_name, DirectoryEntry);
@@ -1676,11 +1752,11 @@ int dflash_directory::DeleteDirectory(const char *_name) {
   }
 
   dflash_entry *entry = (dflash_entry *)dir_node->GetData();
-  dflash_directory *directory = (dflash_directory *)entry->GetData();
+  dflash_dir *directory = (dflash_dir *)entry->GetData();
 
   directory->GetParent()->Remove(directory);
 
-  pthread_mutex_unlock(&list_update_mtx);  
+  pthread_mutex_unlock(&list_update_mtx);
 
   directory->Delete(nvm_api);
 

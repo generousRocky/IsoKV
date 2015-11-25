@@ -40,7 +40,8 @@ class dflash_file {
   // DFlashWritableFile *seq_writable_file; //TODO: Check
 
  public:
-  dflash_file(const char* _name, const int fd, dflash_dir* _parent);
+  dflash_file(const char* _name, const int fd, const int beam,
+              dflash_dir* _parent);
   ~dflash_file();
 
   void SetParent(dflash_dir* _parent);
@@ -129,8 +130,9 @@ class dflash_dir {
   dflash_dir *OpenParentDirectory(const char *filename);
   dflash_dir *OpenDirectory(const char *name);
   dflash_dir *GetParent();
-  dflash_file *nvm_fopen(const char *filename, const char *mode);
-  dflash_file *create_file(const char *filename);
+  dflash_file *dflash_fopen(const char *filename, const int beam,
+                            const char *mode);
+  dflash_file *create_file(const char *filename, const int beam);
 
   nvm *GetDFlashApi();
 
