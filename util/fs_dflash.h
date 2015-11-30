@@ -27,7 +27,10 @@ class dflash_file {
   list_node* names;
   FileType type_;
 
-  int fd_;
+  // File ID. liblightnvm guarantees a unique identifier for the file; fid_
+  // allows DFlash to maintain the mapping between file names (links) and the
+  // file ID.
+  int fid_;
   dflash_dir* parent;
   unsigned long filesize_;
 
@@ -130,7 +133,7 @@ class dflash_dir {
   dflash_dir *OpenParentDirectory(const char *filename);
   dflash_dir *OpenDirectory(const char *name);
   dflash_dir *GetParent();
-  dflash_file *dflash_fopen(const char *filename, const int beam,
+  dflash_file *dflash_create(const char *filename, const int beam,
                             const char *mode);
   dflash_file *create_file(const char *filename, const int beam);
 

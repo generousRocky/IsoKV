@@ -311,11 +311,21 @@ class DFlashEnv : public Env {
     } else {
       // Fast IO path - Use DFlash backend
       int beam = 0; //TODO: Use beam 0 for now.
-      dflash_file *f = root_dir->dflash_fopen(fname.c_str(), beam, "r");
-      if (f == nullptr) {
+      dflash_file *dfile = root_dir->dflash_create(fname.c_str(), beam, "r");
+      if (dfile == nullptr) {
         *result = nullptr;
         DFlash_DEBUG("unable to open file for read %s", fname.c_str());
         return Status::IOError("unable to open file for read");
+      }
+
+      int f;
+      do {
+        IOSTATS_TIMER_GUARD(open_nanos);
+        f = nvm_file_open(dfile->fid_, 0);
+      } while (f < 0 && errno == EINTR);
+      if (f < 0) {
+        *result = nullptr;
+        return IOError(fname, errno);
       }
 
       result->reset(new DFlashSequentialFile(fname, f, root_dir));
@@ -368,7 +378,7 @@ class DFlashEnv : public Env {
     } else {
       // Fast IO path - use DFlash backend
       int beam = 0; //TODO: Use beam 0 for now.
-      dflash_file *f = root_dir->dflash_fopen(fname.c_str(), beam, "r");
+      dflash_file *f = root_dir->dflash_create(fname.c_str(), beam, "r");
       if (f == nullptr) {
         *result = nullptr;
         DFlash_DEBUG("unable to open file for read %s", fname.c_str());
@@ -427,7 +437,7 @@ class DFlashEnv : public Env {
     } else {
       // Fast IO path - Use Dflash backend
       int beam = 0; //TODO: Use beam 0 for now.
-      dflash_file *fd = root_dir->dflash_fopen(fname.c_str(), beam, "a");
+      dflash_file *fd = root_dir->dflash_create(fname.c_str(), beam, "a");
 
       if (fd == nullptr) {
         *result = nullptr;
@@ -744,7 +754,7 @@ class DFlashEnv : public Env {
       }
       return result;
     } else {
-      dflash_file *f = root_dir->dflash_fopen(fname.c_str(), "l");
+      dflash_file *f = root_dir->dflash_create(fname.c_str(), "l");
       if (DFlashLockOrUnlock(fname, f, true) == -1) {
         root_dir->nvm_fclose(f, "l");
         return Status::IOError("unable to lock file");
@@ -1012,7 +1022,7 @@ next_meta:
   }
 
   Status LoadPrivateMetadata(std::string fname, void* metadata) {
-    dflash_file* fd = root_dir->dflash_fopen(fname.c_str(), "a");
+    dflash_file* fd = root_dir->dflash_create(fname.c_str(), "a");
     if (fd == nullptr) {
       DFlash_FATAL("Cannot open DFlash file: %s\n", fname.c_str());
     }
@@ -1038,7 +1048,7 @@ next_meta:
   }
 
   Status LoadPrivateMetadata(std::string fname) override {
-    dflash_file* fd = root_dir->dflash_fopen(fname.c_str(), "a");
+    dflash_file* fd = root_dir->dflash_create(fname.c_str(), "a");
     if (fd == nullptr) {
       DFlash_FATAL("Cannot open DFlash file\n");
     }

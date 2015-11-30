@@ -84,11 +84,17 @@ dflash_entry_type dflash_entry::GetType() {
  */
 dflash_file::dflash_file(const char *_name, const int fd, const int beam,
                          dflash_dir *_parent) {
+  int fid;
+
+  // JAVIER: How to reference the target?
+  fid = nvm_create_file(nvm_target, beam, 0);
+  if (fid) {
+    // TODO: Throw exception
+    DFLASH_FATAL("Cannot create nvm file\n");
+  }
+  fid_ = fid;
+
   char *name;
-
-  DFLASH_DEBUG("constructing file %s in %s",
-                _name, _parent == nullptr ? "NULL" : _parent->GetName());
-
   int name_len = strlen(_name);
   if (name_len != 0) {
     SAFE_ALLOC(name, char[name_len + 1]);
@@ -99,12 +105,16 @@ dflash_file::dflash_file(const char *_name, const int fd, const int beam,
     names = nullptr;
   }
 
-  filesize_ = 0;
-  fd_ = fd;
+
   parent = _parent;
+  filesize_ = 0;
 
   metadata_handle_ = new DFlashPrivateMetadata(this);
   last_modified_ = time(nullptr);
+
+
+  DFLASH_DEBUG("New dflash file %s in %s. fd: %d", _name,
+               _parent == nullptr ? "NULL" : _parent->GetName(), fd_);
 
   // opened_for_write = false;
   // seq_writable_file = nullptr;
@@ -1272,7 +1282,7 @@ dflash_file *dflash_dir::open_file_if_exists(const char *filename) {
   return file_look_up(filename);
 }
 
-dflash_file *dflash_dir::dflash_fopen(const char *filename, const int beam,
+dflash_file *dflash_dir::dflash_create(const char *filename, const int beam,
                                       const char *mode) {
   dflash_file *fd;
 
