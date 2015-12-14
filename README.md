@@ -24,3 +24,6 @@ rely on the details of any other header files in this package.  Those
 internal APIs may be changed without warning.
 
 Design discussions are conducted in https://www.facebook.com/groups/rocksdb.dev/
+
+For more information about LightNVM integration with RocksDB and collaboration,
+please contact Javier González at <jg@lightnvm.io>
