@@ -15,8 +15,8 @@ VALUE_SIZE=1048576
 #VALUE_SIZE=4096
 
 taskset -c 0-$(nproc) ./db_bench \
---env_uri="nvm://nvme0n1/" \
 --use_existing_db=0 \
+--env_uri="nvm://nvme0n1/" \
 --db=$DB_PATH \
 --benchmarks=fillseq,overwrite,overwrite \
 --num=$NUM \
