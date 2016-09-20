@@ -32,7 +32,7 @@ std::pair<std::string, std::string> SplitPath(const std::string& path) {
   }
 
   return std::pair<std::string, std::string>(
-      path.substr(0, sep_idx),
+      path.substr(0, sep_idx + 1),
       path.substr(fname_idx)
   );
 }
@@ -178,10 +178,10 @@ Status EnvNVM::ReuseWritableFile(
   return Status::IOError("ReuseWritableFile --> Not implemented.");
 }
 
-Status EnvNVM::FileExists(const std::string& fname) {
-  NVM_DEBUG("fname(%s)\n", fname.c_str());
+Status EnvNVM::FileExists(const std::string& fpath) {
+  NVM_DEBUG("fpath(%s)\n", fpath.c_str());
 
-  if (FindFile(fname)) {
+  if (FindFile(fpath)) {
     return Status::OK();
   }
 
@@ -217,12 +217,6 @@ Status EnvNVM::GetChildrenFileAttributes(
   return Status::IOError("GetChildrenFileAttributes --> Not implemented");
 }
 
-Status EnvNVM::DeleteFile(const std::string& fname) {
-  NVM_DEBUG("fname(%s)\n", fname.c_str());
-
-  return Status::NotFound();
-}
-
 Status EnvNVM::CreateDirIfMissing(const std::string& name) {
   NVM_DEBUG("name(%s)\n", name.c_str());
 
@@ -245,7 +239,12 @@ Status EnvNVM::RemoveFile(const std::string& dname, const std::string& fname) {
   for (auto it = dit->second.begin(); it != dit->second.end(); ++it) {
     if ((*it)->IsNamed(fname)) {
       NVM_DEBUG("File found -- erasing\n");
+
+      NVMFile *file = *it;
+
       dit->second.erase(it);
+      file->Unref();
+
       return Status::OK();
     }
   }
@@ -260,6 +259,12 @@ Status EnvNVM::RemoveFile(const std::string& path) {
   std::pair<std::string, std::string> parts = SplitPath(path);
 
   return RemoveFile(parts.first, parts.second);
+}
+
+Status EnvNVM::DeleteFile(const std::string& fpath) {
+  NVM_DEBUG("fpath(%s)\n", fpath.c_str());
+
+  return RemoveFile(fpath);
 }
 
 Status EnvNVM::AddFile(NVMFile *file) {

@@ -8,18 +8,14 @@
 #include "util/thread_local.h"
 #include "util/thread_status_updater.h"
 
-#ifndef __NVM_DEBUG_H
-#define __NVM_DEBUG_H
-
 #include <stdio.h>
 
 #ifdef NVM_DEBUG_ENABLED
-	#define NVM_DEBUG(x, ...) printf("%s:%s-%d: " x "", __FILE__, \
-		__FUNCTION__, __LINE__, ##__VA_ARGS__);fflush(stdout);
+#define NVM_DEBUG(x, ...) printf("%s:%s-%d: " x "", __FILE__, \
+__FUNCTION__, __LINE__, ##__VA_ARGS__);fflush(stdout);
 #else
-	#define NVM_DEBUG(x, ...)
+#define NVM_DEBUG(x, ...)
 #endif
-#endif /* __NVM_DEBUG_H */
 
 namespace rocksdb {
 
@@ -29,18 +25,26 @@ std::pair<std::string, std::string> SplitPath(const std::string& path);
 
 class NVMFile;                  // Declared here, defined in envnvm_file.cc
 class EnvNVM;                   // Declared here, defined here and in envnvm.cc
-class NVMDirectory;             // Declared and defined here
-class NVMSequentialFile;        // Declared and defined here
-class NVMWritableFile;          // Declared and defined here
-class NVMRandomAccessFile;      // Declared and defined here
+class NVMDirectory;             // Declared here, defined here
+class NVMSequentialFile;        // Declared here, defined here
+class NVMWritableFile;          // Declared here, defined here
+class NVMRandomAccessFile;      // Declared here, defined here
 
 class NVMFile {
 public:
   NVMFile(void);
-  explicit NVMFile(EnvNVM* env, const std::string& dname, const std::string& fname);
+  explicit NVMFile(EnvNVM* env, const std::string& dname, const std::string&
+      fname);
 
   bool UseOSBuffer() const;
   bool UseDirectIO() const;
+
+  //
+  // Pre-allocate space for a file.
+  // TODO: This used to be "protected", probably make the WritableFile etc.
+  // friends of the class and keep it protected.
+  //
+  Status Allocate(uint64_t offset, uint64_t len);
 
   Status Read(uint64_t offset, size_t n, Slice* result, char* scratch) const;
   Status Append(const Slice& data);
@@ -48,17 +52,17 @@ public:
   Status Truncate(uint64_t size);
   Status Close(void);
   Status Sync(void);
+  Status RangeSync(uint64_t offset, uint64_t nbytes);
   Status Fsync(void);
   Status Flush(void);
 
-  Status RangeSync(uint64_t offset, uint64_t nbytes);
+  void Rename(const std::string& fname);
+  void PrepareWrite(size_t offset, size_t len);
 
   uint64_t ModifiedTime(void) const;
 
   uint64_t GetFileSize(void) const;
   uint64_t GetFileSize(void);
-
-  uint64_t Size(void) const;
 
   size_t GetRequiredBufferAlignment(void) const;
 
@@ -71,22 +75,12 @@ public:
   size_t GetUniqueId(char* id, size_t max_size) const;
   Status InvalidateCache(size_t offset, size_t length);
 
-  bool IsNamed(const std::string &name) const;
+  bool IsNamed(const std::string &fname) const;
   const std::string& GetName(void) const;
   const std::string& GetDir(void) const;
 
-  void Rename(const std::string& name);
-  void PrepareWrite(size_t offset, size_t len);
-
   void Ref(void);
   void Unref(void);
-
-  /*
-   * Pre-allocate space for a file.
-   * TODO: This used to be "protected", probably make the WritableFile etc.
-   * friends of the class and keep it protected.
-   */
-  Status Allocate(uint64_t offset, uint64_t len);
 
 private:
   // Private since only Unref() should be used to delete it.
@@ -108,16 +102,10 @@ private:
   int refs_;
 };
 
-/**
- * Environment for non-volatile memory, specifically OpenChannelSSDs accessed
- * via liblightnvm.
- *
- * References:
- *  - include/rocksdb/env.h
- *  - include/rocksdb/utilities/env_librados.h
- *  - include/rocksdb/utilities/env_mirror.h
- *  - hdfs/env_hdfs.h
- */
+//
+// Environment for non-volatile memory, specifically OpenChannelSSDs accessed
+// via liblightnvm.
+//
 class EnvNVM : public Env {
 public:
   EnvNVM(const std::string& device);
@@ -128,30 +116,27 @@ public:
   // On success, stores a pointer to a new Logger instance in *result
   // and returns OK. On failure stores nullptr in *result and returns non-OK.
   virtual Status NewLogger(
-    const std::string& fname,
-    shared_ptr<Logger>* result
+    const std::string& fpath, shared_ptr<Logger>* result
   ) override;
 
-  // Open a file with sequential read-only access.
+  // Open (an existing) file with sequential read-only access
   //
   // On success, stores a pointer to a new SequentialFile instance in *result
   // and returns OK. On failure stores nullptr in *result and returns non-OK.
   //
-  // NOTE: Single-threaded access is assumed
   virtual Status NewSequentialFile(
-    const std::string& fname,
+    const std::string& fpath,
     unique_ptr<SequentialFile>* result,
     const EnvOptions& options
   ) override;
 
-  // Open a file with random read-only access to an existing file.
+  // Open (an existing) file with random read-only access
   //
   // On success, stores a pointer to a new RandomAccessFile instance in *result
   // and returns OK. On failure stores nullptr in *result and returns non-OK.
   //
-  // NOTE: Multi-threaded access is assumed
   virtual Status NewRandomAccessFile(
-    const std::string& fname,
+    const std::string& fpath,
     unique_ptr<RandomAccessFile>* result,
     const EnvOptions& options
   ) override;
@@ -161,11 +146,10 @@ public:
   // On success, stores a pointer to a new WritableFile instance in *result and
   // returns OK.  On failure stores nullptr in *result and returns non-OK.
   //
-  // NOTE: Single-threaded access is assumed.
   // NOTE: If a file with the same name already exists, then the existing file
   // is deleted prior to creation.
   virtual Status NewWritableFile(
-    const std::string& fname,
+    const std::string& fpath,
     unique_ptr<WritableFile>* result,
     const EnvOptions& options
   ) override;
@@ -179,8 +163,8 @@ public:
   // NOTE: If a file with the same name already exists, then the existing file
   // is deleted prior to creation.
   virtual Status ReuseWritableFile(
-    const std::string& fname,
-    const std::string& old_fname,
+    const std::string& fpath,
+    const std::string& old_fpath,
     unique_ptr<WritableFile>* result,
     const EnvOptions& options
   ) override;
@@ -190,7 +174,7 @@ public:
   // On success, stores a pointer to a new Directory instance in *result and
   // returns OK. On failure stores nullptr in *result and returns non-OK.
   virtual Status NewDirectory(
-    const std::string& name,
+    const std::string& dpath,
     unique_ptr<Directory>* result
   ) override;
 
@@ -199,13 +183,13 @@ public:
   //                  the calling process does not have permission to determine
   //                  whether this file exists, or if the path is invalid.
   //         IOError if an IO Error was encountered
-  virtual Status FileExists(const std::string& fname) override;
+  virtual Status FileExists(const std::string& fpath) override;
 
   // Store in *result the names of the children of the specified directory.
   // The names are relative to "dir".
   // Original contents of *results are dropped.
   virtual Status GetChildren(
-    const std::string& dname,
+    const std::string& dpath,
     std::vector<std::string>* result
   ) override;
 
@@ -216,68 +200,67 @@ public:
   // The name attributes are relative to "dir".
   // Original contents of *results are dropped.
   virtual Status GetChildrenFileAttributes(
-    const std::string& dir,
+    const std::string& dpath,
     std::vector<FileAttributes>* result
   ) override;
 
   // Delete the named file.
-  virtual Status DeleteFile(const std::string& fname) override;
+  virtual Status DeleteFile(const std::string& fpath) override;
 
   // Create the specified directory. Returns error if directory exists.
-  virtual Status CreateDir(const std::string& dirname) override;
+  virtual Status CreateDir(const std::string& dpath) override;
 
   // Creates directory if it does not exist
   // Returns Ok if it exists, or successfully created. Non-OK otherwise.
-  virtual Status CreateDirIfMissing(const std::string& dirname) override;
+  virtual Status CreateDirIfMissing(const std::string& dpath) override;
 
   // Delete the specified directory.
-  virtual Status DeleteDir(const std::string& dirname) override;
+  virtual Status DeleteDir(const std::string& dpath) override;
 
-  // Store the size of fname in *file_size.
+  // Store the size of fpath in *file_size.
   virtual Status GetFileSize(
     const std::string& fpath,
     uint64_t* fsize
   ) override;
 
-  // Store the last modification time of fname in *file_mtime.
+  // Store the last modification time of fpath in *file_mtime.
   virtual Status GetFileModificationTime(
-    const std::string& fname,
+    const std::string& fpath,
     uint64_t* file_mtime) override;
 
-  // Rename file src to target.
-  virtual Status RenameFile(const std::string& src,
-                            const std::string& target) override;
+  // Rename file fpath_src to fpath_tgt.
+  virtual Status RenameFile(const std::string& fpath_src,
+                            const std::string& fpath_tgt) override;
 
-  // Hard Link file src to target.
+  // Hard Link file at fpath_src to fpath_tgt
   virtual Status LinkFile(
-    const std::string& src,
-    const std::string& target
+    const std::string& fpath_src,
+    const std::string& fpath_tgt
   ) override {
     return Status::NotSupported("LinkFile is not supported for this Env");
   }
 
-  // Lock the specified file.  Used to prevent concurrent access to
-  // the same db by multiple processes.  On failure, stores nullptr in
-  // *lock and returns non-OK.
+  // Lock the specified file. Used to prevent concurrent access to the same db
+  // by multiple processes. On failure, stores nullptr in *lock and returns
+  // non-OK.
   //
-  // On success, stores a pointer to the object that represents the
-  // acquired lock in *lock and returns OK.  The caller should call
-  // UnlockFile(*lock) to release the lock.  If the process exits,
-  // the lock will be automatically released.
+  // On success, stores a pointer to the object that represents the acquired
+  // lock in *lock and returns OK. The caller should call UnlockFile(*lock) to
+  // release the lock. If the process exits, the lock will be automatically
+  // released.
   //
-  // If somebody else already holds the lock, finishes immediately
-  // with a failure.  I.e., this call does not wait for existing locks
-  // to go away.
+  // If somebody else already holds the lock, finishes immediately with a
+  // failure. I.e., this call does not wait for existing locks to go away.
   //
   // May create the named file if it does not already exist.
-  virtual Status LockFile(const std::string& fname, FileLock** lock) override;
+  virtual Status LockFile(const std::string& fpath, FileLock** lock) override;
 
   // Release the lock acquired by a previous successful call to LockFile.
   // REQUIRES: lock was returned by a successful LockFile() call
   // REQUIRES: lock has not already been unlocked.
   virtual Status UnlockFile(FileLock* lock) override;
 
-    // Returns the number of micro-seconds since some fixed point in time. Only
+  // Returns the number of micro-seconds since some fixed point in time. Only
   // useful for computing deltas of time.
   // However, it is often used as system time such as in GenericRateLimiter
   // and other places so a port needs to return system time in order to work.
@@ -286,7 +269,7 @@ public:
   // Returns the number of nano-seconds since some fixed point in time. Only
   // useful for computing deltas of time in one run.
   // Default implementation simply relies on NowMicros
-  virtual uint64_t NowNanos() override;
+  virtual uint64_t NowNanos(void) override;
 
   // Get the number of seconds since the Epoch, 1970-01-01 00:00:00 (UTC).
   virtual Status GetCurrentTime(int64_t* unix_time) override;
@@ -310,20 +293,17 @@ public:
   // or many not have just been created. The directory may or may not differ
   // between runs of the same process, but subsequent calls will return the
   // same directory.
-  virtual Status GetTestDirectory(std::string* path) override;
+  virtual Status GetTestDirectory(std::string* dpath) override;
 
   // ADDITIONS the standard Env interface
 
-
   Status AddFile(NVMFile* file);
 
-  NVMFile* FindFile(const std::string& path);
+  NVMFile* FindFile(const std::string& fpath);
   NVMFile* FindFile(const std::string& dname, const std::string& fname);
 
-  Status RemoveFile(const std::string& path);
+  Status RemoveFile(const std::string& fpath);
   Status RemoveFile(const std::string& dname, const std::string& fname);
-
-
 
   // REMOVE THIS STUFF LET SOME OTHER ENV MANAGE THAT IT
 
@@ -439,6 +419,9 @@ public:
   FILE *logf_;
 };
 
+//
+// NOTE: Single-threaded access is assumed
+//
 class NVMSequentialFile : public SequentialFile {
 public:
   NVMSequentialFile(void) : SequentialFile() {
@@ -459,7 +442,7 @@ public:
     file_->Unref();
   }
 
-  Status Read(size_t n, Slice* result, char* scratch) {
+  virtual Status Read(size_t n, Slice* result, char* scratch) override {
     NVM_DEBUG("fname(%s), n(%lu), pos_(%lu), result(%p), scratch(%p)\n",
               file_->GetName().c_str(), n, pos_, result, scratch);
 
@@ -476,7 +459,7 @@ public:
     return s;
   }
 
-  Status Skip(uint64_t n) {
+  virtual Status Skip(uint64_t n) override {
     NVM_DEBUG("fname(%s), n(%lu)\n", file_->GetName().c_str(), n);
 
     if (n + pos_ > file_->GetFileSize()) {      // TODO: Verify this boundary
@@ -488,7 +471,7 @@ public:
     return Status::OK();
   }
 
-  Status InvalidateCache(size_t offset, size_t length) {
+  virtual Status InvalidateCache(size_t offset, size_t length) override {
     NVM_DEBUG("Forwarding\n");
 
     return file_->InvalidateCache(offset, length);
@@ -499,6 +482,9 @@ protected:
   uint64_t pos_;
 };
 
+//
+// NOTE: Multi-threaded access is assumed
+//
 class NVMRandomAccessFile : public RandomAccessFile {
 public:
   NVMRandomAccessFile(void) : RandomAccessFile() {
@@ -553,20 +539,25 @@ public:
   virtual Status InvalidateCache(size_t offset, size_t length) override {
     NVM_DEBUG("offset(%lu), length(%lu)\n", offset, length);
 
-    return Status::IOError("InvalidateCache --> Not implemented.");
+    return file_->InvalidateCache(offset, length);
   }
 
 protected:
   NVMFile *file_;
 };
 
+//
+// NOTE: Single-threaded access is assumed for access to instances of this
+// class.
+//
 class NVMWritableFile : public WritableFile {
 public:
   NVMWritableFile(void) : WritableFile() {
     NVM_DEBUG("\n");
   }
 
-  NVMWritableFile(NVMFile *file, const EnvOptions& options
+  NVMWritableFile(
+    NVMFile *file, const EnvOptions& options
   ) : WritableFile(), file_(file) {
     NVM_DEBUG("file(%p), dname(%s), fname(%s), options(?)\n",
               file, file->GetDir().c_str(), file->GetName().c_str());
@@ -630,12 +621,12 @@ public:
     return file_->Sync();
   }
 
-  /*
-   * Sync data and/or metadata as well.
-   * By default, sync only data.
-   * Override this method for environments where we need to sync
-   * metadata as well.
-   */
+  //
+  // Sync data and/or metadata as well.
+  // By default, sync only data.
+  // Override this method for environments where we need to sync
+  // metadata as well.
+  //
   virtual Status Fsync() override {
     NVM_DEBUG("forwarding\n");
     return file_->Fsync();
@@ -655,10 +646,10 @@ public:
     return file_->UseDirectIO();
   }
 
-  /*
-   * Change the priority in rate limiter if rate limiting is enabled.
-   * If rate limiting is not enabled, this call has no effect.
-   */
+  //
+  // Change the priority in rate limiter if rate limiting is enabled.
+  // If rate limiting is not enabled, this call has no effect.
+  //
   virtual void SetIOPriority(Env::IOPriority pri) override {
     NVM_DEBUG("pri(%d)\n", pri);
   }
@@ -668,9 +659,9 @@ public:
     return io_priority_;
   }
 
-  /*
-   * Get the size of valid data in the file.
-   */
+  //
+  // Get the size of valid data in the file.
+  //
   virtual uint64_t GetFileSize() override {
     NVM_DEBUG("forwarding\n");
     return file_->GetFileSize();
@@ -713,9 +704,9 @@ public:
   }
 
 protected:
-  /*
-   * Pre-allocate space for a file.
-   */
+  //
+  // Pre-allocate space for a file.
+  //
   virtual Status Allocate(uint64_t offset, uint64_t len) override {
     NVM_DEBUG("offset(%lu), len(%lu)\n", offset, len);
 

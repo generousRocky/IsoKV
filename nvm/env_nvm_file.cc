@@ -10,7 +10,7 @@ NVMFile::NVMFile(
   void
 ) : env_(NULL), dname_(), fname_(), fsize_(0),
     buf_(NULL), buf_len_(0), refs_(0) {
-  NVM_DEBUG("env_(%p), dname_(%s), fname_(%s)",
+  NVM_DEBUG("env_(%p), dname_(%s), fname_(%s)\n",
             env_, dname_.c_str(), fname_.c_str());
   NVM_DEBUG("fsize_(%lu), buf_(%p), buf_len_(%lu), refs_(%d)\n",
             fsize_, buf_, buf_len_, refs_);
@@ -20,7 +20,7 @@ NVMFile::NVMFile(
   EnvNVM* env, const std::string& dname, const std::string& fname
 ) : env_(env), dname_(dname), fname_(fname), fsize_(0),
     buf_(NULL), buf_len_(0), refs_(0) {
-  NVM_DEBUG("env_(%p), dname_(%s), fname_(%s)",
+  NVM_DEBUG("env_(%p), dname_(%s), fname_(%s)\n",
             env_, dname_.c_str(), fname_.c_str());
   NVM_DEBUG("fsize_(%lu), buf_(%p), buf_len_(%lu), refs_(%d)\n",
             fsize_, buf_, buf_len_, refs_);
@@ -28,6 +28,8 @@ NVMFile::NVMFile(
 
 NVMFile::~NVMFile(void) {
   NVM_DEBUG("fname(%s), file(%p)\n", fname_.c_str(), this);
+
+  free(buf_);
 }
 
 bool NVMFile::UseDirectIO(void) const {
@@ -121,15 +123,8 @@ Status NVMFile::PositionedAppend(const Slice& data, uint64_t offset)
 
   NVM_DEBUG("fsize_(%lu)\n", fsize_);
   NVM_DEBUG("grow(%lu)\n", grow);
-
   fsize_ += grow;
   NVM_DEBUG("fsize_(%lu)\n", fsize_);
-
-  if (fname_.find("OPTIONS") != std::string::npos) {
-    NVM_DEBUG("AFTER WRITE\n");
-    NVM_DEBUG("data(%s)\n", buf_);
-    NVM_DEBUG("AFTER WRITE\n");
-  }
 
   return Status::OK();
 }
@@ -233,13 +228,20 @@ size_t NVMFile::GetRequiredBufferAlignment(void) const {
 void NVMFile::Ref(void) {
   ++refs_;
   NVM_DEBUG("post state: refs_(%d).\n", refs_);
+
+  if (refs_ > 1) {
+    NVM_DEBUG("W00000000T\n");
+  }
 }
 
 void NVMFile::Unref(void) {
   --refs_;
   NVM_DEBUG("post state: refs_(%d).\n", refs_);
-}
 
+  if (refs_ < 0) {
+    delete this;
+  }
+}
 
 }       // namespace rocksdb
 

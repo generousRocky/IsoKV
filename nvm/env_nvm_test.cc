@@ -13,12 +13,11 @@ void bulk_insert(int nruns, int nkvpairs) {
   DB* db;
 
   std::unique_ptr<Env> env_guard;
-  auto res = NewEnvFromUri("nvm://nvme0n1", &env_guard);
-  assert(res);
-  assert(env_guard);
+  Env *env = NewEnvFromUri("nvm://nvme0n1", &env_guard);
+  assert(env);
 
   Options options;
-  options.env = (&env_guard)->get();
+  options.env = env;
   options.compression = rocksdb::kNoCompression;
   options.IncreaseParallelism();
   options.create_if_missing = true;
