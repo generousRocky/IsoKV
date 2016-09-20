@@ -30,5 +30,11 @@ tags:
 	ctags * -R src
 	ctags -R --c++-kinds=+p --fields=+iaS --extra=+q /home/safl/git/rocksdb
 
-dev: clean configure make
+dev_test: clean configure make
 	./$(BUILD_DIR)/env_nvm_test
+
+rocks:
+	cd .. && make release -j$(nproc)
+
+dev_fill: rocks
+	./nvmdb_fill.sh ../ /tmp/jazz > /tmp/jazz.log

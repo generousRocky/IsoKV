@@ -142,6 +142,18 @@ Status EnvNVM::NewRandomAccessFile(
   return Status::OK();
 }
 
+Status EnvNVM::ReuseWritableFile(
+  const std::string& fname,
+  const std::string& old_fname,
+  unique_ptr<WritableFile>* result,
+  const EnvOptions& options
+) {
+  NVM_DEBUG("fname(%s), old_fname(%s), result(?), options(?)\n",
+            fname.c_str(), old_fname.c_str());
+
+  return Status::IOError("ReuseWritableFile --> Not implemented.");
+}
+
 Status EnvNVM::NewWritableFile(
   const std::string& fpath,
   unique_ptr<WritableFile>* result,
@@ -159,23 +171,39 @@ Status EnvNVM::NewWritableFile(
             fparts.first.c_str(), fparts.second.c_str());
 
   file = new NVMFile(this, fparts.first, fparts.second);
-  AddFile(file);
+  fs_[file->GetDir()].push_back(file);
 
   result->reset(new NVMWritableFile(file, options));
 
   return Status::OK();
 }
 
-Status EnvNVM::ReuseWritableFile(
-  const std::string& fname,
-  const std::string& old_fname,
-  unique_ptr<WritableFile>* result,
-  const EnvOptions& options
-) {
-  NVM_DEBUG("fname(%s), old_fname(%s), result(?), options(?)\n",
-            fname.c_str(), old_fname.c_str());
+Status EnvNVM::DeleteFile(const std::string& fpath) {
+  NVM_DEBUG("fpath(%s)\n", fpath.c_str());
 
-  return Status::IOError("ReuseWritableFile --> Not implemented.");
+  std::pair<std::string, std::string> parts = SplitPath(fpath);
+
+  auto dit = fs_.find(parts.first);
+  if (dit == fs_.end()) {
+    NVM_DEBUG("Dir NOT found\n");
+    return Status::NotFound();
+  }
+
+  for (auto it = dit->second.begin(); it != dit->second.end(); ++it) {
+    if ((*it)->IsNamed(parts.second)) {
+      NVM_DEBUG("File found -- erasing\n");
+
+      NVMFile *file = *it;
+
+      dit->second.erase(it);
+      file->Unref();
+
+      return Status::OK();
+    }
+  }
+
+  NVM_DEBUG("File NOT found\n");
+  return Status::NotFound();
 }
 
 Status EnvNVM::FileExists(const std::string& fpath) {
@@ -192,17 +220,19 @@ Status EnvNVM::GetChildren(
   const std::string& dname,
   std::vector<std::string>* result
 ) {
-  NVM_DEBUG("dir(%s), result(?)\n", dname.c_str());
+  NVM_DEBUG("dir(%s), result(%p)\n", dname.c_str(), result);
 
   result->clear();
 
   auto dir = fs_.find(dname);
 
-  if (dir == fs_.end())
+  if (dir == fs_.end()) {
     return Status::IOError("No such dir.");
+  }
 
   for (auto it = dir->second.begin(); it != dir->second.end(); ++it) {
     result->push_back((*it)->GetName());
+    NVM_DEBUG("res(%s)\n", result->back().c_str());
   }
 
   return Status::OK();
@@ -217,6 +247,28 @@ Status EnvNVM::GetChildrenFileAttributes(
   return Status::IOError("GetChildrenFileAttributes --> Not implemented");
 }
 
+NVMFile* EnvNVM::FindFile(const std::string& fpath) {
+  NVM_DEBUG("fpath(%s)\n", fpath.c_str());
+
+  std::pair<std::string, std::string> parts = SplitPath(fpath);
+
+  auto dit = fs_.find(parts.first);
+  if (dit == fs_.end()) {
+    NVM_DEBUG("!found\n");
+    return NULL;
+  }
+
+  for (auto it = dit->second.begin(); it != dit->second.end(); ++it) {
+    if ((*it)->IsNamed(parts.second)) {
+      NVM_DEBUG("found\n");
+      return *it;
+    }
+  }
+
+  NVM_DEBUG("!found\n");
+  return NULL;
+}
+
 Status EnvNVM::CreateDirIfMissing(const std::string& name) {
   NVM_DEBUG("name(%s)\n", name.c_str());
 
@@ -227,110 +279,40 @@ Status EnvNVM::CreateDirIfMissing(const std::string& name) {
   return Status::OK();
 }
 
-Status EnvNVM::RemoveFile(const std::string& dname, const std::string& fname) {
-  NVM_DEBUG("dname(%s), fname(%s)\n", dname.c_str(), fname.c_str());
+Status EnvNVM::CreateDir(const std::string& dpath) {
+  NVM_DEBUG("dpath(%s)\n", dpath.c_str());
 
-  auto dit = fs_.find(dname);
-  if (dit == fs_.end()) {
-    NVM_DEBUG("Dir NOT found\n");
-    return Status::NotFound();
-  }
-
-  for (auto it = dit->second.begin(); it != dit->second.end(); ++it) {
-    if ((*it)->IsNamed(fname)) {
-      NVM_DEBUG("File found -- erasing\n");
-
-      NVMFile *file = *it;
-
-      dit->second.erase(it);
-      file->Unref();
-
-      return Status::OK();
-    }
-  }
-
-  NVM_DEBUG("File NOT found\n");
-  return Status::NotFound();
-}
-
-Status EnvNVM::RemoveFile(const std::string& path) {
-  NVM_DEBUG("path(%s)\n", path.c_str());
-
-  std::pair<std::string, std::string> parts = SplitPath(path);
-
-  return RemoveFile(parts.first, parts.second);
-}
-
-Status EnvNVM::DeleteFile(const std::string& fpath) {
-  NVM_DEBUG("fpath(%s)\n", fpath.c_str());
-
-  return RemoveFile(fpath);
-}
-
-Status EnvNVM::AddFile(NVMFile *file) {
-  NVM_DEBUG("file(%p), dname(%s), fname(%s)\n",
-            file, file->GetDir().c_str(), file->GetName().c_str());
-
-  if (FindFile(file->GetDir(), file->GetName())) {
-    NVM_DEBUG("File exists.\n");
-    return Status::IOError("File exists.");
-  }
-
-  fs_[file->GetDir()].push_back(file);
-
-  NVM_DEBUG("File added.\n");
-  return Status::OK();
-}
-
-NVMFile* EnvNVM::FindFile(const std::string& dname, const std::string& fname) {
-  NVM_DEBUG("dname(%s), fname(%s)\n", dname.c_str(), fname.c_str());
-
-  auto dit = fs_.find(dname);
-  if (dit == fs_.end()) {
-    NVM_DEBUG("!found\n");
-    return NULL;
-  }
-
-  for (auto it = dit->second.begin(); it != dit->second.end(); ++it) {
-    if ((*it)->IsNamed(fname)) {
-      NVM_DEBUG("found\n");
-      return *it;
-    }
-  }
-
-  NVM_DEBUG("!found\n");
-  return NULL;
-}
-
-NVMFile* EnvNVM::FindFile(const std::string& path) {
-  std::pair<std::string, std::string> parts = SplitPath(path);
-
-  return FindFile(parts.first, parts.second);
-}
-
-Status EnvNVM::CreateDir(const std::string& name) {
-  NVM_DEBUG("name(%s)\n", name.c_str());
-
-  auto it = fs_.find(name);
-  if (it != fs_.end()) {
+  if (fs_.find(dpath) != fs_.end()) {
     return Status::IOError("Directory exists");
   }
 
-  return CreateDirIfMissing(name);
+  return CreateDirIfMissing(dpath);
 }
 
-Status EnvNVM::DeleteDir(const std::string& dirname) {
-  NVM_DEBUG("dirname(%s)\n", dirname.c_str());
+Status EnvNVM::DeleteDir(const std::string& dpath) {
+  NVM_DEBUG("dpath(%s)\n", dpath.c_str());
 
-  return Status::IOError("DeleteDir --> Not implemented");
+  auto dir = fs_.find(dpath);
+
+  if (dir == fs_.end()) {
+    return Status::NotFound("Trying to delete a non-existing dpath");
+  }
+  if (!dir->second.empty()) {
+    return Status::IOError("Trying to delete a non-empty dpath");
+  }
+
+  fs_.erase(dir);
+
+  return Status::OK();
 }
 
 Status EnvNVM::GetFileSize(const std::string& fpath, uint64_t* fsize) {
   NVM_DEBUG("fpath(%s)\n", fpath.c_str());
 
   NVMFile *file = FindFile(fpath);
-  if (!file)
+  if (!file) {
     return Status::IOError("File not not found");
+  }
 
   *fsize = file->GetFileSize();
 
@@ -370,6 +352,7 @@ Status EnvNVM::RenameFile(
     NVM_DEBUG("Changing directory is not supported\n");
     return Status::IOError("Directory change not supported when renaming");
   }
+
   file->Rename(parts.second);                   // Do the actual renaming
 
   return Status::OK();

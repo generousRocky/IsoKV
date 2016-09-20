@@ -28,6 +28,12 @@ add_executable(env_nvm_test ${HEADER_FILES} ${SOURCE_FILES})
 include_directories(/home/safl/git/rocksdb/include)
 include_directories(/home/safl/git/rocksdb)
 include_directories(${CMAKE_SOURCE_DIR})
-target_link_libraries(env_nvm_test pthread rt gflags z snappy /home/safl/git/rocksdb/librocksdb_debug.a pthread)
+
+get_filename_component(LIB_RDB "../librocksdb_debug.a" ABSOLUTE)
+if (NOT EXISTS $LIB_RDB)
+	get_filename_component(LIB_RDB "../librocksdb.a" ABSOLUTE)
+endif()
+
+target_link_libraries(env_nvm_test pthread rt gflags z snappy ${LIB_RDB} pthread)
 
 install(TARGETS env_nvm_test DESTINATION bin)

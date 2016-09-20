@@ -10,12 +10,12 @@
 
 #include <stdio.h>
 
-#ifdef NVM_DEBUG_ENABLED
+//#ifdef NVM_DEBUG_ENABLED
 #define NVM_DEBUG(x, ...) printf("%s:%s-%d: " x "", __FILE__, \
 __FUNCTION__, __LINE__, ##__VA_ARGS__);fflush(stdout);
-#else
-#define NVM_DEBUG(x, ...)
-#endif
+//#else
+//#define NVM_DEBUG(x, ...)
+//#endif
 
 namespace rocksdb {
 
@@ -297,13 +297,7 @@ public:
 
   // ADDITIONS the standard Env interface
 
-  Status AddFile(NVMFile* file);
-
   NVMFile* FindFile(const std::string& fpath);
-  NVMFile* FindFile(const std::string& dname, const std::string& fname);
-
-  Status RemoveFile(const std::string& fpath);
-  Status RemoveFile(const std::string& dname, const std::string& fname);
 
   // REMOVE THIS STUFF LET SOME OTHER ENV MANAGE THAT IT
 
