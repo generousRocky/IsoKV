@@ -10,16 +10,17 @@ DB_PATH=$2
 
 pushd $ROCKS_SRC
 
-NUM=10000
-#VALUE_SIZE=1048576
-VALUE_SIZE=4096
-KEY_SIZE=16
+NUM=1000
+VALUE_SIZE=1048576
+#VALUE_SIZE=4096
 
 ./db_bench \
 --env_uri="nvm://nvme0n1/" \
 --use_existing_db=0 \
 --db=$DB_PATH \
---benchmarks=fillseq \
+--benchmarks=fillseq,overwrite \
+--num=$NUM \
+--value_size=$VALUE_SIZE \
 --verify_checksum=1 \
 --sync=0 \
 --disable_wal=1 \
@@ -33,10 +34,7 @@ KEY_SIZE=16
 --statistics=1 \
 --histogram=1 \
 --threads=1 \
---num=$NUM \
 --open_files=1 \
---key_size=$KEY_SIZE \
---value_size=$VALUE_SIZE \
 --block_size=65536 \
 --cache_size=1048576 \
 --bloom_bits=10 \

@@ -91,7 +91,11 @@ EnvNVM::~EnvNVM(void) {
   for (auto dit = fs_.begin(); dit != fs_.end(); ++dit) {
     NVM_DEBUG("dname(%s)\n", dit->first.c_str());
     for (auto fit = dit->second.begin(); fit != dit->second.end(); ++fit) {
-      NVM_DEBUG("fname(%s)\n", (*fit)->GetName().c_str());
+      NVM_DEBUG(
+        "fname(%s), fsize(%lu)\n",
+        (*fit)->GetName().c_str(),
+        (*fit)->GetFileSize()
+      );
     }
   }
 }

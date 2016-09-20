@@ -1,5 +1,6 @@
 #include <iostream>
 #include <csignal>
+#include "util/coding.h"
 #include "env_nvm.h"
 
 int count = 0;
@@ -170,11 +171,27 @@ bool NVMFile::IsSyncThreadSafe(void) const {
   return false;
 }
 
+//
+// Implemented using the address of the NVMFile instance. This seem to satisfy
+// the requirements: it lives as long as need be, is unique and probably won't
+// have the same address after termination.
+//
+// Although... depending on what is meant by prefix... they probably could be.
+//
 size_t NVMFile::GetUniqueId(char* id, size_t max_size) const {
   NVM_DEBUG("fname(%s), file(%p)\n", fname_.c_str(), this);
-  NVM_DEBUG("id(%s), max_size(%lu\n", id, max_size);
 
-  return 0;
+  if (max_size < (kMaxVarint64Length*3)) {
+    return 0;
+  }
+
+  char* rid = id;
+  rid = EncodeVarint64(rid, (uint64_t)this);
+  rid = EncodeVarint64(rid, (uint64_t)this);
+  rid = EncodeVarint64(rid, (uint64_t)this);
+  assert(rid >= id);
+
+  return static_cast<size_t>(rid - id);
 }
 
 uint64_t NVMFile::GetFileSize(void) const {

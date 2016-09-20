@@ -36,5 +36,5 @@ dev_test: clean configure make
 rocks:
 	cd .. && make release -j$(nproc)
 
-dev_fill: rocks
-	./nvmdb_fill.sh ../ /tmp/jazz > /tmp/jazz.log
+dev_bench: rocks
+	./nvmdb_bench.sh ../ /tmp/jazz > /tmp/jazz.log
