@@ -1,5 +1,6 @@
 #include <iostream>
 #include <csignal>
+
 #include "util/coding.h"
 #include "env_nvm.h"
 
@@ -243,6 +244,8 @@ size_t NVMFile::GetRequiredBufferAlignment(void) const {
 }
 
 void NVMFile::Ref(void) {
+
+  MutexLock lock(&refs_mutex_);
   ++refs_;
   NVM_DEBUG("post state: refs_(%d).\n", refs_);
 
@@ -252,10 +255,17 @@ void NVMFile::Ref(void) {
 }
 
 void NVMFile::Unref(void) {
-  --refs_;
-  NVM_DEBUG("post state: refs_(%d).\n", refs_);
+  bool do_delete = false;
 
-  if (refs_ < 0) {
+  {
+    MutexLock lock(&refs_mutex_);
+    --refs_;
+    if (refs_ < 0) {
+      do_delete = true;
+    }
+  }
+
+  if (do_delete) {
     delete this;
   }
 }

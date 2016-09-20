@@ -12,7 +12,6 @@ namespace rocksdb {
 static EnvRegistrar nvm_reg(
   "nvm://",
   [](const std::string& uri, std::unique_ptr<Env>* env_guard) {
-
     NVM_DEBUG("uri(%s)\n", uri.c_str());
 
     env_guard->reset(new EnvNVM(uri));
@@ -100,7 +99,6 @@ EnvNVM::~EnvNVM(void) {
   }
 }
 
-
 Status EnvNVM::NewDirectory(
   const std::string& name,
   unique_ptr<Directory>* result
@@ -118,8 +116,9 @@ Status EnvNVM::NewSequentialFile(
   const EnvOptions& options
 ) {
   NVM_DEBUG("fpath(%s), result(?), options(?)\n", fpath.c_str());
+  MutexLock lock(&fs_mutex_);
 
-  NVMFile *file = FindFile(fpath);
+  NVMFile *file = FindFileUnguarded(fpath);
   if (!file) {
     return Status::NotFound();
   }
@@ -135,8 +134,9 @@ Status EnvNVM::NewRandomAccessFile(
   const EnvOptions& options
 ) {
   NVM_DEBUG("fpath(%s), result(?), options(?)\n", fpath.c_str());
+  MutexLock lock(&fs_mutex_);
 
-  NVMFile *file = FindFile(fpath);
+  NVMFile *file = FindFileUnguarded(fpath);
   if (!file) {
     return Status::NotFound();
   }
@@ -154,6 +154,7 @@ Status EnvNVM::ReuseWritableFile(
 ) {
   NVM_DEBUG("fname(%s), old_fname(%s), result(?), options(?)\n",
             fname.c_str(), old_fname.c_str());
+  MutexLock lock(&fs_mutex_);
 
   return Status::IOError("ReuseWritableFile --> Not implemented.");
 }
@@ -164,10 +165,11 @@ Status EnvNVM::NewWritableFile(
   const EnvOptions& options
 ) {
   NVM_DEBUG("fpath(%s), result(?), options(?)\n", fpath.c_str());
+  MutexLock lock(&fs_mutex_);
 
-  NVMFile *file = FindFile(fpath);
+  NVMFile *file = FindFileUnguarded(fpath);
   if (file) {
-    DeleteFile(fpath);
+    DeleteFileUnguarded(fpath);
   }
 
   std::pair<std::string, std::string> fparts = SplitPath(fpath);
@@ -182,19 +184,22 @@ Status EnvNVM::NewWritableFile(
   return Status::OK();
 }
 
-Status EnvNVM::DeleteFile(const std::string& fpath) {
-  NVM_DEBUG("fpath(%s)\n", fpath.c_str());
+//
+// Deletes a file without taking the fs_mutex_
+//
+Status EnvNVM::DeleteFileUnguarded(
+  const std::string& dname, const std::string& fname
+) {
+  NVM_DEBUG("dname(%s), fname(%s)\n", dname.c_str(), fname.c_str());
 
-  std::pair<std::string, std::string> parts = SplitPath(fpath);
-
-  auto dit = fs_.find(parts.first);
+  auto dit = fs_.find(dname);
   if (dit == fs_.end()) {
     NVM_DEBUG("Dir NOT found\n");
     return Status::NotFound();
   }
 
   for (auto it = dit->second.begin(); it != dit->second.end(); ++it) {
-    if ((*it)->IsNamed(parts.second)) {
+    if ((*it)->IsNamed(fname)) {
       NVM_DEBUG("File found -- erasing\n");
 
       NVMFile *file = *it;
@@ -210,10 +215,31 @@ Status EnvNVM::DeleteFile(const std::string& fpath) {
   return Status::NotFound();
 }
 
-Status EnvNVM::FileExists(const std::string& fpath) {
+//
+// Deletes a file without taking the fs_mutex_
+//
+Status EnvNVM::DeleteFileUnguarded(const std::string& fpath) {
   NVM_DEBUG("fpath(%s)\n", fpath.c_str());
 
-  if (FindFile(fpath)) {
+  std::pair<std::string, std::string> parts = SplitPath(fpath);
+
+  return DeleteFileUnguarded(parts.first, parts.second);
+}
+
+Status EnvNVM::DeleteFile(const std::string& fpath) {
+  NVM_DEBUG("fpath(%s)\n", fpath.c_str());
+  MutexLock lock(&fs_mutex_);
+
+  std::pair<std::string, std::string> parts = SplitPath(fpath);
+
+  return DeleteFileUnguarded(parts.first, parts.second);
+}
+
+Status EnvNVM::FileExists(const std::string& fpath) {
+  NVM_DEBUG("fpath(%s)\n", fpath.c_str());
+  MutexLock lock(&fs_mutex_);
+
+  if (FindFileUnguarded(fpath)) {
     return Status::OK();
   }
 
@@ -225,6 +251,7 @@ Status EnvNVM::GetChildren(
   std::vector<std::string>* result
 ) {
   NVM_DEBUG("dir(%s), result(%p)\n", dname.c_str(), result);
+  MutexLock lock(&fs_mutex_);
 
   result->clear();
 
@@ -251,7 +278,7 @@ Status EnvNVM::GetChildrenFileAttributes(
   return Status::IOError("GetChildrenFileAttributes --> Not implemented");
 }
 
-NVMFile* EnvNVM::FindFile(const std::string& fpath) {
+NVMFile* EnvNVM::FindFileUnguarded(const std::string& fpath) {
   NVM_DEBUG("fpath(%s)\n", fpath.c_str());
 
   std::pair<std::string, std::string> parts = SplitPath(fpath);
@@ -273,11 +300,16 @@ NVMFile* EnvNVM::FindFile(const std::string& fpath) {
   return NULL;
 }
 
-Status EnvNVM::CreateDirIfMissing(const std::string& name) {
-  NVM_DEBUG("name(%s)\n", name.c_str());
+Status EnvNVM::CreateDirIfMissing(const std::string& dpath) {
+  NVM_DEBUG("dpath(%s)\n", dpath.c_str());
+  MutexLock lock(&fs_mutex_);
+
+  if (fs_.find(dpath) != fs_.end()) {
+    return Status::OK();
+  }
 
   fs_.insert(std::pair<std::string, std::vector<NVMFile*> >(
-    name, std::vector<NVMFile*>()
+    dpath, std::vector<NVMFile*>()
   ));
 
   return Status::OK();
@@ -285,16 +317,22 @@ Status EnvNVM::CreateDirIfMissing(const std::string& name) {
 
 Status EnvNVM::CreateDir(const std::string& dpath) {
   NVM_DEBUG("dpath(%s)\n", dpath.c_str());
+  MutexLock lock(&fs_mutex_);
 
   if (fs_.find(dpath) != fs_.end()) {
     return Status::IOError("Directory exists");
   }
 
-  return CreateDirIfMissing(dpath);
+  fs_.insert(std::pair<std::string, std::vector<NVMFile*> >(
+    dpath, std::vector<NVMFile*>()
+  ));
+
+  return Status::OK();
 }
 
 Status EnvNVM::DeleteDir(const std::string& dpath) {
   NVM_DEBUG("dpath(%s)\n", dpath.c_str());
+  MutexLock lock(&fs_mutex_);
 
   auto dir = fs_.find(dpath);
 
@@ -312,8 +350,9 @@ Status EnvNVM::DeleteDir(const std::string& dpath) {
 
 Status EnvNVM::GetFileSize(const std::string& fpath, uint64_t* fsize) {
   NVM_DEBUG("fpath(%s)\n", fpath.c_str());
+  MutexLock lock(&fs_mutex_);
 
-  NVMFile *file = FindFile(fpath);
+  NVMFile *file = FindFileUnguarded(fpath);
   if (!file) {
     return Status::IOError("File not not found");
   }
@@ -328,36 +367,41 @@ Status EnvNVM::GetFileModificationTime(
   uint64_t* file_mtime
 ) {
   NVM_DEBUG("\n");
+  MutexLock lock(&fs_mutex_);
 
   return Status::IOError("GetFileModificationTime --> Not implemented");
 }
 
 Status EnvNVM::RenameFile(
-  const std::string& fpath_s,
-  const std::string& fpath_t
+  const std::string& fpath_src,
+  const std::string& fpath_tgt
 ) {
-  NVM_DEBUG("fpath_s(%s), fpath_t(%s)\n", fpath_s.c_str(), fpath_t.c_str());
+  NVM_DEBUG("fpath_src(%s), fpath_tgt(%s)\n",
+            fpath_src.c_str(), fpath_tgt.c_str());
 
-  NVMFile *file = FindFile(fpath_s);            // Find file to rename
+  auto parts_src = SplitPath(fpath_src);
+  auto parts_tgt = SplitPath(fpath_tgt);
+
+  if (parts_src.first.compare(parts_tgt.first)) {
+    NVM_DEBUG("Changing directory is not supported\n");
+    return Status::IOError("Directory change not supported when renaming");
+  }
+
+  MutexLock lock(&fs_mutex_);
+
+  NVMFile *file = FindFileUnguarded(fpath_src);         // Get the source file
   if (!file) {
     NVM_DEBUG("Cannot find file to rename\n");
     return Status::NotFound();
   }
 
-  NVMFile *file_target = FindFile(fpath_t);     // Delete possibly existing file
+  NVMFile *file_target = FindFileUnguarded(fpath_tgt);  // Delete target
   if (file_target) {
     NVM_DEBUG("Target exists.. deleting it...\n");
-    DeleteFile(fpath_t);
+    DeleteFileUnguarded(fpath_tgt);
   }
 
-  auto parts = SplitPath(fpath_t);
-
-  if (file->GetDir().compare(parts.first)) {
-    NVM_DEBUG("Changing directory is not supported\n");
-    return Status::IOError("Directory change not supported when renaming");
-  }
-
-  file->Rename(parts.second);                   // Do the actual renaming
+  file->Rename(parts_tgt.second);                       // The actual renaming
 
   return Status::OK();
 }
@@ -436,10 +480,22 @@ void EnvNVM::LowerThreadPoolIOPriority(Priority pool) {
   NVM_DEBUG("pool(%d)\n", pool);
 }
 
+void EnvNVM::SetBackgroundThreads(int num, Priority pri) {
+  NVM_DEBUG(" num(%d), pri(%d)\n", num, pri);
+
+  return;
+}
+
+void EnvNVM::IncBackgroundThreadsIfNeeded(int num, Priority pri) {
+  NVM_DEBUG(" num(%d), pri(%d)\n", num, pri);
+
+  return;
+}
+
 uint64_t EnvNVM::NowNanos(void) {
   NVM_DEBUG("\n");
 
-  return 0;
+  return NowMicros() * 1000;
 };
 
 std::string EnvNVM::GenerateUniqueId(void) {
@@ -533,18 +589,6 @@ Status EnvNVM::GetAbsolutePath(
   }
 
   return Status::IOError("Failed retrieving absolute path");
-}
-
-void EnvNVM::SetBackgroundThreads(int num, Priority pri) {
-  NVM_DEBUG(" num(%d), pri(%d)\n", num, pri);
-
-  return;
-}
-
-void EnvNVM::IncBackgroundThreadsIfNeeded(int num, Priority pri) {
-  NVM_DEBUG(" num(%d), pri(%d)\n", num, pri);
-
-  return;
 }
 
 }       // namespace rocksdb

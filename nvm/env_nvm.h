@@ -7,6 +7,8 @@
 #include "util/threadpool.h"
 #include "util/thread_local.h"
 #include "util/thread_status_updater.h"
+#include "util/mutexlock.h"
+#include "port/port.h"
 
 #include <stdio.h>
 
@@ -99,6 +101,7 @@ private:
   char *buf_;
   uint64_t buf_len_;
 
+  port::Mutex refs_mutex_;
   int refs_;
 };
 
@@ -295,9 +298,7 @@ public:
   // same directory.
   virtual Status GetTestDirectory(std::string* dpath) override;
 
-  // ADDITIONS the standard Env interface
 
-  NVMFile* FindFile(const std::string& fpath);
 
   // REMOVE THIS STUFF LET SOME OTHER ENV MANAGE THAT IT
 
@@ -367,12 +368,22 @@ public:
   virtual uint64_t GetThreadID() const override;
 
  private:
+  // ADDITIONS the standard Env interface - BEGIN
+  NVMFile* FindFileUnguarded(const std::string& fpath);
+  Status DeleteFileUnguarded(
+    const std::string& dname,
+    const std::string& fname
+  );
+  Status DeleteFileUnguarded(const std::string& fpath);
+  // ADDITIONS the standard Env interface - END
+
   // No copying allowed
   EnvNVM(const Env&);
   void operator=(const Env&);
 
   std::string device_;
   std::map<std::string, std::vector<NVMFile*>> fs_;
+  port::Mutex fs_mutex_;        // Protects fs_
 
   std::vector<ThreadPool> thread_pools_;
   pthread_mutex_t mu_;
