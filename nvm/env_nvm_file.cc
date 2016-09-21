@@ -10,53 +10,40 @@ namespace rocksdb {
 
 NVMFile::NVMFile(
   void
-) : env_(NULL), dname_(), fname_(), fsize_(0),
+) : env_(NULL), dpath_(), fname_(), fsize_(0),
     buf_(NULL), buf_len_(0), refs_(0) {
-  NVM_DEBUG("env_(%p), dname_(%s), fname_(%s)\n",
-            env_, dname_.c_str(), fname_.c_str());
-  NVM_DEBUG("fsize_(%lu), buf_(%p), buf_len_(%lu), refs_(%d)\n",
-            fsize_, buf_, buf_len_, refs_);
+  NVM_TRACE(this, "");
 }
 
 NVMFile::NVMFile(
-  EnvNVM* env, const std::string& dname, const std::string& fname
-) : env_(env), dname_(dname), fname_(fname), fsize_(0),
+  EnvNVM* env, const std::string& dpath, const std::string& fname
+) : env_(env), dpath_(dpath), fname_(fname), fsize_(0),
     buf_(NULL), buf_len_(0), refs_(0) {
-  NVM_DEBUG("env_(%p), dname_(%s), fname_(%s)\n",
-            env_, dname_.c_str(), fname_.c_str());
-  NVM_DEBUG("fsize_(%lu), buf_(%p), buf_len_(%lu), refs_(%d)\n",
-            fsize_, buf_, buf_len_, refs_);
+  NVM_TRACE(this, "");
 }
 
 NVMFile::~NVMFile(void) {
-  NVM_DEBUG("fname(%s), file(%p)\n", fname_.c_str(), this);
+  NVM_TRACE(this, "");
 
   free(buf_);
 }
 
 bool NVMFile::UseDirectIO(void) const {
-  NVM_DEBUG("fname(%s), file(%p)\n", fname_.c_str(), this);
+  NVM_TRACE(this, "returning hardcoded value 'true'");
 
   return true;
 }
 
 bool NVMFile::UseOSBuffer(void) const {
-  NVM_DEBUG("fname(%s), file(%p)\n", fname_.c_str(), this);
+  NVM_TRACE(this, "returning hardcoded value 'false'");
 
   return false;
-}
-
-Status NVMFile::Close(void) {
-  NVM_DEBUG("fname(%s), file(%p)\n", fname_.c_str(), this);
-
-  return Status::OK();
 }
 
 Status NVMFile::Read(
   uint64_t offset, size_t n, Slice* result, char* scratch
 ) const {
-  NVM_DEBUG("fname(%s), file(%p), offset(%lu), n(%lu)\n",
-            fname_.c_str(), this, offset, n);
+  NVM_TRACE(this, "offset(" << offset << ")");
 
   if (offset >= fsize_)
     return Status::IOError("Out of bounds!");
@@ -73,21 +60,17 @@ Status NVMFile::Read(
   memcpy(scratch, buf_ + offset, nbytes_toread);
   *result = Slice(scratch, nbytes_toread);
 
-  NVM_DEBUG("fname(%s) - read %lu, offset(%lu)\n",
-            GetName().c_str(), nbytes_toread, offset);
   return Status::OK();
 }
 
 void NVMFile::PrepareWrite(size_t offset, size_t len) {
-  NVM_DEBUG("fname(%s), file(%p), offset(%lu), len(%lu)\n",
-            fname_.c_str(), this, offset, len);
+  NVM_TRACE(this, "forwarding");
 
   Allocate(offset, len);
 }
 
 Status NVMFile::Allocate(uint64_t offset, uint64_t len) {
-  NVM_DEBUG("fname(%s), file(%p), offset(%lu), len(%lu)\n",
-            fname_.c_str(), this, offset, len);
+  NVM_TRACE(this, "offset(" << offset << "), len(" << len << ")");
 
   uint64_t new_len = offset + len;
 
@@ -103,15 +86,11 @@ Status NVMFile::Allocate(uint64_t offset, uint64_t len) {
     buf_len_ = min_len;
   }
 
-  NVM_DEBUG("buf_(%p), buf_len_(%lu)\n", buf_, buf_len_);
-
   return Status::OK();
 }
 
-Status NVMFile::PositionedAppend(const Slice& data, uint64_t offset)
-{
-  NVM_DEBUG("fname(%s), data(%p), data-size(%lu), offset(%lu)\n",
-            fname_.c_str(), &data, data.size(), offset);
+Status NVMFile::PositionedAppend(const Slice& data, uint64_t offset) {
+  NVM_TRACE(this, "offset(" << offset << "), data-size(" << data.size() << ")");
 
   const uint64_t data_size = data.size();
   const uint64_t remaining = fsize_ - offset;
@@ -123,51 +102,51 @@ Status NVMFile::PositionedAppend(const Slice& data, uint64_t offset)
 
   memcpy((void*)(buf_ + offset), (void*)data.data(), data_size);
 
-  NVM_DEBUG("fsize_(%lu)\n", fsize_);
-  NVM_DEBUG("grow(%lu)\n", grow);
   fsize_ += grow;
-  NVM_DEBUG("fsize_(%lu)\n", fsize_);
 
   return Status::OK();
 }
 
 Status NVMFile::Append(const Slice& data) {
-  NVM_DEBUG("data(%p), data-size(%lu), fsize_(%lu)\n",
-            &data, data.size(), fsize_);
+  NVM_TRACE(this, "forwarding");
 
   return PositionedAppend(data, GetFileSize());
 }
 
-Status NVMFile::Truncate(uint64_t size)
-{
-  NVM_DEBUG("fname(%s), file(%p) : fsize_(%lu), size(%lu)\n",
-            fname_.c_str(), this, fsize_, size);
+Status NVMFile::Truncate(uint64_t size) {
+  NVM_TRACE(this, "size(" << size << ")");
 
   fsize_ = size;
 
   return Status::OK();
 }
 
+Status NVMFile::Close(void) {
+  NVM_TRACE(this, "ignoring...");
+
+  return Status::OK();
+}
+
 Status NVMFile::Flush(void) {
-  NVM_DEBUG("fname(%s), file(%p)\n", fname_.c_str(), this);
+  NVM_TRACE(this, "ignoring...");
 
   return Status::OK();
 }
 
 Status NVMFile::Sync(void) {
-  NVM_DEBUG("fname(%s), file(%p)\n", fname_.c_str(), this);
+  NVM_TRACE(this, "ignoring...");
 
   return Status::OK();
 }
 
 Status NVMFile::Fsync(void) {
-  NVM_DEBUG("fname(%s), file(%p)\n", fname_.c_str(), this);
+  NVM_TRACE(this, "ignoring...");
 
   return Status::OK();
 }
 
 bool NVMFile::IsSyncThreadSafe(void) const {
-  NVM_DEBUG("fname(%s), file(%p)\n", fname_.c_str(), this);
+  NVM_TRACE(this, "returning hardcoded value 'false'");
 
   return false;
 }
@@ -180,7 +159,7 @@ bool NVMFile::IsSyncThreadSafe(void) const {
 // Although... depending on what is meant by prefix... they probably could be.
 //
 size_t NVMFile::GetUniqueId(char* id, size_t max_size) const {
-  NVM_DEBUG("fname(%s), file(%p)\n", fname_.c_str(), this);
+  NVM_TRACE(this, "");
 
   if (max_size < (kMaxVarint64Length*3)) {
     return 0;
@@ -196,70 +175,85 @@ size_t NVMFile::GetUniqueId(char* id, size_t max_size) const {
 }
 
 uint64_t NVMFile::GetFileSize(void) const {
-  NVM_DEBUG("fname(%s), file(%p), fsize_(%lu)\n", fname_.c_str(), this, fsize_);
+  NVM_TRACE(this, "");
 
   return fsize_;
 }
 
 uint64_t NVMFile::GetFileSize(void) {
-  NVM_DEBUG("fname(%s), file(%p), fsize_(%lu)\n", fname_.c_str(), this, fsize_);
+  NVM_TRACE(this, "");
 
   return fsize_;
 }
 
 Status NVMFile::InvalidateCache(size_t offset, size_t length) {
-  NVM_DEBUG("offset(%lu), length(%lu)\n", offset, length);
+  NVM_TRACE(
+    this,
+    "ignoring... offset(" << offset << "), length(" << length << ")"
+  );
 
   return Status::OK();
 }
 
 Status NVMFile::RangeSync(uint64_t offset, uint64_t nbytes) {
-  NVM_DEBUG("offset(%lu), nbytes(%lu)\n", offset, nbytes);
+  NVM_TRACE(
+    this,
+    "ignoring... offset(" << offset << "), nbytes(" << nbytes << ")"
+  );
 
   return Status::OK();
 }
 
 void NVMFile::Rename(const std::string& fname) {
-  NVM_DEBUG("'%s' -> '%s'\n", fname_.c_str(), fname.c_str());
+  NVM_TRACE(this, "fname_(" << fname_ << ") -> fname(" << fname << ")");
 
   fname_ = fname;
 }
 
 bool NVMFile::IsNamed(const std::string& fname) const {
+  NVM_TRACE(this, "fname_(" << fname_ << ").compare(" << fname << ")");
+
   return !fname_.compare(fname);
 }
 
-const std::string& NVMFile::GetName(void) const {
+const std::string& NVMFile::GetFname(void) const {
+  NVM_TRACE(this, "");
+
   return fname_;
 }
 
-const std::string& NVMFile::GetDir(void) const {
-  return dname_;
+const std::string& NVMFile::GetDpath(void) const {
+  NVM_TRACE(this, "");
+
+  return dpath_;
 }
 
 size_t NVMFile::GetRequiredBufferAlignment(void) const {
-  NVM_DEBUG("\n");
+  NVM_TRACE(this, "returning hardcoded value 4096");
 
   return 4096;  // TODO: Get this from liblightnvm device geometry
 }
 
 void NVMFile::Ref(void) {
-
   MutexLock lock(&refs_mutex_);
-  ++refs_;
-  NVM_DEBUG("post state: refs_(%d).\n", refs_);
 
-  if (refs_ > 1) {
-    NVM_DEBUG("W00000000T\n");
-  }
+  NVM_TRACE(this, "refs_(" << refs_ << ")");
+
+  ++refs_;
+
+  NVM_TRACE(this, "refs_(" << refs_ << ")");
 }
 
 void NVMFile::Unref(void) {
+  NVM_TRACE(this, "");
+
   bool do_delete = false;
 
   {
     MutexLock lock(&refs_mutex_);
+    NVM_TRACE(this, "refs_(" << refs_ << ")");
     --refs_;
+    NVM_TRACE(this, "refs_(" << refs_ << ")");
     if (refs_ < 0) {
       do_delete = true;
     }
@@ -268,6 +262,18 @@ void NVMFile::Unref(void) {
   if (do_delete) {
     delete this;
   }
+}
+
+std::string NVMFile::txt(void) {
+  std::stringstream ss;
+  ss << "file(" << fname_ << ":" << this << ")";
+  return ss.str();
+}
+
+std::string NVMFile::txt(void) const {
+  std::stringstream ss;
+  ss << "file(" << fname_ << ":" << this << ")";
+  return ss.str();
 }
 
 }       // namespace rocksdb

@@ -1,7 +1,9 @@
 #ifndef STORAGE_ROCKSDB_ENVNVM_H_
 #define STORAGE_ROCKSDB_ENVNVM_H_
 
+#include <sstream>
 #include <fstream>
+#include <iomanip>
 #include <map>
 #include "rocksdb/env.h"
 #include "util/threadpool.h"
@@ -10,14 +12,22 @@
 #include "util/mutexlock.h"
 #include "port/port.h"
 
-#include <stdio.h>
-
-#ifdef NVM_DEBUG_ENABLED
-#define NVM_DEBUG(x, ...) printf("%s:%s-%d: " x "", __FILE__, \
-__FUNCTION__, __LINE__, ##__VA_ARGS__);fflush(stdout);
-#else
-#define NVM_DEBUG(x, ...)
-#endif
+//#ifdef NVM_DEBUG_ENABLED
+#define __FNAME__ (strrchr(__FILE__, '/') ? strrchr(__FILE__, '/') + 1 : __FILE__)
+#define NVM_TRACE(obj, x) do { std::stringstream ss; ss                 \
+  << std::setfill('-') << std::setw(17) << std::left << __FNAME__       \
+  << "-"                                                                \
+  << std::setfill('-') << std::setw(4)  << std::right << __LINE__       \
+  << std::setfill(' ') << ":"                                           \
+  << std::setfill(' ') << std::setw(26) << std::left << __func__        \
+  << std::setfill(' ') << " "                                           \
+  << std::setfill(' ') << x                                             \
+  << std::endl;                                                         \
+  fprintf(stdout, "%s", ss.str().c_str()); fflush(stdout);              \
+} while (0);
+//#else
+//#define NVM_TRACE(obj, x)
+//#endif
 
 namespace rocksdb {
 
@@ -35,7 +45,7 @@ class NVMRandomAccessFile;      // Declared here, defined here
 class NVMFile {
 public:
   NVMFile(void);
-  explicit NVMFile(EnvNVM* env, const std::string& dname, const std::string&
+  explicit NVMFile(EnvNVM* env, const std::string& dpath, const std::string&
       fname);
 
   bool UseOSBuffer() const;
@@ -78,11 +88,14 @@ public:
   Status InvalidateCache(size_t offset, size_t length);
 
   bool IsNamed(const std::string &fname) const;
-  const std::string& GetName(void) const;
-  const std::string& GetDir(void) const;
+  const std::string& GetFname(void) const;
+  const std::string& GetDpath(void) const;
 
   void Ref(void);
   void Unref(void);
+
+  std::string txt(void);
+  std::string txt(void) const;
 
 private:
   // Private since only Unref() should be used to delete it.
@@ -93,7 +106,7 @@ private:
   void operator=(const NVMFile&);
 
   EnvNVM* env_;
-  std::string dname_;
+  std::string dpath_;
   std::string fname_;
 
   uint64_t fsize_;
@@ -298,8 +311,6 @@ public:
   // same directory.
   virtual Status GetTestDirectory(std::string* dpath) override;
 
-
-
   // REMOVE THIS STUFF LET SOME OTHER ENV MANAGE THAT IT
 
   // Arrange to run "(*function)(arg)" once in a background thread, in
@@ -367,11 +378,23 @@ public:
   // Returns the ID of the current thread.
   virtual uint64_t GetThreadID() const override;
 
- private:
+  std::string txt(void) {
+    std::stringstream ss;
+    ss << "device_(" << device_ << ")";
+    return ss.str();
+  };
+
+  std::string txt(void) const {
+    std::stringstream ss;
+    ss << "device_(" << device_ << ")";
+    return ss.str();
+  };
+
+private:
   // ADDITIONS the standard Env interface - BEGIN
   NVMFile* FindFileUnguarded(const std::string& fpath);
   Status DeleteFileUnguarded(
-    const std::string& dname,
+    const std::string& dpath,
     const std::string& fname
   );
   Status DeleteFileUnguarded(const std::string& fpath);
@@ -430,42 +453,44 @@ public:
 class NVMSequentialFile : public SequentialFile {
 public:
   NVMSequentialFile(void) : SequentialFile() {
-    NVM_DEBUG("\n");
+    NVM_TRACE(file_, "");
   }
 
   NVMSequentialFile(
     NVMFile *file, const EnvOptions& options
   ) : SequentialFile(), file_(file), pos_(0) {
-    NVM_DEBUG("fname(%s), file(%p)\n", file_->GetName().c_str(), file_);
+    NVM_TRACE(file_, "");
 
     file_->Ref();
   }
 
   ~NVMSequentialFile(void) {
-    NVM_DEBUG("\n");
+    NVM_TRACE(file_, "");
 
     file_->Unref();
   }
 
   virtual Status Read(size_t n, Slice* result, char* scratch) override {
-    NVM_DEBUG("fname(%s), n(%lu), pos_(%lu), result(%p), scratch(%p)\n",
-              file_->GetName().c_str(), n, pos_, result, scratch);
+    NVM_TRACE(file_, "pos_(" << pos_ << ")");
 
     if (pos_ >= file_->GetFileSize()) {
+      NVM_TRACE(file_, "EOF");
       *result = Slice();
       return Status::OK();
     }
 
+    NVM_TRACE(file_, "forwarding");
     Status s = file_->Read(pos_, n, result, scratch);
     if (s.ok()) {
       pos_ += result->size();
     }
 
+    NVM_TRACE(file_, "pos_(" << pos_ << ")");
     return s;
   }
 
   virtual Status Skip(uint64_t n) override {
-    NVM_DEBUG("fname(%s), n(%lu)\n", file_->GetName().c_str(), n);
+    NVM_TRACE(file_, "n(" << n << ")");
 
     if (n + pos_ > file_->GetFileSize()) {      // TODO: Verify this boundary
       return Status::IOError("Skipping beyond end of file");
@@ -477,7 +502,7 @@ public:
   }
 
   virtual Status InvalidateCache(size_t offset, size_t length) override {
-    NVM_DEBUG("Forwarding\n");
+    NVM_TRACE(file_, "forwarding");
 
     return file_->InvalidateCache(offset, length);
   }
@@ -493,19 +518,19 @@ protected:
 class NVMRandomAccessFile : public RandomAccessFile {
 public:
   NVMRandomAccessFile(void) : RandomAccessFile() {
-    NVM_DEBUG("\n");
+    NVM_TRACE(file_, "");
   }
 
   NVMRandomAccessFile(
     NVMFile *file, const EnvOptions& options
   ) : RandomAccessFile(), file_(file) {
-    NVM_DEBUG("fname(%s), file(%p)\n", file_->GetName().c_str(), file_);
+    NVM_TRACE(file_, "");
 
     file_->Ref();
   }
 
   ~NVMRandomAccessFile(void) {
-    NVM_DEBUG("\n");
+    NVM_TRACE(file_, "");
 
     file_->Unref();
   }
@@ -516,19 +541,19 @@ public:
     Slice* result,
     char* scratch
   ) const override {
-    NVM_DEBUG("offset(%lu), n(%lu), result(?), scratch(?)\n", offset, n);
+    NVM_TRACE(file_, "forwarding");
 
     return file_->Read(offset, n, result, scratch);
   }
 
   virtual bool ShouldForwardRawRequest(void) const override {
-    NVM_DEBUG("\n");
+    NVM_TRACE(file_, "false");
 
     return false;
   }
 
   virtual void EnableReadAhead(void) override {
-    NVM_DEBUG("\n");
+    NVM_TRACE(file_, "ignoring");
   }
 
   // Tries to get an unique ID for this file that will be the same each time
@@ -547,17 +572,17 @@ public:
   //
   // Note: these IDs are only valid for the duration of the process.
   virtual size_t GetUniqueId(char* id, size_t max_size) const override {
-    NVM_DEBUG("id(%p), max_size(%lu)\n", id, max_size);
+    NVM_TRACE(file_, "forwarding");
 
     return file_->GetUniqueId(id, max_size);
   }
 
   virtual void Hint(AccessPattern pattern) override {
-    NVM_DEBUG("pattern(%d)\n", pattern);
+    NVM_TRACE(file_, "ignoring");
   }
 
   virtual Status InvalidateCache(size_t offset, size_t length) override {
-    NVM_DEBUG("offset(%lu), length(%lu)\n", offset, length);
+    NVM_TRACE(file_, "forwarding");
 
     return file_->InvalidateCache(offset, length);
   }
@@ -573,27 +598,27 @@ protected:
 class NVMWritableFile : public WritableFile {
 public:
   NVMWritableFile(void) : WritableFile() {
-    NVM_DEBUG("\n");
+    NVM_TRACE(file_, "");
   }
 
   NVMWritableFile(
     NVMFile *file, const EnvOptions& options
   ) : WritableFile(), file_(file) {
-    NVM_DEBUG("file(%p), dname(%s), fname(%s), options(?)\n",
-              file, file->GetDir().c_str(), file->GetName().c_str());
+    NVM_TRACE(file_, "");
 
     file_->Ref();
   }
 
   ~NVMWritableFile(void) {
-    NVM_DEBUG("\n");
+    NVM_TRACE(file_, "");
 
     file_->Unref();
   }
 
   // Indicates if the class makes use of unbuffered I/O
   virtual bool UseOSBuffer() const override {
-    NVM_DEBUG("forwarding\n");
+    NVM_TRACE(file_, "forwarding");
+
     return file_->UseOSBuffer();
   }
 
@@ -601,19 +626,22 @@ public:
   // AlignedBuffer for use with file I/O classes
   // Used for unbuffered file I/O when UseOSBuffer() returns false
   virtual size_t GetRequiredBufferAlignment(void) const override {
-    NVM_DEBUG("forwarding\n");
+    NVM_TRACE(file_, "forwarding");
+
     return file_->GetRequiredBufferAlignment();
   }
 
   virtual Status Append(const Slice& data) override {
-    NVM_DEBUG("forwarding\n");
+    NVM_TRACE(file_, "forwarding");
+
     return file_->Append(data);
   }
 
   // Positioned write for unbuffered access default forward to simple append as
   // most of the tests are buffered by default
   virtual Status PositionedAppend(const Slice& data, uint64_t offset) override {
-    NVM_DEBUG("forwarding\n");
+    NVM_TRACE(file_, "forwarding");
+
     return file_->PositionedAppend(data, offset);
   }
 
@@ -621,23 +649,27 @@ public:
   // It is not always possible to keep track of the file size due to whole pages
   // writes. The behavior is undefined if called with other writes to follow.
   virtual Status Truncate(uint64_t size) override {
-    NVM_DEBUG("forwarding\n");
+    NVM_TRACE(file_, "forwarding");
+
     return file_->Truncate(size);
   }
 
   virtual Status Close(void) override {
-    NVM_DEBUG("forwarding\n");
+    NVM_TRACE(file_, "forwarding");
+
     return file_->Close();
   }
 
   virtual Status Flush(void) override {
-    NVM_DEBUG("forwarding\n");
+    NVM_TRACE(file_, "forwarding");
+
     return file_->Flush();
   }
 
   // sync data
   virtual Status Sync(void) override {
-    NVM_DEBUG("forwarding\n");
+    NVM_TRACE(file_, "forwarding");
+
     return file_->Sync();
   }
 
@@ -648,21 +680,24 @@ public:
   // metadata as well.
   //
   virtual Status Fsync() override {
-    NVM_DEBUG("forwarding\n");
+    NVM_TRACE(file_, "forwarding");
+
     return file_->Fsync();
   }
 
   // true if Sync() and Fsync() are safe to call concurrently with Append()
   // and Flush().
   virtual bool IsSyncThreadSafe() const override {
-    NVM_DEBUG("forwarding\n");
+    NVM_TRACE(file_, "forwarding");
+
     return file_->IsSyncThreadSafe();
   }
 
   // Indicates the upper layers if the current WritableFile implementation
   // uses direct IO.
   virtual bool UseDirectIO() const override {
-    NVM_DEBUG("forwarding\n");
+    NVM_TRACE(file_, "forwarding");
+
     return file_->UseDirectIO();
   }
 
@@ -671,11 +706,14 @@ public:
   // If rate limiting is not enabled, this call has no effect.
   //
   virtual void SetIOPriority(Env::IOPriority pri) override {
-    NVM_DEBUG("pri(%d)\n", pri);
+    NVM_TRACE(file_, "forwarding");
+
+    io_priority_ = pri;
   }
 
   virtual Env::IOPriority GetIOPriority(void) override {
-    NVM_DEBUG("%d\n", io_priority_);
+    NVM_TRACE(file_, "caught");
+
     return io_priority_;
   }
 
@@ -683,13 +721,15 @@ public:
   // Get the size of valid data in the file.
   //
   virtual uint64_t GetFileSize() override {
-    NVM_DEBUG("forwarding\n");
+    NVM_TRACE(file_, "forwarding");
+
     return file_->GetFileSize();
   }
 
   // For documentation, refer to RandomAccessFile::GetUniqueId()
   virtual size_t GetUniqueId(char* id, size_t max_size) const override {
-    NVM_DEBUG("forwarding\n");
+    NVM_TRACE(file_, "forwarding");
+
     return file_->GetUniqueId(id, max_size);
   }
 
@@ -698,7 +738,8 @@ public:
   // If the system is not caching the file contents, then this is a noop.
   // This call has no effect on dirty pages in the cache.
   virtual Status InvalidateCache(size_t offset, size_t length) override {
-    NVM_DEBUG("forwarding\n");
+    NVM_TRACE(file_, "forwarding");
+
     return file_->InvalidateCache(offset, length);
   }
 
@@ -709,7 +750,8 @@ public:
   // without waiting for completion.
   // Default implementation does nothing.
   virtual Status RangeSync(uint64_t offset, uint64_t nbytes) override {
-    NVM_DEBUG("forwarding\n");
+    NVM_TRACE(file_, "forwarding");
+
     return file_->RangeSync(offset, nbytes);;
   }
 
@@ -719,7 +761,8 @@ public:
   // fragmentation and/or less waste from over-zealous filesystem
   // pre-allocation.
   virtual void PrepareWrite(size_t offset, size_t len) override {
-    NVM_DEBUG("forwarding\n");
+    NVM_TRACE(file_, "forwarding");
+
     file_->PrepareWrite(offset, len);
   }
 
@@ -728,7 +771,7 @@ protected:
   // Pre-allocate space for a file.
   //
   virtual Status Allocate(uint64_t offset, uint64_t len) override {
-    NVM_DEBUG("offset(%lu), len(%lu)\n", offset, len);
+    NVM_TRACE(file_, "forwarding");
 
     return file_->Allocate(offset, len);
   }
