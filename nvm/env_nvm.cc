@@ -11,7 +11,6 @@ namespace rocksdb {
 static EnvRegistrar nvm_reg(
   "nvm://",
   [](const std::string& uri, std::unique_ptr<Env>* env_guard) {
-    NVM_TRACE(0, "uri(" << uri << ")");
 
     env_guard->reset(new EnvNVM(uri));
 
@@ -54,8 +53,8 @@ ThreadStatusUpdater* CreateThreadStatusUpdater() {
 // Thread management taken from POSIX ENV -- END
 
 EnvNVM::EnvNVM(
-  const std::string& device
-) : Env(), device_(device), fs_(), thread_pools_(Priority::TOTAL) {
+  const std::string& uri
+) : Env(), uri_(uri), fs_(), thread_pools_(Priority::TOTAL) {
   NVM_TRACE(this, "");
 
   // Thread management taken from POSIX ENV -- BEGIN
@@ -73,6 +72,15 @@ EnvNVM::EnvNVM(
 EnvNVM::~EnvNVM(void) {
   NVM_TRACE(this, "");
 
+  MutexLock lock(&fs_mutex_);
+
+  for (auto dir : fs_) {
+    std::cout << dir.first << std::endl;
+    for (auto file : dir.second) {
+      std::cout << file->GetFname() << "," << file->GetFileSize() << std::endl;
+    }
+  }
+
   // Thread management taken from POSIX ENV -- BEGIN
   for (const auto tid : threads_to_join_) {
     pthread_join(tid, nullptr);
@@ -88,12 +96,6 @@ EnvNVM::~EnvNVM(void) {
     delete thread_status_updater_;
   }
   // Thread management taken from POSIX ENV -- END
-
-  /*
-  for (auto dit = fs_.begin(); dit != fs_.end(); ++dit) {
-    for (auto fit = dit->second.begin(); fit != dit->second.end(); ++fit) {
-    }
-  }*/
 }
 
 Status EnvNVM::NewDirectory(
@@ -192,13 +194,13 @@ Status EnvNVM::DeleteFileUnguarded(
 
   auto dit = fs_.find(dpath);
   if (dit == fs_.end()) {
-    NVM_TRACE(0, "Dir NOT found");
+    NVM_TRACE(this, "Dir NOT found");
     return Status::NotFound();
   }
 
   for (auto it = dit->second.begin(); it != dit->second.end(); ++it) {
     if ((*it)->IsNamed(fname)) {
-      NVM_TRACE(0, "File found -- erasing");
+      NVM_TRACE(this, "File found -- erasing");
 
       NVMFile *file = *it;
 
@@ -209,7 +211,7 @@ Status EnvNVM::DeleteFileUnguarded(
     }
   }
 
-  NVM_TRACE(0, "File NOT found");
+  NVM_TRACE(this, "File NOT found");
   return Status::NotFound();
 }
 
@@ -261,7 +263,7 @@ Status EnvNVM::GetChildren(
 
   for (auto it = dir->second.begin(); it != dir->second.end(); ++it) {
     result->push_back((*it)->GetFname());
-    NVM_TRACE(0, "res(" << result->back() << ")");
+    NVM_TRACE(this, "res(" << result->back() << ")");
   }
 
   return Status::OK();
@@ -277,29 +279,29 @@ Status EnvNVM::GetChildrenFileAttributes(
 }
 
 NVMFile* EnvNVM::FindFileUnguarded(const std::string& fpath) {
-  NVM_TRACE(0, "fpath(" << fpath << ")");
+  NVM_TRACE(this, "fpath(" << fpath << ")");
 
   std::pair<std::string, std::string> parts = SplitPath(fpath);
 
   auto dit = fs_.find(parts.first);
   if (dit == fs_.end()) {
-    NVM_TRACE(0, "!found");
+    NVM_TRACE(this, "!found");
     return NULL;
   }
 
   for (auto it = dit->second.begin(); it != dit->second.end(); ++it) {
     if ((*it)->IsNamed(parts.second)) {
-      NVM_TRACE(0, "found");
+      NVM_TRACE(this, "found");
       return *it;
     }
   }
 
-  NVM_TRACE(0, "!found");
+  NVM_TRACE(this, "!found");
   return NULL;
 }
 
 Status EnvNVM::CreateDirIfMissing(const std::string& dpath) {
-  NVM_TRACE(0, "dpath(" << dpath << ")");
+  NVM_TRACE(this, "dpath(" << dpath << ")");
   MutexLock lock(&fs_mutex_);
 
   if (fs_.find(dpath) != fs_.end()) {
@@ -314,7 +316,7 @@ Status EnvNVM::CreateDirIfMissing(const std::string& dpath) {
 }
 
 Status EnvNVM::CreateDir(const std::string& dpath) {
-  NVM_TRACE(0, "dpath(" << dpath << ")");
+  NVM_TRACE(this, "dpath(" << dpath << ")");
   MutexLock lock(&fs_mutex_);
 
   if (fs_.find(dpath) != fs_.end()) {
@@ -329,7 +331,7 @@ Status EnvNVM::CreateDir(const std::string& dpath) {
 }
 
 Status EnvNVM::DeleteDir(const std::string& dpath) {
-  NVM_TRACE(0, "dpath(" << dpath << ")");
+  NVM_TRACE(this, "dpath(" << dpath << ")");
   MutexLock lock(&fs_mutex_);
 
   auto dir = fs_.find(dpath);
@@ -347,7 +349,7 @@ Status EnvNVM::DeleteDir(const std::string& dpath) {
 }
 
 Status EnvNVM::GetFileSize(const std::string& fpath, uint64_t* fsize) {
-  NVM_TRACE(0, "fpath(" << fpath << ")");
+  NVM_TRACE(this, "fpath(" << fpath << ")");
   MutexLock lock(&fs_mutex_);
 
   NVMFile *file = FindFileUnguarded(fpath);
@@ -364,7 +366,7 @@ Status EnvNVM::GetFileModificationTime(
   const std::string& fpath,
   uint64_t* file_mtime
 ) {
-  NVM_TRACE(0, "fpath(" << fpath << ")");
+  NVM_TRACE(this, "fpath(" << fpath << ")");
   MutexLock lock(&fs_mutex_);
 
   return Status::IOError("GetFileModificationTime --> Not implemented");

@@ -1,5 +1,6 @@
 #include <iostream>
 #include <sstream>
+#include <cassert>
 
 #include "rocksdb/db.h"
 #include "rocksdb/utilities/env_registry.h"
@@ -7,10 +8,103 @@
 
 using namespace rocksdb;
 
-std::string kDBPath = "/tmp/testdb";
+Status bulk_insert(DB* db, WriteOptions& woptions, int nkvpairs) {
+  Status s;
+  WriteBatch batch;
 
-void bulk_insert(int nruns, int nkvpairs) {
-  DB* db;
+  for (int i = 0; i < nkvpairs; ++i) {
+    std::string key("k{" + std::to_string(i) + "}");
+    std::string val("v{" + std::to_string(i) + "}");
+
+    batch.Put(key, val);
+  }
+
+  s = db->Write(woptions, &batch);
+  assert(s.ok());
+
+  return s;
+}
+
+Status bulk_delete(DB* db, WriteOptions& woptions, int nkvpairs) {
+  Status s;
+
+  WriteBatch batch;
+  for (int i = 0; i < nkvpairs; ++i) {
+    std::string key("k{" + std::to_string(i) + "}");
+
+    batch.Delete(key);
+  }
+
+
+  s = db->Write(woptions, &batch);
+  assert(s.ok());
+
+  return s;
+}
+
+// Gets and verifies that all values are as expected.
+// NOT: Not bulk in the sense that it uses the "batch" feature.
+Status bulk_get(DB* db, ReadOptions& roptions, int nkvpairs) {
+  Status s;
+
+  for (int i = 0; i < nkvpairs; ++i) {  // GET
+    std::string key("k{" + std::to_string(i) + "}");
+    std::string val("v{" + std::to_string(i) + "}");
+    std::string returned;
+
+    s = db->Get(roptions, key, &returned);
+    assert(s.ok());
+    assert(returned.compare(val)==0);
+
+    if (!s.ok())
+      break;
+  }
+
+  return s;
+}
+
+class Args {
+public:
+  Args(int argc, char* argv[], std::vector<std::string> ps) : ps_(ps), cmd_(argv[0]) {
+    for (size_t i = 0; i < ps_.size(); ++i) {
+      if (i < (size_t)(argc-1)) {
+        args_[ps_[i]] = atoi(argv[i+1]);
+        continue;
+      }
+      args_[ps_[i]] = 0;
+    }
+  }
+
+  void pr_usage(void) {
+    std::cout << cmd_ << " ";
+    for (auto p : ps_) {
+      std::cout << p << " ";
+    }
+    std::cout << std::endl;
+  }
+
+  void pr_args(void) {
+    for (auto p : ps_) {
+      std::cout << p << ": " << args_[p] << std::endl;
+    }
+  }
+
+  int operator[](const std::string& p) { return args_[p]; }
+
+private:
+  std::map<std::string, int> args_;
+  std::vector<std::string> ps_;
+  std::string cmd_;
+};
+
+int main(int argc, char *argv[]) {
+
+  Args args(argc, argv, {"nruns", "nkvs", "do_delete", "disableWAL"});
+  if (argc < 2) {
+    args.pr_usage();
+    return -1;
+  }
+  args.pr_args();
 
   std::unique_ptr<Env> env_guard;
   Env *env = NewEnvFromUri("nvm://nvme0n1", &env_guard);
@@ -22,73 +116,27 @@ void bulk_insert(int nruns, int nkvpairs) {
   options.IncreaseParallelism();
   options.create_if_missing = true;
 
-  Status s = DB::Open(options, kDBPath, &db);
+  WriteOptions woptions;
+  woptions.disableWAL = args["disableWAL"];
+
+  ReadOptions roptions;
+
+  DB* db;
+  Status s = DB::Open(options, "/tmp/testdb", &db);
   std::cout << s.ToString() << std::endl;
   assert(s.ok());
 
-  s = db->Put(WriteOptions(), "key1", "value");
-  assert(s.ok());
-  std::string value;
-
-  s = db->Get(ReadOptions(), "key1", &value);
-  assert(s.ok());
-  assert(value == "value");
-
-  s = db->Delete(WriteOptions(), "key1");
-  assert(s.ok());
-
-  s = db->Get(ReadOptions(), "key", &value);
-  assert(s.IsNotFound());
-
-  for (int run = 0; run < nruns; ++run) {
-    {                                     // BULK INSERT
-      WriteBatch batch;
-      for (int i = 0; i < nkvpairs; ++i) {
-        std::stringstream key, val;
-
-        key << "key{" << i << "}";
-        val << "value{" << i << "}";
-
-        batch.Put(key.str(), val.str());
-      }
-
-      s = db->Write(WriteOptions(), &batch);
-      assert(s.ok());
-    }
-
-    for (int i = 0; i < nkvpairs; ++i) {  // GET
-      std::string actual_val;
-      std::stringstream key, expected_val;
-
-      key << "key{" << i << "}";
-      expected_val << "value{" << i << "}";
-
-      s = db->Get(ReadOptions(), key.str(), &actual_val);
-
-      assert(s.ok());
-      assert(!expected_val.str().compare(actual_val));
-    }
-
-    {
-      WriteBatch batch;
-      for (int i = 0; i < nkvpairs; ++i) {
-        std::stringstream key;
-
-        key << "key{" << i << "}";
-        batch.Delete(key.str());
-      }
-
-      s = db->Write(WriteOptions(), &batch);
-      assert(s.ok());
-    }
+  for (int i = 0; i < args["nruns"]; ++i) {
+    Status s;
+    s = bulk_insert(db, woptions, args["nkvs"]);
+    s = bulk_get(db, roptions, args["nkvs"]);
+    if (args["do_delete"])
+      s = bulk_delete(db, woptions, args["nkvs"]);
   }
 
   delete db;
-}
 
-int main() {
-
-  bulk_insert(5, 200000);
+  args.pr_args();
 
   return 0;
 }

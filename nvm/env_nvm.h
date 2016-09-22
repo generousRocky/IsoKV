@@ -13,14 +13,35 @@
 #include "port/port.h"
 
 //#ifdef NVM_DEBUG_ENABLED
+//
+inline std::string methodName(const std::string& prettyFunction) {
+  size_t begin = 0, end = 0;
+
+  std::string prefix("rocksdb::");
+
+  end = prettyFunction.find("(");
+  if (end != std::string::npos) {
+    begin = prettyFunction.rfind(prefix, end);
+    begin += 9;
+  }
+
+  if ((begin < end) && (end < prettyFunction.length()))
+    return prettyFunction.substr(begin, end-begin);
+
+  return "";
+}
+
+#define __METHOD_NAME__ methodName(__PRETTY_FUNCTION__)
+
 #define __FNAME__ (strrchr(__FILE__, '/') ? strrchr(__FILE__, '/') + 1 : __FILE__)
-#define NVM_TRACE(obj, x) do { std::stringstream ss; ss                 \
-  << std::setfill('-') << std::setw(17) << std::left << __FNAME__       \
-  << "-"                                                                \
-  << std::setfill('-') << std::setw(4)  << std::right << __LINE__       \
-  << std::setfill(' ') << ":"                                           \
-  << std::setfill(' ') << std::setw(26) << std::left << __func__        \
+#define NVM_TRACE(obj, x) do {                                          \
+  std::stringstream ss; ss                                              \
+  << std::setfill('-') << std::setw(15) << std::left << __FNAME__       \
+  << std::setfill('-') << std::setw(5)  << std::right << __LINE__       \
   << std::setfill(' ') << " "                                           \
+  << std::setfill(' ') << std::setw(34) << std::left << __METHOD_NAME__ \
+  << std::setfill(' ') << " "                                           \
+  << obj->txt()                                                         \
   << std::setfill(' ') << x                                             \
   << std::endl;                                                         \
   fprintf(stdout, "%s", ss.str().c_str()); fflush(stdout);              \
@@ -114,6 +135,8 @@ private:
   char *buf_;
   uint64_t buf_len_;
 
+  std::vector<uint64_t> ppas_;
+
   port::Mutex refs_mutex_;
   int refs_;
 };
@@ -124,7 +147,7 @@ private:
 //
 class EnvNVM : public Env {
 public:
-  EnvNVM(const std::string& device);
+  EnvNVM(const std::string& uri);
   ~EnvNVM(void);
 
   // Create a logger
@@ -378,17 +401,9 @@ public:
   // Returns the ID of the current thread.
   virtual uint64_t GetThreadID() const override;
 
-  std::string txt(void) {
-    std::stringstream ss;
-    ss << "device_(" << device_ << ")";
-    return ss.str();
-  };
+  std::string txt(void) { return ""; };
 
-  std::string txt(void) const {
-    std::stringstream ss;
-    ss << "device_(" << device_ << ")";
-    return ss.str();
-  };
+  std::string txt(void) const { return ""; };
 
 private:
   // ADDITIONS the standard Env interface - BEGIN
@@ -404,7 +419,7 @@ private:
   EnvNVM(const Env&);
   void operator=(const Env&);
 
-  std::string device_;
+  std::string uri_;
   std::map<std::string, std::vector<NVMFile*>> fs_;
   port::Mutex fs_mutex_;        // Protects fs_
 

@@ -30,8 +30,10 @@ tags:
 	ctags * -R src
 	ctags -R --c++-kinds=+p --fields=+iaS --extra=+q /home/safl/git/rocksdb
 
-dev_test: clean configure make
-	./$(BUILD_DIR)/env_nvm_test
+dev: clean configure make
+
+test:
+	./$(BUILD_DIR)/env_nvm_test 6 500000
 
 rocks:
 	cd .. && make release -j$(nproc)

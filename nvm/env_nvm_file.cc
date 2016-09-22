@@ -11,14 +11,14 @@ namespace rocksdb {
 NVMFile::NVMFile(
   void
 ) : env_(NULL), dpath_(), fname_(), fsize_(0),
-    buf_(NULL), buf_len_(0), refs_(0) {
+    buf_(NULL), buf_len_(0), ppas_(), refs_(0) {
   NVM_TRACE(this, "");
 }
 
 NVMFile::NVMFile(
   EnvNVM* env, const std::string& dpath, const std::string& fname
 ) : env_(env), dpath_(dpath), fname_(fname), fsize_(0),
-    buf_(NULL), buf_len_(0), refs_(0) {
+    buf_(NULL), buf_len_(0), ppas_(), refs_(0) {
   NVM_TRACE(this, "");
 }
 
@@ -29,13 +29,13 @@ NVMFile::~NVMFile(void) {
 }
 
 bool NVMFile::UseDirectIO(void) const {
-  NVM_TRACE(this, "returning hardcoded value 'true'");
+  NVM_TRACE(this, "hard-coded return(true)");
 
   return true;
 }
 
 bool NVMFile::UseOSBuffer(void) const {
-  NVM_TRACE(this, "returning hardcoded value 'false'");
+  NVM_TRACE(this, "hard-coded return(false)");
 
   return false;
 }
@@ -146,7 +146,7 @@ Status NVMFile::Fsync(void) {
 }
 
 bool NVMFile::IsSyncThreadSafe(void) const {
-  NVM_TRACE(this, "returning hardcoded value 'false'");
+  NVM_TRACE(this, "hard-coded return(false)");
 
   return false;
 }
@@ -175,13 +175,13 @@ size_t NVMFile::GetUniqueId(char* id, size_t max_size) const {
 }
 
 uint64_t NVMFile::GetFileSize(void) const {
-  NVM_TRACE(this, "");
+  NVM_TRACE(this, "return(" << fsize_ << ")");
 
   return fsize_;
 }
 
 uint64_t NVMFile::GetFileSize(void) {
-  NVM_TRACE(this, "");
+  NVM_TRACE(this, "return(" << fsize_ << ")");
 
   return fsize_;
 }
@@ -205,33 +205,33 @@ Status NVMFile::RangeSync(uint64_t offset, uint64_t nbytes) {
 }
 
 void NVMFile::Rename(const std::string& fname) {
-  NVM_TRACE(this, "fname_(" << fname_ << ") -> fname(" << fname << ")");
+  NVM_TRACE(this, "fname(" << fname << ")");
 
   fname_ = fname;
 }
 
 bool NVMFile::IsNamed(const std::string& fname) const {
-  NVM_TRACE(this, "fname_(" << fname_ << ").compare(" << fname << ")");
+  NVM_TRACE(this, "fname(" << fname << ")");
 
   return !fname_.compare(fname);
 }
 
 const std::string& NVMFile::GetFname(void) const {
-  NVM_TRACE(this, "");
+  NVM_TRACE(this, "return(" << fname_ << ")");
 
   return fname_;
 }
 
 const std::string& NVMFile::GetDpath(void) const {
-  NVM_TRACE(this, "");
+  NVM_TRACE(this, "return(" << dpath_ << ")");
 
   return dpath_;
 }
 
 size_t NVMFile::GetRequiredBufferAlignment(void) const {
-  NVM_TRACE(this, "returning hardcoded value 4096");
+  NVM_TRACE(this, "hard-coded return(4096)");
 
-  return 4096;  // TODO: Get this from liblightnvm device geometry
+  return 4096*4;  // TODO: Get this from liblightnvm device geometry
 }
 
 void NVMFile::Ref(void) {
@@ -266,13 +266,13 @@ void NVMFile::Unref(void) {
 
 std::string NVMFile::txt(void) {
   std::stringstream ss;
-  ss << "file(" << fname_ << ":" << this << ")";
+  ss << "fname_(" << fname_ << ") ";
   return ss.str();
 }
 
 std::string NVMFile::txt(void) const {
   std::stringstream ss;
-  ss << "file(" << fname_ << ":" << this << ")";
+  ss << "fname_(" << fname_ << ") ";
   return ss.str();
 }
 
