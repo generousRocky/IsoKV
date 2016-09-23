@@ -52,12 +52,6 @@ inline std::string methodName(const std::string& prettyFunction) {
 
 namespace rocksdb {
 
-inline bool ends_with(const std::string& subj, const std::string& suffix) {
-  return subj.size() >= suffix.size() && std::equal(
-    suffix.rbegin(), suffix.rend(), subj.rbegin()
-  );
-}
-
 // Splits a file path into a directory path, filename and determines whether the
 // file is managed by EnvNVM. That is, whether it is write-ahead-log or sst
 // file.
@@ -88,6 +82,12 @@ public:
       fname_(info.fname()),
       nvm_managed_(info.nvm_managed()) {
     NVM_TRACE(this, "");
+  }
+
+  static bool ends_with(const std::string& subj, const std::string& suffix) {
+    return subj.size() >= suffix.size() && std::equal(
+      suffix.rbegin(), suffix.rend(), subj.rbegin()
+    );
   }
 
   const std::string& dpath(void) const { return dpath_; }
@@ -150,7 +150,6 @@ public:
   uint64_t ModifiedTime(void) const;
 
   uint64_t GetFileSize(void) const;
-  uint64_t GetFileSize(void);
 
   size_t GetRequiredBufferAlignment(void) const;
 
@@ -182,17 +181,16 @@ private:
   void operator=(const NVMFile&);
 
   EnvNVM* env_;
-  FPathInfo info_;
-
-  uint64_t fsize_;
 
   char *buf_;
   uint64_t buf_len_;
 
-  std::vector<uint64_t> ppas_;
-
   port::Mutex refs_mutex_;
   int refs_;
+
+  FPathInfo info_;
+  uint64_t fsize_;
+  std::vector<uint64_t> ppas_;
 };
 
 //
@@ -598,7 +596,7 @@ public:
 
   NVMSequentialFile(
     NVMFile *file, const EnvOptions& options
-  ) : SequentialFile(), file_(file), pos_(0) {
+  ) : SequentialFile(), file_(file), pos_() {
     NVM_TRACE(file_, "");
 
     file_->Ref();
@@ -819,7 +817,7 @@ public:
   // Override this method for environments where we need to sync
   // metadata as well.
   //
-  virtual Status Fsync() override {
+  virtual Status Fsync(void) override {
     NVM_TRACE(file_, "forwarding");
 
     return file_->Fsync();
@@ -827,7 +825,7 @@ public:
 
   // true if Sync() and Fsync() are safe to call concurrently with Append()
   // and Flush().
-  virtual bool IsSyncThreadSafe() const override {
+  virtual bool IsSyncThreadSafe(void) const override {
     NVM_TRACE(file_, "forwarding");
 
     return file_->IsSyncThreadSafe();
@@ -835,7 +833,7 @@ public:
 
   // Indicates the upper layers if the current WritableFile implementation
   // uses direct IO.
-  virtual bool UseDirectIO() const override {
+  virtual bool UseDirectIO(void) const override {
     NVM_TRACE(file_, "forwarding");
 
     return file_->UseDirectIO();

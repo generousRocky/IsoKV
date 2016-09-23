@@ -10,8 +10,7 @@ namespace rocksdb {
 
 NVMFile::NVMFile(
   EnvNVM* env, const FPathInfo& info
-) : env_(env), info_(info), fsize_(0), buf_(NULL), buf_len_(0),
-  ppas_(), refs_(0) {
+) : env_(env), buf_(), buf_len_(), refs_(), info_(info), fsize_(), ppas_() {
   NVM_TRACE(this, "");
 }
 
@@ -168,12 +167,6 @@ size_t NVMFile::GetUniqueId(char* id, size_t max_size) const {
 }
 
 uint64_t NVMFile::GetFileSize(void) const {
-  NVM_TRACE(this, "return(" << fsize_ << ")");
-
-  return fsize_;
-}
-
-uint64_t NVMFile::GetFileSize(void) {
   NVM_TRACE(this, "return(" << fsize_ << ")");
 
   return fsize_;
