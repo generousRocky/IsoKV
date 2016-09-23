@@ -9,16 +9,9 @@ int count = 0;
 namespace rocksdb {
 
 NVMFile::NVMFile(
-  void
-) : env_(NULL), dpath_(), fname_(), fsize_(0),
-    buf_(NULL), buf_len_(0), ppas_(), refs_(0) {
-  NVM_TRACE(this, "");
-}
-
-NVMFile::NVMFile(
-  EnvNVM* env, const std::string& dpath, const std::string& fname
-) : env_(env), dpath_(dpath), fname_(fname), fsize_(0),
-    buf_(NULL), buf_len_(0), ppas_(), refs_(0) {
+  EnvNVM* env, const FPathInfo& info
+) : env_(env), info_(info), fsize_(0), buf_(NULL), buf_len_(0),
+  ppas_(), refs_(0) {
   NVM_TRACE(this, "");
 }
 
@@ -207,25 +200,25 @@ Status NVMFile::RangeSync(uint64_t offset, uint64_t nbytes) {
 void NVMFile::Rename(const std::string& fname) {
   NVM_TRACE(this, "fname(" << fname << ")");
 
-  fname_ = fname;
+  info_.fname(fname);
 }
 
 bool NVMFile::IsNamed(const std::string& fname) const {
   NVM_TRACE(this, "fname(" << fname << ")");
 
-  return !fname_.compare(fname);
+  return !info_.fname().compare(fname);
 }
 
 const std::string& NVMFile::GetFname(void) const {
-  NVM_TRACE(this, "return(" << fname_ << ")");
+  NVM_TRACE(this, "return(" << info_.fname() << ")");
 
-  return fname_;
+  return info_.fname();
 }
 
 const std::string& NVMFile::GetDpath(void) const {
-  NVM_TRACE(this, "return(" << dpath_ << ")");
+  NVM_TRACE(this, "return(" << info_.dpath() << ")");
 
-  return dpath_;
+  return info_.dpath();
 }
 
 size_t NVMFile::GetRequiredBufferAlignment(void) const {
@@ -266,13 +259,13 @@ void NVMFile::Unref(void) {
 
 std::string NVMFile::txt(void) {
   std::stringstream ss;
-  ss << "fname_(" << fname_ << ") ";
+  ss << "fname(" << info_.fname() << ") ";
   return ss.str();
 }
 
 std::string NVMFile::txt(void) const {
   std::stringstream ss;
-  ss << "fname_(" << fname_ << ") ";
+  ss << "fname(" << info_.fname() << ") ";
   return ss.str();
 }
 

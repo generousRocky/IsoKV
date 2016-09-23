@@ -52,9 +52,70 @@ inline std::string methodName(const std::string& prettyFunction) {
 
 namespace rocksdb {
 
-// Split given path into a pair of strings, first containing dirname,
-// second containing filename
-std::pair<std::string, std::string> SplitPath(const std::string& path);
+inline bool ends_with(const std::string& subj, const std::string& suffix) {
+  return subj.size() >= suffix.size() && std::equal(
+    suffix.rbegin(), suffix.rend(), subj.rbegin()
+  );
+}
+
+// Splits a file path into a directory path, filename and determines whether the
+// file is managed by EnvNVM. That is, whether it is write-ahead-log or sst
+// file.
+class FPathInfo {
+public:
+  FPathInfo(const std::string& fpath) {
+    char sep = '/';
+    int sep_idx = fpath.find_last_of(sep, fpath.length());
+    int fname_idx = sep_idx + 1;
+
+    while(sep_idx > 0 && fpath[sep_idx] == sep) {
+      --sep_idx;
+    }
+
+    dpath_ = fpath.substr(0, sep_idx + 1);
+    fname_ = fpath.substr(fname_idx);
+
+    nvm_managed_ = ends_with(fname_, "log") || \
+                   ends_with(fname_, "sst") || \
+                   ends_with(fname_, "ldb");
+
+    NVM_TRACE(this, "");
+  }
+
+  FPathInfo(
+    const FPathInfo& info
+  ) : dpath_(info.dpath()),
+      fname_(info.fname()),
+      nvm_managed_(info.nvm_managed()) {
+    NVM_TRACE(this, "");
+  }
+
+  const std::string& dpath(void) const { return dpath_; }
+  const std::string& dpath(void) { return dpath_; }
+  void dpath(const std::string& dpath) { dpath_ = dpath; }
+
+  const std::string& fname(void) const { return fname_; }
+  const std::string& fname(void) { return fname_; }
+  void fname(const std::string& fname) { fname_ = fname; }
+
+  bool nvm_managed(void) const { return nvm_managed_; }
+  bool nvm_managed(void) { return nvm_managed_; }
+
+  std::string txt(void) {
+    std::stringstream ss;
+
+    ss << "dpath(" << dpath_ << "), "
+       << "fname(" << fname_ << "), "
+       << "nvm_managed(" << std::boolalpha << nvm_managed_ << ")";
+
+    return ss.str();
+  }
+
+private:
+  std::string dpath_;
+  std::string fname_;
+  bool nvm_managed_;
+};
 
 class NVMFile;                  // Declared here, defined in envnvm_file.cc
 class EnvNVM;                   // Declared here, defined here and in envnvm.cc
@@ -64,9 +125,7 @@ class NVMRandomAccessFile;      // Declared here, defined here
 
 class NVMFile {
 public:
-  NVMFile(void);
-  explicit NVMFile(EnvNVM* env, const std::string& dpath, const std::string&
-      fname);
+  NVMFile(EnvNVM* env, const FPathInfo& info);
 
   bool UseOSBuffer() const;
   bool UseDirectIO() const;
@@ -126,8 +185,7 @@ private:
   void operator=(const NVMFile&);
 
   EnvNVM* env_;
-  std::string dpath_;
-  std::string fname_;
+  FPathInfo info_;
 
   uint64_t fsize_;
 
@@ -305,7 +363,10 @@ private:
   Status DeleteFileUnguarded(const std::string& fpath);
   // PRIVATE ADDITIONS the Env interface - END
 
-// Intercepted but otherwise entirely delegated to POSIX Environment
+//
+// The following public methods are intercepted for debug tracing but otherwise
+// entirely delegated to default environment.
+//
 public:
   // Create a logger
   //
@@ -528,7 +589,7 @@ private:
 
   std::string uri_;
   std::map<std::string, std::vector<NVMFile*>> fs_;
-  port::Mutex fs_mutex_;        // For serializing lookup, creation, and deletion
+  port::Mutex fs_mutex_; // Serializing lookup, creation, and deletion
 
 };
 

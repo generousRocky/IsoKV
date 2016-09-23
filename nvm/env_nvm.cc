@@ -18,22 +18,6 @@ static EnvRegistrar nvm_reg(
   }
 );
 
-std::pair<std::string, std::string> SplitPath(const std::string& path) {
-
-  char sep = '/';
-  int sep_idx = path.find_last_of(sep, path.length());
-  int fname_idx = sep_idx + 1;
-
-  while(sep_idx > 0 && path[sep_idx] == sep) {
-    --sep_idx;
-  }
-
-  return std::pair<std::string, std::string>(
-      path.substr(0, sep_idx + 1),
-      path.substr(fname_idx)
-  );
-}
-
 EnvNVM::EnvNVM(
   const std::string& uri
 ) : Env(), posix_(Env::Default()), uri_(uri), fs_() {
@@ -51,8 +35,6 @@ EnvNVM::~EnvNVM(void) {
       std::cout << file->GetFname() << "," << file->GetFileSize() << std::endl;
     }
   }
-
-  //delete posix_;
 }
 
 Status EnvNVM::NewSequentialFile(
@@ -61,6 +43,12 @@ Status EnvNVM::NewSequentialFile(
   const EnvOptions& options
 ) {
   NVM_TRACE(this, "fpath(" << fpath << ")");
+
+  FPathInfo info(fpath);
+  if (!info.nvm_managed()) {
+    NVM_TRACE(this, "delegating...");
+    return posix_->NewSequentialFile(fpath, result, options);
+  }
 
   MutexLock lock(&fs_mutex_);
 
@@ -81,6 +69,12 @@ Status EnvNVM::NewRandomAccessFile(
 ) {
   NVM_TRACE(this, "fpath(" << fpath << ")");
 
+  FPathInfo info(fpath);
+  if (!info.nvm_managed()) {
+    NVM_TRACE(this, "delegating...");
+    return posix_->NewRandomAccessFile(fpath, result, options);
+  }
+
   MutexLock lock(&fs_mutex_);
 
   NVMFile *file = FindFileUnguarded(fpath);
@@ -100,7 +94,11 @@ Status EnvNVM::ReuseWritableFile(
 ) {
   NVM_TRACE(this, "fpath(" << fpath << "), fpath_old(" << fpath_old << ")");
 
-  MutexLock lock(&fs_mutex_);
+  FPathInfo info(fpath);
+  if (!info.nvm_managed()) {
+    NVM_TRACE(this, "delegating...");
+    return posix_->ReuseWritableFile(fpath, fpath_old, result, options);
+  }
 
   return Status::IOError("ReuseWritableFile --> Not implemented.");
 }
@@ -112,6 +110,13 @@ Status EnvNVM::NewWritableFile(
 ) {
   NVM_TRACE(this, "fpath(" << fpath << ")");
 
+  FPathInfo info(fpath);
+
+  if (!info.nvm_managed()) {
+    NVM_TRACE(this, "delegating...");
+    return posix_->NewWritableFile(fpath, result, options);
+  }
+
   MutexLock lock(&fs_mutex_);
 
   NVMFile *file = FindFileUnguarded(fpath);
@@ -119,10 +124,8 @@ Status EnvNVM::NewWritableFile(
     DeleteFileUnguarded(fpath);
   }
 
-  std::pair<std::string, std::string> fparts = SplitPath(fpath);
-
-  file = new NVMFile(this, fparts.first, fparts.second);
-  fs_[file->GetDpath()].push_back(file);
+  file = new NVMFile(this, info);
+  fs_[info.dpath()].push_back(file);
 
   result->reset(new NVMWritableFile(file, options));
 
@@ -166,24 +169,31 @@ Status EnvNVM::DeleteFileUnguarded(
 Status EnvNVM::DeleteFileUnguarded(const std::string& fpath) {
   NVM_TRACE(this, "fpath(" << fpath << ")");
 
-  std::pair<std::string, std::string> parts = SplitPath(fpath);
+  FPathInfo info(fpath);
 
-  return DeleteFileUnguarded(parts.first, parts.second);
+  return DeleteFileUnguarded(info.dpath(), info.fname());
 }
 
 Status EnvNVM::DeleteFile(const std::string& fpath) {
   NVM_TRACE(this, "fpath(" << fpath << ")");
   MutexLock lock(&fs_mutex_);
 
-  std::pair<std::string, std::string> parts = SplitPath(fpath);
+  FPathInfo info(fpath);
 
-  return DeleteFileUnguarded(parts.first, parts.second);
+  return DeleteFileUnguarded(info.dpath(), info.fname());
 }
 
 Status EnvNVM::FileExists(const std::string& fpath) {
   NVM_TRACE(this, "fpath(" << fpath << ")");
-  MutexLock lock(&fs_mutex_);
 
+  FPathInfo info(fpath);
+
+  if (!info.nvm_managed()) {
+    NVM_TRACE(this, "delegating...");
+    return posix_->FileExists(fpath);
+  }
+
+  MutexLock lock(&fs_mutex_);
   if (FindFileUnguarded(fpath)) {
     return Status::OK();
   }
@@ -196,19 +206,16 @@ Status EnvNVM::GetChildren(
   std::vector<std::string>* result
 ) {
   NVM_TRACE(this, "dpath(" << dpath << ")");
+
+  posix_->GetChildren(dpath, result);   // Merging posix and nvm
+
   MutexLock lock(&fs_mutex_);
-
-  result->clear();
-
-  auto dir = fs_.find(dpath);
-
-  if (dir == fs_.end()) {
-    return Status::IOError("No such dir.");
+  for (auto file : fs_[dpath]) {
+      result->push_back(file->GetFname());
   }
 
-  for (auto it = dir->second.begin(); it != dir->second.end(); ++it) {
-    result->push_back((*it)->GetFname());
-    NVM_TRACE(this, "res(" << result->back() << ")");
+  for (auto fname : *result) {
+    NVM_TRACE(this, "fname(" << fname << ")");
   }
 
   return Status::OK();
@@ -226,16 +233,16 @@ Status EnvNVM::GetChildrenFileAttributes(
 NVMFile* EnvNVM::FindFileUnguarded(const std::string& fpath) {
   NVM_TRACE(this, "fpath(" << fpath << ")");
 
-  std::pair<std::string, std::string> parts = SplitPath(fpath);
+  FPathInfo info(fpath);
 
-  auto dit = fs_.find(parts.first);
+  auto dit = fs_.find(info.dpath());
   if (dit == fs_.end()) {
     NVM_TRACE(this, "!found");
     return NULL;
   }
 
   for (auto it = dit->second.begin(); it != dit->second.end(); ++it) {
-    if ((*it)->IsNamed(parts.second)) {
+    if ((*it)->IsNamed(info.fname())) {
       NVM_TRACE(this, "found");
       return *it;
     }
@@ -247,6 +254,13 @@ NVMFile* EnvNVM::FindFileUnguarded(const std::string& fpath) {
 
 Status EnvNVM::GetFileSize(const std::string& fpath, uint64_t* fsize) {
   NVM_TRACE(this, "fpath(" << fpath << ")");
+
+  FPathInfo info(fpath);
+  if (!info.nvm_managed()) {
+    NVM_TRACE(this, "delegating...");
+    return posix_->GetFileSize(fpath, fsize);
+  }
+
   MutexLock lock(&fs_mutex_);
 
   NVMFile *file = FindFileUnguarded(fpath);
@@ -264,6 +278,13 @@ Status EnvNVM::GetFileModificationTime(
   uint64_t* file_mtime
 ) {
   NVM_TRACE(this, "fpath(" << fpath << ")");
+
+  FPathInfo info(fpath);
+  if (!info.nvm_managed()) {
+    NVM_TRACE(this, "delegating...");
+    return posix_->GetFileModificationTime(fpath, file_mtime);
+  }
+
   MutexLock lock(&fs_mutex_);
 
   return Status::IOError("GetFileModificationTime --> Not implemented");
@@ -275,10 +296,21 @@ Status EnvNVM::RenameFile(
 ) {
   NVM_TRACE(this, "fpath_src(" << fpath_src << "), fpath_tgt(" << fpath_tgt << ")");
 
-  auto parts_src = SplitPath(fpath_src);
-  auto parts_tgt = SplitPath(fpath_tgt);
+  FPathInfo info_src(fpath_src);
+  FPathInfo info_tgt(fpath_tgt);
 
-  if (parts_src.first.compare(parts_tgt.first)) {
+  if (info_src.nvm_managed() ^ info_src.nvm_managed()) {
+    return Status::IOError(
+      "Renaming a non-NVM file to a NVM file or the other way around."
+    );
+  }
+
+  if (!info_src.nvm_managed()) {
+    NVM_TRACE(this, "delegating...");
+    return posix_->RenameFile(fpath_src, fpath_tgt);
+  }
+
+  if (info_src.dpath().compare(info_tgt.dpath())) {
     return Status::IOError("Directory change not supported when renaming");
   }
 
@@ -294,7 +326,7 @@ Status EnvNVM::RenameFile(
     DeleteFileUnguarded(fpath_tgt);
   }
 
-  file->Rename(parts_tgt.second);                       // The actual renaming
+  file->Rename(info_tgt.fname());                       // The actual renaming
 
   return Status::OK();
 }

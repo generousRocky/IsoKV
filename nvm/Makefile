@@ -33,6 +33,7 @@ tags:
 dev: clean configure make
 
 test:
+	rm -r /tmp/testdb
 	./$(BUILD_DIR)/env_nvm_test 1 500 1 1
 
 rocks:
