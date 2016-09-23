@@ -34,39 +34,10 @@ std::pair<std::string, std::string> SplitPath(const std::string& path) {
   );
 }
 
-// Thread management taken from POSIX ENV -- BEGIN
-struct StartThreadState {
-  void (*user_function)(void*);
-  void* arg;
-};
-
-static void* StartThreadWrapper(void* arg) {
-  StartThreadState* state = reinterpret_cast<StartThreadState*>(arg);
-  state->user_function(state->arg);
-  delete state;
-  return nullptr;
-}
-
-ThreadStatusUpdater* CreateThreadStatusUpdater() {
-  return new ThreadStatusUpdater();
-}
-// Thread management taken from POSIX ENV -- END
-
 EnvNVM::EnvNVM(
   const std::string& uri
-) : Env(), uri_(uri), fs_(), thread_pools_(Priority::TOTAL) {
+) : Env(), posix_(Env::Default()), uri_(uri), fs_() {
   NVM_TRACE(this, "");
-
-  // Thread management taken from POSIX ENV -- BEGIN
-  ThreadPool::PthreadCall("mutex_init", pthread_mutex_init(&mu_, nullptr));
-  for (int pool_id = 0; pool_id < Env::Priority::TOTAL; ++pool_id) {
-    thread_pools_[pool_id].SetThreadPriority(
-        static_cast<Env::Priority>(pool_id)
-    );
-    thread_pools_[pool_id].SetHostEnv(this);
-  }
-  thread_status_updater_ = CreateThreadStatusUpdater();
-  // Thread management taken from POSIX ENV -- END
 }
 
 EnvNVM::~EnvNVM(void) {
@@ -81,32 +52,7 @@ EnvNVM::~EnvNVM(void) {
     }
   }
 
-  // Thread management taken from POSIX ENV -- BEGIN
-  for (const auto tid : threads_to_join_) {
-    pthread_join(tid, nullptr);
-  }
-  for (int pool_id = 0; pool_id < Env::Priority::TOTAL; ++pool_id) {
-    thread_pools_[pool_id].JoinAllThreads();
-  }
-  // Delete the thread_status_updater_ only when the current Env is not
-  // Env::Default().  This is to avoid the free-after-use error when
-  // Env::Default() is destructed while some other child threads are
-  // still trying to update thread status.
-  if (this != Env::Default()) {
-    delete thread_status_updater_;
-  }
-  // Thread management taken from POSIX ENV -- END
-}
-
-Status EnvNVM::NewDirectory(
-  const std::string& dpath,
-  unique_ptr<Directory>* result
-) {
-  NVM_TRACE(this, "dpath(" << dpath << ")");
-
-  result->reset(new NVMDirectory());
-
-  return Status::OK();
+  //delete posix_;
 }
 
 Status EnvNVM::NewSequentialFile(
@@ -141,7 +87,6 @@ Status EnvNVM::NewRandomAccessFile(
   if (!file) {
     return Status::NotFound();
   }
-
   result->reset(new NVMRandomAccessFile(file, options));
 
   return Status::OK();
@@ -300,54 +245,6 @@ NVMFile* EnvNVM::FindFileUnguarded(const std::string& fpath) {
   return NULL;
 }
 
-Status EnvNVM::CreateDirIfMissing(const std::string& dpath) {
-  NVM_TRACE(this, "dpath(" << dpath << ")");
-  MutexLock lock(&fs_mutex_);
-
-  if (fs_.find(dpath) != fs_.end()) {
-    return Status::OK();
-  }
-
-  fs_.insert(std::pair<std::string, std::vector<NVMFile*> >(
-    dpath, std::vector<NVMFile*>()
-  ));
-
-  return Status::OK();
-}
-
-Status EnvNVM::CreateDir(const std::string& dpath) {
-  NVM_TRACE(this, "dpath(" << dpath << ")");
-  MutexLock lock(&fs_mutex_);
-
-  if (fs_.find(dpath) != fs_.end()) {
-    return Status::IOError("Directory exists");
-  }
-
-  fs_.insert(std::pair<std::string, std::vector<NVMFile*> >(
-    dpath, std::vector<NVMFile*>()
-  ));
-
-  return Status::OK();
-}
-
-Status EnvNVM::DeleteDir(const std::string& dpath) {
-  NVM_TRACE(this, "dpath(" << dpath << ")");
-  MutexLock lock(&fs_mutex_);
-
-  auto dir = fs_.find(dpath);
-
-  if (dir == fs_.end()) {
-    return Status::NotFound("Trying to delete a non-existing dpath");
-  }
-  if (!dir->second.empty()) {
-    return Status::IOError("Trying to delete a non-empty dpath");
-  }
-
-  fs_.erase(dir);
-
-  return Status::OK();
-}
-
 Status EnvNVM::GetFileSize(const std::string& fpath, uint64_t* fsize) {
   NVM_TRACE(this, "fpath(" << fpath << ")");
   MutexLock lock(&fs_mutex_);
@@ -400,195 +297,6 @@ Status EnvNVM::RenameFile(
   file->Rename(parts_tgt.second);                       // The actual renaming
 
   return Status::OK();
-}
-
-Status EnvNVM::LockFile(const std::string& fpath, FileLock** lock) {
-  NVM_TRACE(this, "fpath(" << fpath << ")");
-
-  *lock = new FileLock;
-
-  NVM_TRACE(this, "created lock(" << *lock << ")");
-
-  return Status::OK();
-}
-
-Status EnvNVM::UnlockFile(FileLock* lock) {
-  NVM_TRACE(this, "lock(" << lock << ")");
-
-  delete lock;
-
-  return Status::OK();
-}
-
-void EnvNVM::Schedule(
-  void (*function)(void* arg),
-  void* arg,
-  Priority pri,
-  void* tag,
-  void (*unschedFunction)(void* arg)
-) {
-  NVM_TRACE(this, "");
-
-  assert(pri >= Priority::LOW && pri <= Priority::HIGH);
-  thread_pools_[pri].Schedule(function, arg, tag, unschedFunction);
-}
-
-int EnvNVM::UnSchedule(void* arg, Priority pri) {
-  NVM_TRACE(this, "");
-
-  return thread_pools_[pri].UnSchedule(arg);
-}
-
-void EnvNVM::StartThread(void (*function)(void *), void *arg ) {
-  NVM_TRACE(this, "");
-
-  pthread_t t;
-  StartThreadState* state = new StartThreadState;
-  state->user_function = function;
-  state->arg = arg;
-  ThreadPool::PthreadCall(
-      "start thread", pthread_create(&t, nullptr, &StartThreadWrapper, state));
-  ThreadPool::PthreadCall("lock", pthread_mutex_lock(&mu_));
-  threads_to_join_.push_back(t);
-  ThreadPool::PthreadCall("unlock", pthread_mutex_unlock(&mu_));
-}
-
-void EnvNVM::WaitForJoin(void) {
-  NVM_TRACE(this, "");
-
-  for (const auto tid : threads_to_join_) {
-    pthread_join(tid, nullptr);
-  }
-  threads_to_join_.clear();
-}
-
-unsigned int EnvNVM::GetThreadPoolQueueLen(Priority pri) const {
-  NVM_TRACE(this, "");
-
-  assert(pri >= Priority::LOW && pri <= Priority::HIGH);
-  return thread_pools_[pri].GetQueueLen();
-}
-
-uint64_t EnvNVM::GetThreadID(void) const {
-  NVM_TRACE(this, "ignoring...");
-
-  return 0;
-}
-
-void EnvNVM::LowerThreadPoolIOPriority(Priority pool) {
-  NVM_TRACE(this, "ignoring...");
-}
-
-void EnvNVM::SetBackgroundThreads(int num, Priority pri) {
-  NVM_TRACE(this, "ignoring...");
-
-  return;
-}
-
-void EnvNVM::IncBackgroundThreadsIfNeeded(int num, Priority pri) {
-  NVM_TRACE(this, "ignoring...");
-
-  return;
-}
-
-uint64_t EnvNVM::NowNanos(void) {
-  NVM_TRACE(this, "");
-
-  return NowMicros() * 1000;
-};
-
-std::string EnvNVM::GenerateUniqueId(void) {
-  NVM_TRACE(this, "");
-
-  std::ifstream uuid_file("/proc/sys/kernel/random/uuid");
-  std::string line;
-
-  if (uuid_file.is_open()) {
-    getline(uuid_file, line);
-    uuid_file.close();
-    NVM_TRACE(this, "generated(" << line << ")");
-    return line;
-  }
-
-  return "foo-bar-not-unique";
-};
-
-Status EnvNVM::GetTestDirectory(std::string* path) {
-  NVM_TRACE(this, "");
-
-  return Status::NotFound();
-}
-
-Status EnvNVM::NewLogger(
-  const std::string& fpath,
-  shared_ptr<Logger>* result
-) {
-  NVM_TRACE(this, "fpath(" << fpath << ")");
-
-  NVMLogger *logger = new NVMLogger(InfoLogLevel::INFO_LEVEL);
-
-  result->reset(logger);
-
-  return Status::OK();
-}
-
-uint64_t EnvNVM::NowMicros(void) {
-  NVM_TRACE(this, "");
-
-  auto now = std::chrono::high_resolution_clock::now();
-  auto duration = now.time_since_epoch();
-  auto micros = std::chrono::duration_cast<std::chrono::microseconds>(duration);
-
-  return micros.count();
-}
-
-void EnvNVM::SleepForMicroseconds(int micros) {
-  NVM_TRACE(this, "micros(" << micros << ")");
-
-  return;
-}
-
-Status EnvNVM::GetHostName(char* name, uint64_t len) {
-  NVM_TRACE(this, "");
-
-  return Status::IOError("GetHostname --> Not implemented");
-}
-
-Status EnvNVM::GetCurrentTime(int64_t* unix_time) {
-  NVM_TRACE(this, "");
-
-  *unix_time = time(0);
-
-  return Status::OK();
-}
-
-std::string EnvNVM::TimeToString(uint64_t stamp) {
-  NVM_TRACE(this, "stamp(" << stamp << ")");
-
-  const int BUF_LEN = 100;
-  char buf [BUF_LEN];
-
-  time_t raw = stamp;
-  struct tm *inf = localtime(&raw);
-  strftime(buf, BUF_LEN, "%Y-%m-%d %H:%M:%S", inf);
-
-  return std::string(buf);
-}
-
-Status EnvNVM::GetAbsolutePath(
-  const std::string& db_path,
-  std::string* output_path
-) {
-  NVM_TRACE(this, "db_path(" << db_path << ")");
-
-  char buf[PATH_MAX];
-
-  if (realpath(db_path.c_str(), buf)) {
-    output_path->assign(buf);
-    return Status::OK();
-  }
-
-  return Status::IOError("Failed retrieving absolute path");
 }
 
 }       // namespace rocksdb

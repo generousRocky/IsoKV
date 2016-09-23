@@ -33,7 +33,7 @@ tags:
 dev: clean configure make
 
 test:
-	./$(BUILD_DIR)/env_nvm_test 6 500000
+	./$(BUILD_DIR)/env_nvm_test 1 500 1 1
 
 rocks:
 	cd .. && make release -j$(nproc)

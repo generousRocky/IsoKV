@@ -58,7 +58,6 @@ std::pair<std::string, std::string> SplitPath(const std::string& path);
 
 class NVMFile;                  // Declared here, defined in envnvm_file.cc
 class EnvNVM;                   // Declared here, defined here and in envnvm.cc
-class NVMDirectory;             // Declared here, defined here
 class NVMSequentialFile;        // Declared here, defined here
 class NVMWritableFile;          // Declared here, defined here
 class NVMRandomAccessFile;      // Declared here, defined here
@@ -150,14 +149,6 @@ public:
   EnvNVM(const std::string& uri);
   ~EnvNVM(void);
 
-  // Create a logger
-  //
-  // On success, stores a pointer to a new Logger instance in *result
-  // and returns OK. On failure stores nullptr in *result and returns non-OK.
-  virtual Status NewLogger(
-    const std::string& fpath, shared_ptr<Logger>* result
-  ) override;
-
   // Open (an existing) file with sequential read-only access
   //
   // On success, stores a pointer to a new SequentialFile instance in *result
@@ -215,7 +206,12 @@ public:
   virtual Status NewDirectory(
     const std::string& dpath,
     unique_ptr<Directory>* result
-  ) override;
+  ) override {
+    NVM_TRACE(this, "dpath(" << dpath << ")");
+    Status s = posix_->NewDirectory(dpath, result);
+    NVM_TRACE(this, s.ToString());
+    return s;
+  }
 
   // Returns OK if the named file exists.
   //         NotFound if the named file does not exist,
@@ -243,31 +239,46 @@ public:
     std::vector<FileAttributes>* result
   ) override;
 
-  // Delete the named file.
-  virtual Status DeleteFile(const std::string& fpath) override;
-
-  // Create the specified directory. Returns error if directory exists.
-  virtual Status CreateDir(const std::string& dpath) override;
-
-  // Creates directory if it does not exist
-  // Returns Ok if it exists, or successfully created. Non-OK otherwise.
-  virtual Status CreateDirIfMissing(const std::string& dpath) override;
-
-  // Delete the specified directory.
-  virtual Status DeleteDir(const std::string& dpath) override;
-
   // Store the size of fpath in *file_size.
   virtual Status GetFileSize(
     const std::string& fpath,
     uint64_t* fsize
   ) override;
 
+  // Delete the named file.
+  virtual Status DeleteFile(const std::string& fpath) override;
+
+  // Create the specified directory. Returns error if directory exists.
+  virtual Status CreateDir(const std::string& dpath) override {
+    NVM_TRACE(this, "delegating... dpath(" << dpath << ")");
+    Status s = posix_->CreateDir(dpath);
+    NVM_TRACE(this, "Status(" << s.ToString() << ")");
+    return s;
+  }
+
+  // Creates directory if it does not exist
+  // Returns Ok if it exists, or successfully created. Non-OK otherwise.
+  virtual Status CreateDirIfMissing(const std::string& dpath) override {
+    NVM_TRACE(this, "delegating... dpath(" << dpath << ")");
+    Status s = posix_->CreateDirIfMissing(dpath);
+    NVM_TRACE(this, "Status(" << s.ToString() << ")");
+    return s;
+  }
+
+  // Delete the specified directory.
+  virtual Status DeleteDir(const std::string& dpath) override {
+    NVM_TRACE(this, "delegating... dpath(" << dpath << ")");
+    Status s = posix_->DeleteDir(dpath);
+    NVM_TRACE(this, "Status(" << s.ToString() << ")");
+    return s;
+  }
+
   // Store the last modification time of fpath in *file_mtime.
   virtual Status GetFileModificationTime(
     const std::string& fpath,
     uint64_t* file_mtime) override;
 
-  // Rename file fpath_src to fpath_tgt.
+  // Rename file fpath_src to fpath_tgt
   virtual Status RenameFile(const std::string& fpath_src,
                             const std::string& fpath_tgt) override;
 
@@ -277,6 +288,36 @@ public:
     const std::string& fpath_tgt
   ) override {
     return Status::NotSupported("LinkFile is not supported for this Env");
+  }
+
+  // PUBLIC ADDITIONS the environment interface - BEGIN
+  std::string txt(void) { return ""; };
+  std::string txt(void) const { return ""; };
+  // PUBLIC ADDITIONS the environment interface - END
+
+private:
+  // PRIVATE ADDITIONS the Env interface - BEGIN
+  NVMFile* FindFileUnguarded(const std::string& fpath);
+  Status DeleteFileUnguarded(
+    const std::string& dpath,
+    const std::string& fname
+  );
+  Status DeleteFileUnguarded(const std::string& fpath);
+  // PRIVATE ADDITIONS the Env interface - END
+
+// Intercepted but otherwise entirely delegated to POSIX Environment
+public:
+  // Create a logger
+  //
+  // On success, stores a pointer to a new Logger instance in *result
+  // and returns OK. On failure stores nullptr in *result and returns non-OK.
+  virtual Status NewLogger(
+    const std::string& fpath, shared_ptr<Logger>* result
+  ) {
+    NVM_TRACE(this, "fpath(" << fpath << ") -- delegating");
+    Status s = posix_->NewLogger(fpath, result);
+    NVM_TRACE(this, "Status(" << s.ToString() << ")");
+    return s;
   }
 
   // Lock the specified file. Used to prevent concurrent access to the same db
@@ -292,49 +333,85 @@ public:
   // failure. I.e., this call does not wait for existing locks to go away.
   //
   // May create the named file if it does not already exist.
-  virtual Status LockFile(const std::string& fpath, FileLock** lock) override;
+  virtual Status LockFile(const std::string& fpath, FileLock** lock) override {
+    NVM_TRACE(this, "fpath(" << fpath << ") -- delegating");
+    Status s = posix_->LockFile(fpath, lock);
+    NVM_TRACE(this, "Status(" << s.ToString() << ")");
+    return s;
+  }
 
   // Release the lock acquired by a previous successful call to LockFile.
   // REQUIRES: lock was returned by a successful LockFile() call
   // REQUIRES: lock has not already been unlocked.
-  virtual Status UnlockFile(FileLock* lock) override;
+  virtual Status UnlockFile(FileLock* lock) override {
+    NVM_TRACE(this, "lock(" << lock << ") -- delegating");
+    Status s = posix_->UnlockFile(lock);
+    NVM_TRACE(this, "Status(" << s.ToString() << ")");
+    return s;
+  }
 
   // Returns the number of micro-seconds since some fixed point in time. Only
   // useful for computing deltas of time.
   // However, it is often used as system time such as in GenericRateLimiter
   // and other places so a port needs to return system time in order to work.
-  virtual uint64_t NowMicros(void) override;
+  virtual uint64_t NowMicros(void) override {
+    NVM_TRACE(this, "");
+    return posix_->NowMicros();
+  }
 
   // Returns the number of nano-seconds since some fixed point in time. Only
   // useful for computing deltas of time in one run.
   // Default implementation simply relies on NowMicros
-  virtual uint64_t NowNanos(void) override;
+  virtual uint64_t NowNanos(void) override {
+    NVM_TRACE(this, "");
+    return posix_->NowNanos();
+  }
 
   // Get the number of seconds since the Epoch, 1970-01-01 00:00:00 (UTC).
-  virtual Status GetCurrentTime(int64_t* unix_time) override;
+  virtual Status GetCurrentTime(int64_t* unix_time) override {
+    NVM_TRACE(this, "delegating...");
+    Status s = posix_->GetCurrentTime(unix_time);
+    NVM_TRACE(this, "Status(" << s.ToString() << ")");
+    return s;
+  }
 
   // Converts seconds-since-Jan-01-1970 to a printable string
-  virtual std::string TimeToString(uint64_t time) override;
+  virtual std::string TimeToString(uint64_t stamp) override {
+    NVM_TRACE(this, "delegating...  stamp(" << stamp << ")");
+    std::string time = posix_->TimeToString(stamp);
+    NVM_TRACE(this, "time(" << time << ")");
+    return time;
+  }
 
   // Get the current host name.
-  virtual Status GetHostName(char* name, uint64_t len) override;
+  virtual Status GetHostName(char* name, uint64_t len) override {
+    NVM_TRACE(this, "delegating...");
+    Status s = posix_->GetHostName(name, len);
+    NVM_TRACE(this, "Status(" << s.ToString() << ")");
+    return s;
+  }
 
   // Get full directory name for this db.
   virtual Status GetAbsolutePath(
     const std::string& db_path,
     std::string* output_path
-  ) override;
-
-  // Generates a unique id that can be used to identify a db
-  virtual std::string GenerateUniqueId(void) override;
+  ) override {
+    NVM_TRACE(this, "delegating...");
+    Status s = posix_->GetAbsolutePath(db_path, output_path);
+    NVM_TRACE(this, "Status(" << s.ToString() << ")");
+    return s;
+  }
 
   // *path is set to a temporary directory that can be used for testing. It may
   // or many not have just been created. The directory may or may not differ
   // between runs of the same process, but subsequent calls will return the
   // same directory.
-  virtual Status GetTestDirectory(std::string* dpath) override;
-
-  // REMOVE THIS STUFF LET SOME OTHER ENV MANAGE THAT IT
+  virtual Status GetTestDirectory(std::string* dpath) override {
+    NVM_TRACE(this, "delegating...");
+    Status s = posix_->GetTestDirectory(dpath);
+    NVM_TRACE(this, "Status(" << s.ToString() << ")");
+    return s;
+  }
 
   // Arrange to run "(*function)(arg)" once in a background thread, in
   // the thread pool specified by pri. By default, jobs go to the 'LOW'
@@ -352,114 +429,107 @@ public:
     Priority pri = LOW,
     void* tag = nullptr,
     void (*unschedFunction)(void* arg) = 0
-  ) override;
+  ) override {
+    NVM_TRACE(this, "delegating...");
+    posix_->Schedule(function, arg, pri, tag, unschedFunction);
+  }
 
   // Arrange to remove jobs for given arg from the queue_ if they are not
   // already scheduled. Caller is expected to have exclusive lock on arg.
-  virtual int UnSchedule(void* arg, Priority pri) override;
+  virtual int UnSchedule(void* arg, Priority pri) override {
+    NVM_TRACE(this, "delegating...");
+    return posix_->UnSchedule(arg, pri);
+  }
 
   // Start a new thread, invoking "function(arg)" within the new thread.
   // When "function(arg)" returns, the thread will be destroyed.
-  virtual void StartThread(void (*function)(void* arg), void* arg) override;
+  virtual void StartThread(void (*function)(void* arg), void* arg) override {
+    NVM_TRACE(this, "delegating...");
+    posix_->StartThread(function ,arg);
+  }
 
   // Wait for all threads started by StartThread to terminate.
-  virtual void WaitForJoin(void) override;
+  virtual void WaitForJoin(void) override {
+    NVM_TRACE(this, "delegating...");
+    posix_->WaitForJoin();
+  }
 
   // Get thread pool queue length for specific thrad pool.
-  virtual unsigned int GetThreadPoolQueueLen(Priority pri = LOW) const override;
+  virtual unsigned int GetThreadPoolQueueLen(Priority pri = LOW) const override {
+    NVM_TRACE(this, "delegating...");
+    return posix_->GetThreadPoolQueueLen(pri);
+  }
 
   // The number of background worker threads of a specific thread pool
   // for this environment. 'LOW' is the default pool.
   // default number: 1
-  virtual void SetBackgroundThreads(int number, Priority pri = LOW) override;
+  virtual void SetBackgroundThreads(int number, Priority pri = LOW) override {
+    NVM_TRACE(this, "delegating... number(" <<number<< "), pri(" <<pri<< ")");
+    posix_->SetBackgroundThreads(number, pri);
+  }
 
   // Enlarge number of background worker threads of a specific thread pool
   // for this environment if it is smaller than specified. 'LOW' is the default
   // pool.
-  virtual void IncBackgroundThreadsIfNeeded(int number, Priority pri) override;
+  virtual void IncBackgroundThreadsIfNeeded(int number, Priority pri) override {
+    NVM_TRACE(this, "delegating... number(" <<number<< ", pri(" <<pri<< ")");
+    posix_->IncBackgroundThreadsIfNeeded(number, pri);
+  }
 
   // Lower IO priority for threads from the specified pool.
-  virtual void LowerThreadPoolIOPriority(Priority pool = LOW) override;
+  virtual void LowerThreadPoolIOPriority(Priority pool = LOW) override {
+    NVM_TRACE(this, "delegating... pool(" << pool << ")");
+    posix_->LowerThreadPoolIOPriority(pool);
+  }
 
   // Sleep/delay the thread for the perscribed number of micro-seconds.
-  virtual void SleepForMicroseconds(int micros) override;
+  virtual void SleepForMicroseconds(int micros) override {
+    NVM_TRACE(this, "delegating... micros(" << micros << ")");
+    posix_->SleepForMicroseconds(micros);
+  }
 
   // Returns the status of all threads that belong to the current Env.
   virtual Status GetThreadList(
     std::vector<ThreadStatus>* thread_list
   ) override {
-    return Status::NotSupported("Not supported.");
+    NVM_TRACE(this, "delegating...");
+    return posix_->GetThreadList(thread_list);
   }
 
   // Returns the pointer to ThreadStatusUpdater.  This function will be
   // used in RocksDB internally to update thread status and supports
   // GetThreadList().
   virtual ThreadStatusUpdater* GetThreadStatusUpdater() const override {
-    return thread_status_updater_;
+    NVM_TRACE(this, "delegating...");
+    return posix_->GetThreadStatusUpdater();
   }
 
   // Returns the ID of the current thread.
-  virtual uint64_t GetThreadID() const override;
+  virtual uint64_t GetThreadID(void) const override {
+    NVM_TRACE(this, "delegating...");
+    return posix_->GetThreadID();
+  }
 
-  std::string txt(void) { return ""; };
-
-  std::string txt(void) const { return ""; };
+  // Generates a unique id that can be used to identify a db
+  virtual std::string GenerateUniqueId(void) override {
+    NVM_TRACE(this, "delegating...");
+    std::string uid = posix_->GenerateUniqueId();
+    NVM_TRACE(this, "uid(" << uid << ")");
+    return uid;
+  }
 
 private:
-  // ADDITIONS the standard Env interface - BEGIN
-  NVMFile* FindFileUnguarded(const std::string& fpath);
-  Status DeleteFileUnguarded(
-    const std::string& dpath,
-    const std::string& fname
-  );
-  Status DeleteFileUnguarded(const std::string& fpath);
-  // ADDITIONS the standard Env interface - END
 
   // No copying allowed
   EnvNVM(const Env&);
   void operator=(const Env&);
 
+  Env* posix_;
+
   std::string uri_;
   std::map<std::string, std::vector<NVMFile*>> fs_;
-  port::Mutex fs_mutex_;        // Protects fs_
+  port::Mutex fs_mutex_;        // For serializing lookup, creation, and deletion
 
-  std::vector<ThreadPool> thread_pools_;
-  pthread_mutex_t mu_;
-  std::vector<pthread_t> threads_to_join_;
-};
-
-// Directory object represents collection of files and implements
-// filesystem operations that can be executed on directories.
-class NVMDirectory : public Directory {
-public:
-  ~NVMDirectory(void) {}
-
-  // Fsync directory. Can be called concurrently from multiple threads.
-  virtual Status Fsync(void) override { return Status::OK(); }
-};
-
-class NVMLogger : public Logger {
-public:
-  explicit NVMLogger(
-    const InfoLogLevel log_level = InfoLogLevel::INFO_LEVEL
-  ) : Logger(log_level) {
-    logf_ = fopen("/tmp/rks.log", "w");
-  }
-
-  ~NVMLogger(void) {
-    fclose(logf_);
-  }
-
-  // Brings overloaded Logv()s into scope so they're not hidden when we override
-  // a subset of them.
-  using Logger::Logv;
-
-  virtual void Logv(const char* format, va_list ap) override {
-    vfprintf(logf_, format, ap);
-    fprintf(logf_, "\n");
-  }
-
-  FILE *logf_;
 };
 
 //
