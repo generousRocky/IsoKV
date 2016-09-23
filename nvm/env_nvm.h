@@ -352,7 +352,7 @@ public:
 
 private:
   // PRIVATE ADDITIONS the Env interface - BEGIN
-  NVMFile* FindFileUnguarded(const std::string& fpath);
+  NVMFile* FindFileUnguarded(const FPathInfo& info);
 
   Status DeleteFileUnguarded(const FPathInfo& info);
   // PRIVATE ADDITIONS the Env interface - END

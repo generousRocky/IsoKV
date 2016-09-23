@@ -52,7 +52,7 @@ Status EnvNVM::NewSequentialFile(
 
   MutexLock lock(&fs_mutex_);
 
-  NVMFile *file = FindFileUnguarded(fpath);
+  NVMFile *file = FindFileUnguarded(info);
   if (!file) {
     return Status::NotFound();
   }
@@ -77,7 +77,7 @@ Status EnvNVM::NewRandomAccessFile(
 
   MutexLock lock(&fs_mutex_);
 
-  NVMFile *file = FindFileUnguarded(fpath);
+  NVMFile *file = FindFileUnguarded(info);
   if (!file) {
     return Status::NotFound();
   }
@@ -119,7 +119,7 @@ Status EnvNVM::NewWritableFile(
 
   MutexLock lock(&fs_mutex_);
 
-  NVMFile *file = FindFileUnguarded(fpath);
+  NVMFile *file = FindFileUnguarded(info);
   if (file) {
     DeleteFileUnguarded(info);
   }
@@ -161,9 +161,6 @@ Status EnvNVM::DeleteFileUnguarded(const FPathInfo& info) {
   return Status::NotFound();
 }
 
-
-
-
 Status EnvNVM::DeleteFile(const std::string& fpath) {
   NVM_TRACE(this, "fpath(" << fpath << ")");
 
@@ -190,7 +187,7 @@ Status EnvNVM::FileExists(const std::string& fpath) {
   }
 
   MutexLock lock(&fs_mutex_);
-  if (FindFileUnguarded(fpath)) {
+  if (FindFileUnguarded(info)) {
     return Status::OK();
   }
 
@@ -226,10 +223,8 @@ Status EnvNVM::GetChildrenFileAttributes(
   return Status::IOError("GetChildrenFileAttributes --> Not implemented");
 }
 
-NVMFile* EnvNVM::FindFileUnguarded(const std::string& fpath) {
-  NVM_TRACE(this, "fpath(" << fpath << ")");
-
-  FPathInfo info(fpath);
+NVMFile* EnvNVM::FindFileUnguarded(const FPathInfo& info) {
+  NVM_TRACE(this, "info(" << info.txt() << ")");
 
   auto dit = fs_.find(info.dpath());
   if (dit == fs_.end()) {
@@ -259,7 +254,7 @@ Status EnvNVM::GetFileSize(const std::string& fpath, uint64_t* fsize) {
 
   MutexLock lock(&fs_mutex_);
 
-  NVMFile *file = FindFileUnguarded(fpath);
+  NVMFile *file = FindFileUnguarded(info);
   if (!file) {
     return Status::IOError("File not not found");
   }
@@ -312,17 +307,17 @@ Status EnvNVM::RenameFile(
 
   MutexLock lock(&fs_mutex_);
 
-  NVMFile *file = FindFileUnguarded(fpath_src);         // Get the source file
+  NVMFile *file = FindFileUnguarded(info_src);
   if (!file) {
     return Status::NotFound();
   }
 
-  NVMFile *file_target = FindFileUnguarded(fpath_tgt);  // Delete target
+  NVMFile *file_target = FindFileUnguarded(info_tgt);
   if (file_target) {
     DeleteFileUnguarded(info_tgt);
   }
 
-  file->Rename(info_tgt.fname());                       // The actual renaming
+  file->Rename(info_tgt.fname());
 
   return Status::OK();
 }
