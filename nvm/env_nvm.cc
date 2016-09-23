@@ -121,7 +121,7 @@ Status EnvNVM::NewWritableFile(
 
   NVMFile *file = FindFileUnguarded(fpath);
   if (file) {
-    DeleteFileUnguarded(fpath);
+    DeleteFileUnguarded(info);
   }
 
   file = new NVMFile(this, info);
@@ -135,19 +135,17 @@ Status EnvNVM::NewWritableFile(
 //
 // Deletes a file without taking the fs_mutex_
 //
-Status EnvNVM::DeleteFileUnguarded(
-  const std::string& dpath, const std::string& fname
-) {
-  NVM_TRACE(this, "dpath(" << dpath << "), fname(" << fname << ")");
+Status EnvNVM::DeleteFileUnguarded(const FPathInfo& info) {
+  NVM_TRACE(this, "info(" << info.txt() << ")");
 
-  auto dit = fs_.find(dpath);
+  auto dit = fs_.find(info.dpath());
   if (dit == fs_.end()) {
     NVM_TRACE(this, "Dir NOT found");
     return Status::NotFound();
   }
 
   for (auto it = dit->second.begin(); it != dit->second.end(); ++it) {
-    if ((*it)->IsNamed(fname)) {
+    if ((*it)->IsNamed(info.fname())) {
       NVM_TRACE(this, "File found -- erasing");
 
       NVMFile *file = *it;
@@ -163,24 +161,22 @@ Status EnvNVM::DeleteFileUnguarded(
   return Status::NotFound();
 }
 
-//
-// Deletes a file without taking the fs_mutex_
-//
-Status EnvNVM::DeleteFileUnguarded(const std::string& fpath) {
-  NVM_TRACE(this, "fpath(" << fpath << ")");
 
-  FPathInfo info(fpath);
 
-  return DeleteFileUnguarded(info.dpath(), info.fname());
-}
 
 Status EnvNVM::DeleteFile(const std::string& fpath) {
   NVM_TRACE(this, "fpath(" << fpath << ")");
-  MutexLock lock(&fs_mutex_);
 
   FPathInfo info(fpath);
 
-  return DeleteFileUnguarded(info.dpath(), info.fname());
+  if (!info.nvm_managed()) {
+    NVM_TRACE(this, "delegating...");
+    return posix_->FileExists(fpath);
+  }
+
+  MutexLock lock(&fs_mutex_);
+
+  return DeleteFileUnguarded(info);
 }
 
 Status EnvNVM::FileExists(const std::string& fpath) {
@@ -323,7 +319,7 @@ Status EnvNVM::RenameFile(
 
   NVMFile *file_target = FindFileUnguarded(fpath_tgt);  // Delete target
   if (file_target) {
-    DeleteFileUnguarded(fpath_tgt);
+    DeleteFileUnguarded(info_tgt);
   }
 
   file->Rename(info_tgt.fname());                       // The actual renaming

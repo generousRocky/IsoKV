@@ -91,17 +91,14 @@ public:
   }
 
   const std::string& dpath(void) const { return dpath_; }
-  const std::string& dpath(void) { return dpath_; }
   void dpath(const std::string& dpath) { dpath_ = dpath; }
 
   const std::string& fname(void) const { return fname_; }
-  const std::string& fname(void) { return fname_; }
   void fname(const std::string& fname) { fname_ = fname; }
 
   bool nvm_managed(void) const { return nvm_managed_; }
-  bool nvm_managed(void) { return nvm_managed_; }
 
-  std::string txt(void) {
+  std::string txt(void) const {
     std::stringstream ss;
 
     ss << "dpath(" << dpath_ << "), "
@@ -356,11 +353,8 @@ public:
 private:
   // PRIVATE ADDITIONS the Env interface - BEGIN
   NVMFile* FindFileUnguarded(const std::string& fpath);
-  Status DeleteFileUnguarded(
-    const std::string& dpath,
-    const std::string& fname
-  );
-  Status DeleteFileUnguarded(const std::string& fpath);
+
+  Status DeleteFileUnguarded(const FPathInfo& info);
   // PRIVATE ADDITIONS the Env interface - END
 
 //
@@ -375,7 +369,7 @@ public:
   virtual Status NewLogger(
     const std::string& fpath, shared_ptr<Logger>* result
   ) {
-    NVM_TRACE(this, "fpath(" << fpath << ") -- delegating");
+    NVM_TRACE(this, "delegating... fpath(" << fpath << ")");
     Status s = posix_->NewLogger(fpath, result);
     NVM_TRACE(this, "Status(" << s.ToString() << ")");
     return s;
@@ -395,7 +389,7 @@ public:
   //
   // May create the named file if it does not already exist.
   virtual Status LockFile(const std::string& fpath, FileLock** lock) override {
-    NVM_TRACE(this, "fpath(" << fpath << ") -- delegating");
+    NVM_TRACE(this, "delegating... fpath(" << fpath << ")");
     Status s = posix_->LockFile(fpath, lock);
     NVM_TRACE(this, "Status(" << s.ToString() << ")");
     return s;
