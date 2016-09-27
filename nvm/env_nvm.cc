@@ -141,10 +141,8 @@ Status EnvNVM::DeleteFileUnguarded(const FPathInfo& info) {
     if ((*it)->IsNamed(info.fname())) {
       NVM_DBG(this, "File found -- erasing");
 
-      NVMFile *file = *it;
-
+      (*it)->Unref();
       dit->second.erase(it);
-      file->Unref();
 
       return Status::OK();
     }

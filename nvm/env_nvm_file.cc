@@ -41,8 +41,10 @@ NVMFile::NVMFile(
 NVMFile::~NVMFile(void) {
   NVM_DBG(this, "");
 
-  for (auto buf : buffers_) {
-    delete [] buf;
+  for (auto &buf : buffers_) {
+    if (buf) {
+      delete [] buf;
+    }
   }
 }
 
@@ -93,15 +95,14 @@ void NVMFile::Unref(void) {
 
   {
     MutexLock lock(&refs_mutex_);
-    NVM_DBG(this, "refs_(" << refs_ << ")");
     --refs_;
-    NVM_DBG(this, "refs_(" << refs_ << ")");
     if (refs_ < 0) {
       do_delete = true;
     }
   }
 
   if (do_delete) {
+    NVM_DBG(this, "deleting!");
     delete this;
   }
 }
@@ -215,28 +216,7 @@ void NVMFile::PrepareWrite(size_t offset, size_t len) {
 
 // Used by WritableFile
 Status NVMFile::Allocate(uint64_t offset, uint64_t len) {
-  NVM_DBG(this, "offset(" << offset << "), len(" << len << ")");
-
-  size_t total = ((offset+1+len) / (kVBlockSize)) + 1;
-  while(buffers_.size() <  total) {
-    NVM_DBG(this, "expanding buffers_...");
-    buffers_.push_back(NULL);
-  }
-
-  const size_t first = (offset+1) / kVBlockSize;
-  const size_t count = (len / kVBlockSize);
-
-  NVM_DBG(this, "first(" << first << "), count(" << count << ")");
-
-  for (size_t idx = first; idx < (first + count); ++idx) {
-    if (buffers_[idx]) {
-      NVM_DBG(this, "idx(" << idx << ") suffice...");
-      continue;
-    }
-
-    NVM_DBG(this, "idx(" << idx << ") allocating...");
-    buffers_[idx] = new char[kVBlockSize];
-  }
+  NVM_DBG(this, "offset(" << offset << "), len(" << len << ") ignoring");
 
   return Status::OK();
 }
@@ -249,18 +229,37 @@ Status NVMFile::Append(const Slice& data) {
 }
 
 // Used by WritableFile
-Status NVMFile::PositionedAppend(const Slice& data, uint64_t offset) {
-  NVM_DBG(this, "offset(" << offset << "), data-size(" << data.size() << ")");
+Status NVMFile::PositionedAppend(const Slice& slice, uint64_t offset) {
+  NVM_DBG(this, "offset(" << offset << "), slice-size(" << slice.size() << ")");
 
-  const uint64_t data_size = data.size();
-  const uint64_t remaining = fsize_ - offset;
-  uint64_t grow = remaining < data_size ? data_size - remaining : 0;
+  const char* data = slice.data();
+  const size_t data_nbytes = slice.size();
 
-  if (!Allocate(offset, data_size).ok()) {
-    return Status::IOError("Exceeding capacity");
+  size_t nbufs = (offset + data_nbytes) / kVBlockSize;
+  for (size_t i = buffers_.size(); i < nbufs; ++i) {
+    buffers_.push_back(new char[kVBlockSize]);
   }
 
-  fsize_ += grow;
+  // Translate offset to buffer and offset within buffer
+  size_t buf_idx = offset / kVBlockSize;
+  size_t buf_offset = offset % kVBlockSize;
+
+  size_t nbytes_remaining = data_nbytes;
+  size_t nbytes_written = 0;
+  while(nbytes_remaining > 0) {
+    size_t avail = kVBlockSize - buf_offset;
+    size_t nbytes = std::min(nbytes_remaining, avail);
+
+    memcpy(buffers_[buf_idx] + buf_offset, data + nbytes_written, nbytes);
+
+    nbytes_remaining -= nbytes;
+    nbytes_written += nbytes;
+    ++buf_idx;
+    buf_offset = 0;
+  }
+
+  NVM_DBG(this, "nbytes_written(" << nbytes_written << "), data_nbytes(" << data_nbytes << ")");
+  fsize_ += nbytes_written;
 
   return Status::OK();
 }
@@ -268,6 +267,17 @@ Status NVMFile::PositionedAppend(const Slice& data, uint64_t offset) {
 // Used by WritableFile
 Status NVMFile::Truncate(uint64_t size) {
   NVM_DBG(this, "size(" << size << ")");
+
+  size_t needed = size / kVBlockSize;
+
+  // De-allocate unused buffers
+  for(size_t i = needed+1; i < buffers_.size(); ++i) {
+    NVM_DBG(this, "i(" << i << ")");
+    delete [] buffers_[i];
+    buffers_[i] = NULL;
+  }
+
+  // TODO: Release allocated NVM
 
   fsize_ = size;
 
@@ -291,11 +301,11 @@ Status NVMFile::Flush(void) {
     if (!buf) {
       continue;
     }
-    NVM_DBG(this, "w00p(" << (void*)buf << "), huh(" << ++huh << ")");
+    NVM_DBG(this, "w00p(" << (void*)buf << "), huh(" << huh << ")");
 
     // TODO: Persist the buffer and de-allocate it
-    delete [] buf;
-    buf = NULL;
+    //delete [] buf;
+    //buf = NULL;
   }
 
   return wmeta();
@@ -338,18 +348,42 @@ Status NVMFile::InvalidateCache(size_t offset, size_t length) {
 Status NVMFile::Read(
   uint64_t offset, size_t n, Slice* result, char* scratch
 ) const {
-  NVM_DBG(this, "offset(" << offset << ")");
+  NVM_DBG(this, "offset(" << offset << "), n(" << n << "), fsize(" << fsize_ << ")");
 
-  if (offset > fsize_)
-    return Status::IOError("Out of bounds!");
-
-  const uint64_t nbytes_remaining = fsize_ - offset;
-
-  if (!nbytes_remaining) {              // End of file
-    *result = Slice(scratch, 0);
+  const uint64_t available = fsize_ - std::min(fsize_, offset);
+  if (n > available) {
+    n = available;
+  }
+  if (n == 0) {
+    *result = Slice();
     return Status::OK();
   }
 
+  size_t buf = offset / kVBlockSize;
+  size_t buf_offset = offset % kVBlockSize;
+
+  if (n <= kVBlockSize - buf_offset) { // All within a single block
+    *result = Slice(buffers_[buf] + buf_offset, n);
+    return Status::OK();
+  }
+
+  size_t bytes_to_copy = n;
+  char* dst = scratch;
+
+  while (bytes_to_copy > 0) {
+    size_t avail = kVBlockSize - buf_offset;
+    if (avail > bytes_to_copy) {
+      avail = bytes_to_copy;
+    }
+    memcpy(dst, buffers_[buf] + buf_offset, avail);
+
+    bytes_to_copy -= avail;
+    dst += avail;
+    buf++;
+    buf_offset = 0;
+  }
+
+  *result = Slice(scratch, n);
   return Status::OK();
 }
 

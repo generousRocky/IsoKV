@@ -32,16 +32,18 @@ tags:
 
 dev: clean configure make
 
-
-test-clean:
-	rm -r /tmp/testdb || true
-
-test-run:
-	./$(BUILD_DIR)/env_nvm_test 10 5000 1 0
-
 rocks:
 	cd .. && make release -j$(nproc)
 
-bench:
-	rm -r /tmp/testdb || true
+clean-test:
+	rm -r /tmp/jazz || true
+	rm /tmp/jazz.log || true
+
+t01:
+	./$(BUILD_DIR)/env_nvm_t01 1 > /tmp/jazz.log
+
+t02:
+	./$(BUILD_DIR)/env_nvm_t02 10 500000 1 0 > /tmp/jazz.log
+
+t03:
 	./nvmdb_bench.sh ../ /tmp/jazz > /tmp/jazz.log

@@ -36,7 +36,6 @@ Status bulk_delete(DB* db, WriteOptions& woptions, int nkvpairs) {
     batch.Delete(key);
   }
 
-
   s = db->Write(woptions, &batch);
   assert(s.ok());
 
@@ -89,7 +88,7 @@ int main(int argc, char *argv[]) {
   ReadOptions roptions;
 
   DB* db;
-  Status s = DB::Open(options, "/tmp/testdb", &db);
+  Status s = DB::Open(options, "/tmp/jazz", &db);
   std::cout << s.ToString() << std::endl;
   assert(s.ok());
 

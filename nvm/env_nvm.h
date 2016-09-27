@@ -12,8 +12,8 @@
 #include "util/mutexlock.h"
 #include "port/port.h"
 
-#define NVM_DEBUG_ENABLED 1
-#ifdef NVM_DEBUG_ENABLED
+//#define NVM_DBG_ENABLED 1
+#ifdef NVM_DBG_ENABLED
 
 inline std::string methodName(const std::string& prettyFunction) {
   size_t begin = 0, end = 0;
@@ -192,9 +192,9 @@ public:
 
   std::string txt(void) const;
 
+
 private:
-  // Private since only Unref() should be used to delete it.
-  ~NVMFile();
+  ~NVMFile(void);       // Unref eventually deletes the object
 
   // No copying allowed.
   NVMFile(const NVMFile&);
@@ -768,6 +768,8 @@ public:
 
   ~NVMWritableFile(void) {
     NVM_DBG(file_, "");
+
+    // Probably need to pad such that written data can be read back
 
     file_->Flush();
     file_->Unref();
