@@ -124,39 +124,6 @@ std::string NVMFile::txt(void) const {
   return ss.str();
 }
 
-Status NVMFile::wmeta(void) const {
-  unique_ptr<WritableFile> fmeta;
-
-  Status s = env_->posix_->NewWritableFile(
-    info_.fpath()+".meta", &fmeta, env_options_
-  );
-  if (!s.ok()) {
-    return s;
-  }
-
-  std::string meta("");
-  meta += std::to_string(fsize_) + "\n";
-  meta += std::to_string(ppas_.size()) + "\n";
-  for (auto ppa : ppas_) {
-    meta += std::to_string(ppa) + "\n";
-  }
-
-  Slice slice(meta.c_str(), meta.size());
-  s = fmeta->Append(slice);
-  if (!s.ok()) {
-    NVM_DBG(this, "s(" << s.ToString() << ")");
-  }
-
-  s = fmeta->Flush();
-  if (!s.ok()) {
-    NVM_DBG(this, "s(" << s.ToString() << ")");
-  }
-
-  fmeta.reset(nullptr);
-
-  return s;
-}
-
 // Used by WritableFile
 bool NVMFile::UseDirectIO(void) const {
   NVM_DBG(this, "hard-coded return(true)");
@@ -211,16 +178,6 @@ uint64_t NVMFile::GetFileSize(void) const {
 }
 
 // Used by WritableFile
-Status NVMFile::RangeSync(uint64_t offset, uint64_t nbytes) {
-  NVM_DBG(
-    this,
-    "ignoring... offset(" << offset << "), nbytes(" << nbytes << ")"
-  );
-
-  return Status::OK();
-}
-
-// Used by WritableFile
 void NVMFile::PrepareWrite(size_t offset, size_t len) {
   NVM_DBG(this, "offset(" << offset << "), len(" << len << ") ignoring...");
 }
@@ -237,6 +194,55 @@ Status NVMFile::Append(const Slice& data) {
   NVM_DBG(this, "forwarding");
 
   return PositionedAppend(data, GetFileSize());
+}
+
+// Used by WritableFile
+Status NVMFile::Sync(void) {
+  NVM_DBG(this, "writing file meta to default env...");
+
+  return Flush();
+}
+
+// Used by WritableFile
+Status NVMFile::Fsync(void) {
+  NVM_DBG(this, "writing file meta to default env...");
+
+  return Flush();
+}
+
+// Used by WritableFile
+Status NVMFile::RangeSync(uint64_t offset, uint64_t nbytes) {
+  NVM_DBG(
+    this,
+    "offset(" << offset << "), nbytes(" << nbytes << ")"
+  );
+
+  return Flush();
+}
+
+// Used by WritableFile
+Status NVMFile::Close(void) {
+  NVM_DBG(this, "ignoring...");
+
+  return Status::OK();
+}
+
+// Deletes any buffers covering the range [offset; offset+length].
+//
+// Used by SequentialFile, RandomAccessFile, WritableFile
+Status NVMFile::InvalidateCache(size_t offset, size_t length) {
+
+  size_t first = offset / kVBlockSize;
+  size_t count = length / kVBlockSize;
+
+  for (size_t idx = first; idx < (first+count); ++idx) {
+    if (buffers_[idx]) {
+      delete [] buffers_[idx];
+      buffers_[idx] = NULL;
+    }
+  }
+
+  return Status::OK();
 }
 
 // Used by WritableFile
@@ -275,31 +281,37 @@ Status NVMFile::PositionedAppend(const Slice& slice, uint64_t offset) {
   return Status::OK();
 }
 
-// Used by WritableFile
-Status NVMFile::Truncate(uint64_t size) {
-  NVM_DBG(this, "size(" << size << ")");
+Status NVMFile::wmeta(void) const {
+  unique_ptr<WritableFile> fmeta;
 
-  size_t needed = size / kVBlockSize;
-
-  // De-allocate unused buffers
-  for(size_t i = needed+1; i < buffers_.size(); ++i) {
-    NVM_DBG(this, "i(" << i << ")");
-    delete [] buffers_[i];
-    buffers_[i] = NULL;
+  Status s = env_->posix_->NewWritableFile(
+    info_.fpath()+".meta", &fmeta, env_options_
+  );
+  if (!s.ok()) {
+    return s;
   }
 
-  // TODO: Release allocated NVM
+  std::string meta("");
+  meta += std::to_string(fsize_) + "\n";
+  meta += std::to_string(ppas_.size()) + "\n";
+  for (auto ppa : ppas_) {
+    meta += std::to_string(ppa) + "\n";
+  }
 
-  fsize_ = size;
+  Slice slice(meta.c_str(), meta.size());
+  s = fmeta->Append(slice);
+  if (!s.ok()) {
+    NVM_DBG(this, "s(" << s.ToString() << ")");
+  }
 
-  return wmeta();
-}
+  s = fmeta->Flush();
+  if (!s.ok()) {
+    NVM_DBG(this, "s(" << s.ToString() << ")");
+  }
 
-// Used by WritableFile
-Status NVMFile::Close(void) {
-  NVM_DBG(this, "ignoring...");
+  fmeta.reset(nullptr);
 
-  return Status::OK();
+  return s;
 }
 
 // Used by WritableFile
@@ -323,36 +335,23 @@ Status NVMFile::Flush(void) {
 }
 
 // Used by WritableFile
-Status NVMFile::Sync(void) {
-  NVM_DBG(this, "writing file meta to default env...");
+Status NVMFile::Truncate(uint64_t size) {
+  NVM_DBG(this, "size(" << size << ")");
 
-  return Flush();
-}
+  size_t needed = size / kVBlockSize;
 
-// Used by WritableFile
-Status NVMFile::Fsync(void) {
-  NVM_DBG(this, "writing file meta to default env...");
-
-  return Flush();
-}
-
-// Deletes any buffers covering the range [offset; offset+length].
-//
-// Used by SequentialFile, RandomAccessFile, WritableFile
-Status NVMFile::InvalidateCache(size_t offset, size_t length) {
-
-  size_t first = offset / kVBlockSize;
-  size_t count = length / kVBlockSize;
-
-  for (size_t idx = first; idx < (first+count); ++idx) {
-    auto buf = buffers_[idx];
-    if (buf) {
-      delete [] buf;
-      buffers_[idx] = NULL;
-    }
+  // De-allocate unused buffers
+  for(size_t i = needed+1; i < buffers_.size(); ++i) {
+    NVM_DBG(this, "i(" << i << ")");
+    delete [] buffers_[i];
+    buffers_[i] = NULL;
   }
 
-  return Status::OK();
+  // TODO: Release allocated NVM
+
+  fsize_ = size;
+
+  return wmeta();
 }
 
 // Used by SequentialFile, RandomAccessFile
