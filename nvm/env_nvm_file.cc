@@ -9,20 +9,20 @@ int count = 0;
 
 namespace rocksdb {
 
+static std::string kNvmMetaExt = ".meta";
+
 static size_t kNvmVBlockSize = 16777216;
 static size_t kNvmVPageSize = 16384;
 static size_t kNvmAlign = kNvmVPageSize;
 
-static std::string kNvmMetaExt = ".meta";
-
-NVMFile::NVMFile(
+NvmFile::NvmFile(
   EnvNVM* env,
   const FPathInfo& info,
   bool from_meta
 ) : env_(env), buffers_(), refs_(), info_(info), fsize_(), ppas_() {
   NVM_DBG(this, "");
 
-  if (from_meta) {      // Reconstruct NVMFile from .meta file
+  if (from_meta) {      // Reconstruct NvmFile from .meta file
     std::string mpath = info.fpath() + kNvmMetaExt;
 
     std::ifstream meta(mpath);
@@ -44,7 +44,7 @@ NVMFile::NVMFile(
   NVM_DBG(this, "");
 }
 
-NVMFile::~NVMFile(void) {
+NvmFile::~NvmFile(void) {
   NVM_DBG(this, "");
 
   for (auto &buf : buffers_) {
@@ -54,37 +54,37 @@ NVMFile::~NVMFile(void) {
   }
 }
 
-bool NVMFile::IsNamed(const std::string& fname) const {
+bool NvmFile::IsNamed(const std::string& fname) const {
   NVM_DBG(this, "fname(" << fname << ")");
 
   return !info_.fname().compare(fname);
 }
 
-const std::string& NVMFile::GetFname(void) const {
+const std::string& NvmFile::GetFname(void) const {
   NVM_DBG(this, "return(" << info_.fname() << ")");
 
   return info_.fname();
 }
 
-const std::string& NVMFile::GetDpath(void) const {
+const std::string& NvmFile::GetDpath(void) const {
   NVM_DBG(this, "return(" << info_.dpath() << ")");
 
   return info_.dpath();
 }
 
-void NVMFile::Rename(const std::string& fname) {
+void NvmFile::Rename(const std::string& fname) {
   NVM_DBG(this, "fname(" << fname << ")");
 
   info_.fname(fname);
 }
 
-size_t NVMFile::GetRequiredBufferAlignment(void) const {
+size_t NvmFile::GetRequiredBufferAlignment(void) const {
   NVM_DBG(this, "hard-coded return(kNvmAlign)");
 
   return kNvmAlign;
 }
 
-void NVMFile::Ref(void) {
+void NvmFile::Ref(void) {
   MutexLock lock(&refs_mutex_);
 
   NVM_DBG(this, "refs_(" << refs_ << ")");
@@ -94,7 +94,7 @@ void NVMFile::Ref(void) {
   NVM_DBG(this, "refs_(" << refs_ << ")");
 }
 
-void NVMFile::Unref(void) {
+void NvmFile::Unref(void) {
   NVM_DBG(this, "");
 
   bool do_delete = false;
@@ -113,35 +113,35 @@ void NVMFile::Unref(void) {
   }
 }
 
-std::string NVMFile::txt(void) const {
+std::string NvmFile::txt(void) const {
   std::stringstream ss;
   ss << "fname(" << info_.fname() << ") ";
   return ss.str();
 }
 
 // Used by WritableFile
-bool NVMFile::UseDirectIO(void) const {
+bool NvmFile::UseDirectIO(void) const {
   NVM_DBG(this, "hard-coded return(true)");
 
   return true;
 }
 
 // Used by WritableFile
-bool NVMFile::UseOSBuffer(void) const {
+bool NvmFile::UseOSBuffer(void) const {
   NVM_DBG(this, "hard-coded return(false)");
 
   return false;
 }
 
 // Used by WritableFile
-bool NVMFile::IsSyncThreadSafe(void) const {
+bool NvmFile::IsSyncThreadSafe(void) const {
   NVM_DBG(this, "hard-coded return(false)");
 
   return false;
 }
 
 //
-// Implemented using the address of the NVMFile instance. This seem to satisfy
+// Implemented using the address of the NvmFile instance. This seem to satisfy
 // the requirements: it lives as long as need be, is unique and probably won't
 // have the same address after termination.
 //
@@ -149,7 +149,7 @@ bool NVMFile::IsSyncThreadSafe(void) const {
 //
 //
 // Used by RandomAccessFile, WritableFile
-size_t NVMFile::GetUniqueId(char* id, size_t max_size) const {
+size_t NvmFile::GetUniqueId(char* id, size_t max_size) const {
   NVM_DBG(this, "");
 
   if (max_size < (kMaxVarint64Length*3)) {
@@ -166,47 +166,47 @@ size_t NVMFile::GetUniqueId(char* id, size_t max_size) const {
 }
 
 // Used by WritableFile
-uint64_t NVMFile::GetFileSize(void) const {
+uint64_t NvmFile::GetFileSize(void) const {
   NVM_DBG(this, "return(" << fsize_ << ")");
 
   return fsize_;
 }
 
 // Used by WritableFile
-void NVMFile::PrepareWrite(size_t offset, size_t len) {
+void NvmFile::PrepareWrite(size_t offset, size_t len) {
   NVM_DBG(this, "offset(" << offset << "), len(" << len << ") ignoring...");
 }
 
 // Used by WritableFile
-Status NVMFile::Allocate(uint64_t offset, uint64_t len) {
+Status NvmFile::Allocate(uint64_t offset, uint64_t len) {
   NVM_DBG(this, "offset(" << offset << "), len(" << len << ") ignoring");
 
   return Status::OK();
 }
 
 // Used by WritableFile
-Status NVMFile::Append(const Slice& data) {
+Status NvmFile::Append(const Slice& data) {
   NVM_DBG(this, "forwarding");
 
   return PositionedAppend(data, GetFileSize());
 }
 
 // Used by WritableFile
-Status NVMFile::Sync(void) {
+Status NvmFile::Sync(void) {
   NVM_DBG(this, "writing file meta to default env...");
 
   return Flush();
 }
 
 // Used by WritableFile
-Status NVMFile::Fsync(void) {
+Status NvmFile::Fsync(void) {
   NVM_DBG(this, "writing file meta to default env...");
 
   return Flush();
 }
 
 // Used by WritableFile
-Status NVMFile::RangeSync(uint64_t offset, uint64_t nbytes) {
+Status NvmFile::RangeSync(uint64_t offset, uint64_t nbytes) {
   NVM_DBG(
     this,
     "offset(" << offset << "), nbytes(" << nbytes << ")"
@@ -216,7 +216,7 @@ Status NVMFile::RangeSync(uint64_t offset, uint64_t nbytes) {
 }
 
 // Used by WritableFile
-Status NVMFile::Close(void) {
+Status NvmFile::Close(void) {
   NVM_DBG(this, "ignoring...");
 
   return Status::OK();
@@ -225,7 +225,7 @@ Status NVMFile::Close(void) {
 // Deletes any buffers covering the range [offset; offset+length].
 //
 // Used by SequentialFile, RandomAccessFile, WritableFile
-Status NVMFile::InvalidateCache(size_t offset, size_t length) {
+Status NvmFile::InvalidateCache(size_t offset, size_t length) {
 
   size_t first = offset / kNvmVPageSize;
   size_t count = length / kNvmVPageSize;
@@ -241,7 +241,7 @@ Status NVMFile::InvalidateCache(size_t offset, size_t length) {
 }
 
 // Used by WritableFile
-Status NVMFile::PositionedAppend(const Slice& slice, uint64_t offset) {
+Status NvmFile::PositionedAppend(const Slice& slice, uint64_t offset) {
   NVM_DBG(this, "offset(" << offset << "), slice-size(" << slice.size() << ")");
 
   const char* data = slice.data();
@@ -276,7 +276,7 @@ Status NVMFile::PositionedAppend(const Slice& slice, uint64_t offset) {
   return Status::OK();
 }
 
-Status NVMFile::wmeta(void) const {
+Status NvmFile::wmeta(void) const {
   unique_ptr<WritableFile> fmeta;
 
   Status s = env_->posix_->NewWritableFile(
@@ -310,7 +310,7 @@ Status NVMFile::wmeta(void) const {
 }
 
 // Used by WritableFile
-Status NVMFile::Flush(void) {
+Status NvmFile::Flush(void) {
   NVM_DBG(this, "flushing to media...");
 
   size_t huh = 0;
@@ -330,7 +330,7 @@ Status NVMFile::Flush(void) {
 }
 
 // Used by WritableFile
-Status NVMFile::Truncate(uint64_t size) {
+Status NvmFile::Truncate(uint64_t size) {
   NVM_DBG(this, "size(" << size << ")");
 
   size_t needed = size / kNvmVPageSize;
@@ -350,7 +350,7 @@ Status NVMFile::Truncate(uint64_t size) {
 }
 
 // Used by SequentialFile, RandomAccessFile
-Status NVMFile::Read(
+Status NvmFile::Read(
   uint64_t offset, size_t n, Slice* result, char* scratch
 ) const {
   NVM_DBG(this, "offset(" << offset << "), n(" << n << "), fsize(" << fsize_ << ")");

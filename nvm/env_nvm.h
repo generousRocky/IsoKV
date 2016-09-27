@@ -97,11 +97,11 @@ public:
 
   const std::string& fpath(void) const { return fpath_; }
 
-  void dpath(const std::string& dpath) { fpath(dpath + sep + fname_); }
+  void dpath(const std::string& dpath) { fpath(dpath + std::string(1, sep) + fname_); }
 
   const std::string& dpath(void) const { return dpath_; }
 
-  void fname(const std::string& fname) { fpath(dpath_ + sep + fname); }
+  void fname(const std::string& fname) { fpath(dpath_ + std::string(1, sep) + fname); }
 
   const std::string& fname(void) const { return fname_; }
 
@@ -124,31 +124,25 @@ private:
   bool nvm_managed_;
 };
 
-class NVMFile;                  // Declared here, defined in envnvm_file.cc
 class EnvNVM;                   // Declared here, defined here and in envnvm.cc
-class NVMSequentialFile;        // Declared here, defined here
-class NVMWritableFile;          // Declared here, defined here
-class NVMRandomAccessFile;      // Declared here, defined here
+class NvmFile;                  // Declared here, defined in envnvm_file.cc
+class NvmWritableFile;          // Declared here, defined here
+class NvmSequentialFile;        // Declared here, defined here
+class NvmRandomAccessFile;      // Declared here, defined here
 
-class NVMFile {
+class NvmFile {
 public:
-  NVMFile(
+  NvmFile(
     EnvNVM* env,
     const FPathInfo& info,
     bool from_meta
   );
 
-  void rmeta(void);
   Status wmeta(void) const;
 
   bool UseOSBuffer() const;
   bool UseDirectIO() const;
 
-  //
-  // Pre-allocate space for a file.
-  // TODO: This used to be "protected", probably make the WritableFile etc.
-  // friends of the class and keep it protected.
-  //
   Status Allocate(uint64_t offset, uint64_t len);
 
   Status Read(uint64_t offset, size_t n, Slice* result, char* scratch) const;
@@ -171,11 +165,7 @@ public:
   size_t GetRequiredBufferAlignment(void) const;
 
   bool IsSyncThreadSafe() const;
-  void SetIOPriority(Env::IOPriority pri);
-  Env::IOPriority GetIOPriority();
 
-  void SetPreallocationBlockSize(size_t size);
-  void GetPreallocationStatus(size_t* block_size, size_t* last_allocated_block);
   size_t GetUniqueId(char* id, size_t max_size) const;
   Status InvalidateCache(size_t offset, size_t length);
 
@@ -188,13 +178,11 @@ public:
 
   std::string txt(void) const;
 
-
 private:
-  ~NVMFile(void);       // Unref eventually deletes the object
+  ~NvmFile(void);               // Unref eventually deletes the object
 
-  // No copying allowed.
-  NVMFile(const NVMFile&);
-  void operator=(const NVMFile&);
+  NvmFile(const NvmFile&);      // No copying allowed.
+  void operator=(const NvmFile&);
 
   EnvNVM* env_;
   EnvOptions env_options_;
@@ -365,7 +353,7 @@ public:
 
 private:
   // PRIVATE ADDITIONS the Env interface - BEGIN
-  NVMFile* FindFileUnguarded(const FPathInfo& info);
+  NvmFile* FindFileUnguarded(const FPathInfo& info);
 
   Status DeleteFileUnguarded(const FPathInfo& info);
   // PRIVATE ADDITIONS the Env interface - END
@@ -595,7 +583,7 @@ private:
   void operator=(const Env&);
 
   std::string uri_;
-  std::map<std::string, std::vector<NVMFile*>> fs_;
+  std::map<std::string, std::vector<NvmFile*>> fs_;
   port::Mutex fs_mutex_; // Serializing lookup, creation, and deletion
 
 };
@@ -603,21 +591,21 @@ private:
 //
 // NOTE: Single-threaded access is assumed
 //
-class NVMSequentialFile : public SequentialFile {
+class NvmSequentialFile : public SequentialFile {
 public:
-  NVMSequentialFile(void) : SequentialFile() {
+  NvmSequentialFile(void) : SequentialFile() {
     NVM_DBG(file_, "");
   }
 
-  NVMSequentialFile(
-    NVMFile *file, const EnvOptions& options
+  NvmSequentialFile(
+    NvmFile *file, const EnvOptions& options
   ) : SequentialFile(), file_(file), pos_() {
     NVM_DBG(file_, "");
 
     file_->Ref();
   }
 
-  ~NVMSequentialFile(void) {
+  ~NvmSequentialFile(void) {
     NVM_DBG(file_, "");
 
     file_->Unref();
@@ -661,28 +649,28 @@ public:
   }
 
 protected:
-  NVMFile *file_;
+  NvmFile *file_;
   uint64_t pos_;
 };
 
 //
 // NOTE: Multi-threaded access is assumed
 //
-class NVMRandomAccessFile : public RandomAccessFile {
+class NvmRandomAccessFile : public RandomAccessFile {
 public:
-  NVMRandomAccessFile(void) : RandomAccessFile() {
+  NvmRandomAccessFile(void) : RandomAccessFile() {
     NVM_DBG(file_, "");
   }
 
-  NVMRandomAccessFile(
-    NVMFile *file, const EnvOptions& options
+  NvmRandomAccessFile(
+    NvmFile *file, const EnvOptions& options
   ) : RandomAccessFile(), file_(file) {
     NVM_DBG(file_, "");
 
     file_->Ref();
   }
 
-  ~NVMRandomAccessFile(void) {
+  ~NvmRandomAccessFile(void) {
     NVM_DBG(file_, "");
 
     file_->Unref();
@@ -741,28 +729,28 @@ public:
   }
 
 protected:
-  NVMFile *file_;
+  NvmFile *file_;
 };
 
 //
 // NOTE: Single-threaded access is assumed for access to instances of this
 // class.
 //
-class NVMWritableFile : public WritableFile {
+class NvmWritableFile : public WritableFile {
 public:
-  NVMWritableFile(void) : WritableFile() {
+  NvmWritableFile(void) : WritableFile() {
     NVM_DBG(file_, "");
   }
 
-  NVMWritableFile(
-    NVMFile *file, const EnvOptions& options
+  NvmWritableFile(
+    NvmFile *file, const EnvOptions& options
   ) : WritableFile(), file_(file) {
     NVM_DBG(file_, "");
 
     file_->Ref();
   }
 
-  ~NVMWritableFile(void) {
+  ~NvmWritableFile(void) {
     NVM_DBG(file_, "");
 
     // Probably need to pad such that written data can be read back
@@ -934,11 +922,11 @@ protected:
 
  private:
   // No copying allowed
-  NVMWritableFile(const WritableFile&);
+  NvmWritableFile(const WritableFile&);
   void operator=(const WritableFile&);
 
 protected:
-  NVMFile *file_;
+  NvmFile *file_;
 };
 
 }  // namespace rocksdb

@@ -47,3 +47,4 @@ t02:
 
 t03:
 	./nvmdb_bench.sh ../ /tmp/jazz > /tmp/jazz.log
+	./nvmdb_bench16MB.sh ../ /tmp/jazz > /tmp/jazz16MB.log

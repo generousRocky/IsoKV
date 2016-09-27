@@ -45,12 +45,12 @@ Status EnvNVM::NewSequentialFile(
 
   MutexLock lock(&fs_mutex_);
 
-  NVMFile *file = FindFileUnguarded(info);
+  NvmFile *file = FindFileUnguarded(info);
   if (!file) {
     return Status::NotFound();
   }
 
-  result->reset(new NVMSequentialFile(file, options));
+  result->reset(new NvmSequentialFile(file, options));
 
   return Status::OK();
 }
@@ -70,11 +70,11 @@ Status EnvNVM::NewRandomAccessFile(
 
   MutexLock lock(&fs_mutex_);
 
-  NVMFile *file = FindFileUnguarded(info);
+  NvmFile *file = FindFileUnguarded(info);
   if (!file) {
     return Status::NotFound();
   }
-  result->reset(new NVMRandomAccessFile(file, options));
+  result->reset(new NvmRandomAccessFile(file, options));
 
   return Status::OK();
 }
@@ -112,15 +112,15 @@ Status EnvNVM::NewWritableFile(
 
   MutexLock lock(&fs_mutex_);
 
-  NVMFile *file = FindFileUnguarded(info);
+  NvmFile *file = FindFileUnguarded(info);
   if (file) {
     DeleteFileUnguarded(info);
   }
 
-  file = new NVMFile(this, info, false);
+  file = new NvmFile(this, info, false);
   fs_[info.dpath()].push_back(file);
 
-  result->reset(new NVMWritableFile(file, options));
+  result->reset(new NvmWritableFile(file, options));
 
   return Status::OK();
 }
@@ -214,7 +214,7 @@ Status EnvNVM::GetChildrenFileAttributes(
   return Status::IOError("GetChildrenFileAttributes --> Not implemented");
 }
 
-NVMFile* EnvNVM::FindFileUnguarded(const FPathInfo& info) {
+NvmFile* EnvNVM::FindFileUnguarded(const FPathInfo& info) {
   NVM_DBG(this, "info(" << info.txt() << ")");
 
   auto dit = fs_.find(info.dpath());    // Lookup in loaded files
@@ -237,13 +237,13 @@ NVMFile* EnvNVM::FindFileUnguarded(const FPathInfo& info) {
     return NULL;
   }
 
-  for (auto entry : listing) {          // Create NVMFile from meta-file
+  for (auto entry : listing) {          // Create NvmFile from meta-file
     if (!FPathInfo::ends_with(entry, "meta"))
       continue;
     if (entry.compare(0, info.fname().size(), info.fname()))
       continue;
 
-    return new NVMFile(this, info, true);
+    return new NvmFile(this, info, true);
   }
 
   NVM_DBG(this, "!found");
@@ -261,7 +261,7 @@ Status EnvNVM::GetFileSize(const std::string& fpath, uint64_t* fsize) {
 
   MutexLock lock(&fs_mutex_);
 
-  NVMFile *file = FindFileUnguarded(info);
+  NvmFile *file = FindFileUnguarded(info);
   if (!file) {
     return Status::IOError("File not not found");
   }
@@ -314,12 +314,12 @@ Status EnvNVM::RenameFile(
 
   MutexLock lock(&fs_mutex_);
 
-  NVMFile *file = FindFileUnguarded(info_src);
+  NvmFile *file = FindFileUnguarded(info_src);
   if (!file) {
     return Status::NotFound();
   }
 
-  NVMFile *file_target = FindFileUnguarded(info_tgt);
+  NvmFile *file_target = FindFileUnguarded(info_tgt);
   if (file_target) {
     DeleteFileUnguarded(info_tgt);
   }
