@@ -9,6 +9,17 @@ int count = 0;
 
 namespace rocksdb {
 
+static size_t kVBlockSize = 16777216;
+//static size_t kVBlockSize = 524288;
+//static size_t kVBlockSize = 262144;
+//static size_t kVBlockSize = 131072;
+//static size_t kVBlockSize = 65536;
+//static size_t kVBlockSize = 32768;
+//static size_t kVBlockSize = 16384;
+//static size_t kVBlockSize = 8192;
+//static size_t kVBlockSize = 4096;
+static size_t kAlign = kVBlockSize;
+
 NVMFile::NVMFile(
   EnvNVM* env,
   const FPathInfo& info,

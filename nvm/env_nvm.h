@@ -52,10 +52,6 @@ inline std::string methodName(const std::string& prettyFunction) {
 
 namespace rocksdb {
 
-//static size_t kVBlockSize = 16777216;
-static size_t kVBlockSize = 16384;
-//static size_t kVBlockSize = 8192;
-static size_t kAlign = kVBlockSize;
 
 // Splits a file path into a directory path, filename and determines whether the
 // file is managed by EnvNVM. That is, whether it is write-ahead-log or sst
