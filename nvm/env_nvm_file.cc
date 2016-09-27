@@ -1,4 +1,5 @@
 #include <iostream>
+#include <fstream>
 #include <csignal>
 
 #include "util/coding.h"
@@ -9,136 +10,158 @@ int count = 0;
 namespace rocksdb {
 
 NVMFile::NVMFile(
-  EnvNVM* env, const FPathInfo& info
-) : env_(env), buf_(), buf_len_(), refs_(), info_(info), fsize_(), ppas_() {
-  NVM_TRACE(this, "");
+  EnvNVM* env,
+  const FPathInfo& info,
+  bool from_meta
+) : env_(env), buffers_(), refs_(), info_(info), fsize_(), ppas_() {
+  NVM_DBG(this, "");
+
+  if (from_meta) {      // Reconstruct NVMFile from .meta file
+    std::string mpath = info.fpath() + ".meta";
+
+    std::ifstream meta(mpath);
+    uint64_t fsize = 0, nppas = 0;
+    if (!(meta >> fsize)) {
+      NVM_DBG(this, "shucks...");
+    }
+    if (!(meta >> nppas)) {
+      NVM_DBG(this, "shucks...");
+    }
+
+    fsize_ = fsize;
+    uint64_t ppa = 0;
+    while(meta >> ppa) {
+      ppas_.push_back(ppa);
+    }
+  }
+
+  NVM_DBG(this, "");
 }
 
 NVMFile::~NVMFile(void) {
-  NVM_TRACE(this, "");
+  NVM_DBG(this, "");
 
-  free(buf_);
+  for (auto buf : buffers_) {
+    delete [] buf;
+  }
 }
 
+bool NVMFile::IsNamed(const std::string& fname) const {
+  NVM_DBG(this, "fname(" << fname << ")");
+
+  return !info_.fname().compare(fname);
+}
+
+const std::string& NVMFile::GetFname(void) const {
+  NVM_DBG(this, "return(" << info_.fname() << ")");
+
+  return info_.fname();
+}
+
+const std::string& NVMFile::GetDpath(void) const {
+  NVM_DBG(this, "return(" << info_.dpath() << ")");
+
+  return info_.dpath();
+}
+
+void NVMFile::Rename(const std::string& fname) {
+  NVM_DBG(this, "fname(" << fname << ")");
+
+  info_.fname(fname);
+}
+
+size_t NVMFile::GetRequiredBufferAlignment(void) const {
+  NVM_DBG(this, "hard-coded return(kAlign)");
+
+  return kAlign;
+}
+
+void NVMFile::Ref(void) {
+  MutexLock lock(&refs_mutex_);
+
+  NVM_DBG(this, "refs_(" << refs_ << ")");
+
+  ++refs_;
+
+  NVM_DBG(this, "refs_(" << refs_ << ")");
+}
+
+void NVMFile::Unref(void) {
+  NVM_DBG(this, "");
+
+  bool do_delete = false;
+
+  {
+    MutexLock lock(&refs_mutex_);
+    NVM_DBG(this, "refs_(" << refs_ << ")");
+    --refs_;
+    NVM_DBG(this, "refs_(" << refs_ << ")");
+    if (refs_ < 0) {
+      do_delete = true;
+    }
+  }
+
+  if (do_delete) {
+    delete this;
+  }
+}
+
+std::string NVMFile::txt(void) const {
+  std::stringstream ss;
+  ss << "fname(" << info_.fname() << ") ";
+  return ss.str();
+}
+
+Status NVMFile::wmeta(void) const {
+  unique_ptr<WritableFile> fmeta;
+
+  Status s = env_->posix_->NewWritableFile(
+    info_.fpath()+".meta", &fmeta, env_options_
+  );
+  if (!s.ok()) {
+    return s;
+  }
+
+  std::string meta("");
+  meta += std::to_string(fsize_) + "\n";
+  meta += std::to_string(ppas_.size()) + "\n";
+  for (auto ppa : ppas_) {
+    meta += std::to_string(ppa) + "\n";
+  }
+
+  Slice slice(meta.c_str(), meta.size());
+  s = fmeta->Append(slice);
+  if (!s.ok()) {
+    NVM_DBG(this, "s(" << s.ToString() << ")");
+  }
+
+  s = fmeta->Flush();
+  if (!s.ok()) {
+    NVM_DBG(this, "s(" << s.ToString() << ")");
+  }
+
+  fmeta.reset(nullptr);
+
+  return s;
+}
+
+// Used by WritableFile
 bool NVMFile::UseDirectIO(void) const {
-  NVM_TRACE(this, "hard-coded return(true)");
+  NVM_DBG(this, "hard-coded return(true)");
 
   return true;
 }
 
+// Used by WritableFile
 bool NVMFile::UseOSBuffer(void) const {
-  NVM_TRACE(this, "hard-coded return(false)");
+  NVM_DBG(this, "hard-coded return(false)");
 
   return false;
 }
 
-Status NVMFile::Read(
-  uint64_t offset, size_t n, Slice* result, char* scratch
-) const {
-  NVM_TRACE(this, "offset(" << offset << ")");
-
-  if (offset >= fsize_)
-    return Status::IOError("Out of bounds!");
-
-  const uint64_t nbytes_remaining = fsize_ - offset;
-
-  if (!nbytes_remaining) {              // End of file
-    *result = Slice(scratch, 0);
-    return Status::OK();
-  }
-
-  const uint64_t nbytes_toread = std::min(nbytes_remaining, n);
-
-  memcpy(scratch, buf_ + offset, nbytes_toread);
-  *result = Slice(scratch, nbytes_toread);
-
-  return Status::OK();
-}
-
-void NVMFile::PrepareWrite(size_t offset, size_t len) {
-  NVM_TRACE(this, "forwarding");
-
-  Allocate(offset, len);
-}
-
-Status NVMFile::Allocate(uint64_t offset, uint64_t len) {
-  NVM_TRACE(this, "offset(" << offset << "), len(" << len << ")");
-
-  uint64_t new_len = offset + len;
-
-  if (new_len > buf_len_) {     // Grow buf in chunks of 4K
-    uint64_t min_len = ((new_len / 4096) + 1) * 4096;
-
-    char *new_buf = (char*)realloc((void*)buf_, min_len);
-    if (!new_buf) {
-      return Status::IOError("NVMFile::Allocate -- ENOMEM");
-    }
-
-    buf_ = new_buf;
-    buf_len_ = min_len;
-  }
-
-  return Status::OK();
-}
-
-Status NVMFile::PositionedAppend(const Slice& data, uint64_t offset) {
-  NVM_TRACE(this, "offset(" << offset << "), data-size(" << data.size() << ")");
-
-  const uint64_t data_size = data.size();
-  const uint64_t remaining = fsize_ - offset;
-  uint64_t grow = remaining < data_size ? data_size - remaining : 0;
-
-  if (!Allocate(offset, data_size).ok()) {
-    return Status::IOError("Exceeding capacity");
-  }
-
-  memcpy((void*)(buf_ + offset), (void*)data.data(), data_size);
-
-  fsize_ += grow;
-
-  return Status::OK();
-}
-
-Status NVMFile::Append(const Slice& data) {
-  NVM_TRACE(this, "forwarding");
-
-  return PositionedAppend(data, GetFileSize());
-}
-
-Status NVMFile::Truncate(uint64_t size) {
-  NVM_TRACE(this, "size(" << size << ")");
-
-  fsize_ = size;
-
-  return Status::OK();
-}
-
-Status NVMFile::Close(void) {
-  NVM_TRACE(this, "ignoring...");
-
-  return Status::OK();
-}
-
-Status NVMFile::Flush(void) {
-  NVM_TRACE(this, "ignoring...");
-
-  return Status::OK();
-}
-
-Status NVMFile::Sync(void) {
-  NVM_TRACE(this, "ignoring...");
-
-  return Status::OK();
-}
-
-Status NVMFile::Fsync(void) {
-  NVM_TRACE(this, "ignoring...");
-
-  return Status::OK();
-}
-
+// Used by WritableFile
 bool NVMFile::IsSyncThreadSafe(void) const {
-  NVM_TRACE(this, "hard-coded return(false)");
+  NVM_DBG(this, "hard-coded return(false)");
 
   return false;
 }
@@ -150,8 +173,10 @@ bool NVMFile::IsSyncThreadSafe(void) const {
 //
 // Although... depending on what is meant by prefix... they probably could be.
 //
+//
+// Used by RandomAccessFile, WritableFile
 size_t NVMFile::GetUniqueId(char* id, size_t max_size) const {
-  NVM_TRACE(this, "");
+  NVM_DBG(this, "");
 
   if (max_size < (kMaxVarint64Length*3)) {
     return 0;
@@ -166,23 +191,16 @@ size_t NVMFile::GetUniqueId(char* id, size_t max_size) const {
   return static_cast<size_t>(rid - id);
 }
 
+// Used by WritableFile
 uint64_t NVMFile::GetFileSize(void) const {
-  NVM_TRACE(this, "return(" << fsize_ << ")");
+  NVM_DBG(this, "return(" << fsize_ << ")");
 
   return fsize_;
 }
 
-Status NVMFile::InvalidateCache(size_t offset, size_t length) {
-  NVM_TRACE(
-    this,
-    "ignoring... offset(" << offset << "), length(" << length << ")"
-  );
-
-  return Status::OK();
-}
-
+// Used by WritableFile
 Status NVMFile::RangeSync(uint64_t offset, uint64_t nbytes) {
-  NVM_TRACE(
+  NVM_DBG(
     this,
     "ignoring... offset(" << offset << "), nbytes(" << nbytes << ")"
   );
@@ -190,76 +208,149 @@ Status NVMFile::RangeSync(uint64_t offset, uint64_t nbytes) {
   return Status::OK();
 }
 
-void NVMFile::Rename(const std::string& fname) {
-  NVM_TRACE(this, "fname(" << fname << ")");
-
-  info_.fname(fname);
+// Used by WritableFile
+void NVMFile::PrepareWrite(size_t offset, size_t len) {
+  NVM_DBG(this, "offset(" << offset << "), len(" << len << ") ignoring...");
 }
 
-bool NVMFile::IsNamed(const std::string& fname) const {
-  NVM_TRACE(this, "fname(" << fname << ")");
+// Used by WritableFile
+Status NVMFile::Allocate(uint64_t offset, uint64_t len) {
+  NVM_DBG(this, "offset(" << offset << "), len(" << len << ")");
 
-  return !info_.fname().compare(fname);
+  size_t total = ((offset+1+len) / (kVBlockSize)) + 1;
+  while(buffers_.size() <  total) {
+    NVM_DBG(this, "expanding buffers_...");
+    buffers_.push_back(NULL);
+  }
+
+  const size_t first = (offset+1) / kVBlockSize;
+  const size_t count = (len / kVBlockSize);
+
+  NVM_DBG(this, "first(" << first << "), count(" << count << ")");
+
+  for (size_t idx = first; idx < (first + count); ++idx) {
+    if (buffers_[idx]) {
+      NVM_DBG(this, "idx(" << idx << ") suffice...");
+      continue;
+    }
+
+    NVM_DBG(this, "idx(" << idx << ") allocating...");
+    buffers_[idx] = new char[kVBlockSize];
+  }
+
+  return Status::OK();
 }
 
-const std::string& NVMFile::GetFname(void) const {
-  NVM_TRACE(this, "return(" << info_.fname() << ")");
+// Used by WritableFile
+Status NVMFile::Append(const Slice& data) {
+  NVM_DBG(this, "forwarding");
 
-  return info_.fname();
+  return PositionedAppend(data, GetFileSize());
 }
 
-const std::string& NVMFile::GetDpath(void) const {
-  NVM_TRACE(this, "return(" << info_.dpath() << ")");
+// Used by WritableFile
+Status NVMFile::PositionedAppend(const Slice& data, uint64_t offset) {
+  NVM_DBG(this, "offset(" << offset << "), data-size(" << data.size() << ")");
 
-  return info_.dpath();
+  const uint64_t data_size = data.size();
+  const uint64_t remaining = fsize_ - offset;
+  uint64_t grow = remaining < data_size ? data_size - remaining : 0;
+
+  if (!Allocate(offset, data_size).ok()) {
+    return Status::IOError("Exceeding capacity");
+  }
+
+  fsize_ += grow;
+
+  return Status::OK();
 }
 
-size_t NVMFile::GetRequiredBufferAlignment(void) const {
-  NVM_TRACE(this, "hard-coded return(4096)");
+// Used by WritableFile
+Status NVMFile::Truncate(uint64_t size) {
+  NVM_DBG(this, "size(" << size << ")");
 
-  return 4096*4;  // TODO: Get this from liblightnvm device geometry
+  fsize_ = size;
+
+  return wmeta();
 }
 
-void NVMFile::Ref(void) {
-  MutexLock lock(&refs_mutex_);
+// Used by WritableFile
+Status NVMFile::Close(void) {
+  NVM_DBG(this, "ignoring...");
 
-  NVM_TRACE(this, "refs_(" << refs_ << ")");
-
-  ++refs_;
-
-  NVM_TRACE(this, "refs_(" << refs_ << ")");
+  return Status::OK();
 }
 
-void NVMFile::Unref(void) {
-  NVM_TRACE(this, "");
+// Used by WritableFile
+Status NVMFile::Flush(void) {
+  NVM_DBG(this, "flushing to media...");
 
-  bool do_delete = false;
+  size_t huh = 0;
+  for (auto &buf : buffers_) {
+    ++huh;
+    if (!buf) {
+      continue;
+    }
+    NVM_DBG(this, "w00p(" << (void*)buf << "), huh(" << ++huh << ")");
 
-  {
-    MutexLock lock(&refs_mutex_);
-    NVM_TRACE(this, "refs_(" << refs_ << ")");
-    --refs_;
-    NVM_TRACE(this, "refs_(" << refs_ << ")");
-    if (refs_ < 0) {
-      do_delete = true;
+    // TODO: Persist the buffer and de-allocate it
+    delete [] buf;
+    buf = NULL;
+  }
+
+  return wmeta();
+}
+
+// Used by WritableFile
+Status NVMFile::Sync(void) {
+  NVM_DBG(this, "writing file meta to default env...");
+
+  return Flush();
+}
+
+// Used by WritableFile
+Status NVMFile::Fsync(void) {
+  NVM_DBG(this, "writing file meta to default env...");
+
+  return Flush();
+}
+
+// Deletes any buffers covering the range [offset; offset+length].
+//
+// Used by SequentialFile, RandomAccessFile, WritableFile
+Status NVMFile::InvalidateCache(size_t offset, size_t length) {
+
+  size_t first = offset / kVBlockSize;
+  size_t count = length / kVBlockSize;
+
+  for (size_t idx = first; idx < (first+count); ++idx) {
+    auto buf = buffers_[idx];
+    if (buf) {
+      delete [] buf;
+      buffers_[idx] = NULL;
     }
   }
 
-  if (do_delete) {
-    delete this;
+  return Status::OK();
+}
+
+// Used by SequentialFile, RandomAccessFile
+Status NVMFile::Read(
+  uint64_t offset, size_t n, Slice* result, char* scratch
+) const {
+  NVM_DBG(this, "offset(" << offset << ")");
+
+  if (offset > fsize_)
+    return Status::IOError("Out of bounds!");
+
+  const uint64_t nbytes_remaining = fsize_ - offset;
+
+  if (!nbytes_remaining) {              // End of file
+    *result = Slice(scratch, 0);
+    return Status::OK();
   }
-}
 
-std::string NVMFile::txt(void) {
-  std::stringstream ss;
-  ss << "fname(" << info_.fname() << ") ";
-  return ss.str();
-}
-
-std::string NVMFile::txt(void) const {
-  std::stringstream ss;
-  ss << "fname(" << info_.fname() << ") ";
-  return ss.str();
+  return Status::OK();
 }
 
 }       // namespace rocksdb

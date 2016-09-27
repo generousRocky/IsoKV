@@ -17,23 +17,39 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DROCKSDB_LIB_IO_POSIX")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DOS_LINUX")
 
 set(HEADER_FILES
-	env_nvm.h)
+  args.h
+  env_nvm.h)
 
 set(SOURCE_FILES
-	env_nvm.cc
-	env_nvm_file.cc
-	env_nvm_test.cc)
+  env_nvm.cc
+  env_nvm_file.cc
+  env_nvm_test.cc
+  env_nvm_unit01.cc)
 
-add_executable(env_nvm_test ${HEADER_FILES} ${SOURCE_FILES})
+set(SOURCE_FILES_TEST
+  env_nvm.cc
+  env_nvm_file.cc
+  env_nvm_test.cc)
+
+set(SOURCE_FILES_UNIT01
+  env_nvm.cc
+  env_nvm_file.cc
+  env_nvm_unit01.cc)
+
 include_directories(/home/safl/git/rocksdb/include)
 include_directories(/home/safl/git/rocksdb)
 include_directories(${CMAKE_SOURCE_DIR})
 
 get_filename_component(LIB_RDB "../librocksdb_debug.a" ABSOLUTE)
 if (NOT EXISTS $LIB_RDB)
-	get_filename_component(LIB_RDB "../librocksdb.a" ABSOLUTE)
+  get_filename_component(LIB_RDB "../librocksdb.a" ABSOLUTE)
 endif()
 
+add_executable(env_nvm_test ${HEADER_FILES} ${SOURCE_FILES_TEST})
 target_link_libraries(env_nvm_test pthread rt gflags z snappy ${LIB_RDB} pthread)
 
+add_executable(env_nvm_unit01 ${HEADER_FILES} ${SOURCE_FILES_UNIT01})
+target_link_libraries(env_nvm_unit01 pthread rt gflags z snappy ${LIB_RDB} pthread)
+
 install(TARGETS env_nvm_test DESTINATION bin)
+install(TARGETS env_nvm_unit01 DESTINATION bin)

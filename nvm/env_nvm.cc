@@ -21,20 +21,13 @@ static EnvRegistrar nvm_reg(
 EnvNVM::EnvNVM(
   const std::string& uri
 ) : Env(), posix_(Env::Default()), uri_(uri), fs_() {
-  NVM_TRACE(this, "");
+
+  std::string db_path;
 }
 
 EnvNVM::~EnvNVM(void) {
-  NVM_TRACE(this, "");
+  NVM_DBG(this, "");
 
-  MutexLock lock(&fs_mutex_);
-
-  for (auto dir : fs_) {
-    std::cout << dir.first << std::endl;
-    for (auto file : dir.second) {
-      std::cout << file->GetFname() << "," << file->GetFileSize() << std::endl;
-    }
-  }
 }
 
 Status EnvNVM::NewSequentialFile(
@@ -42,11 +35,11 @@ Status EnvNVM::NewSequentialFile(
   unique_ptr<SequentialFile>* result,
   const EnvOptions& options
 ) {
-  NVM_TRACE(this, "fpath(" << fpath << ")");
+  NVM_DBG(this, "fpath(" << fpath << ")");
 
   FPathInfo info(fpath);
   if (!info.nvm_managed()) {
-    NVM_TRACE(this, "delegating...");
+    NVM_DBG(this, "delegating...");
     return posix_->NewSequentialFile(fpath, result, options);
   }
 
@@ -67,11 +60,11 @@ Status EnvNVM::NewRandomAccessFile(
   unique_ptr<RandomAccessFile>* result,
   const EnvOptions& options
 ) {
-  NVM_TRACE(this, "fpath(" << fpath << ")");
+  NVM_DBG(this, "fpath(" << fpath << ")");
 
   FPathInfo info(fpath);
   if (!info.nvm_managed()) {
-    NVM_TRACE(this, "delegating...");
+    NVM_DBG(this, "delegating...");
     return posix_->NewRandomAccessFile(fpath, result, options);
   }
 
@@ -92,11 +85,11 @@ Status EnvNVM::ReuseWritableFile(
   unique_ptr<WritableFile>* result,
   const EnvOptions& options
 ) {
-  NVM_TRACE(this, "fpath(" << fpath << "), fpath_old(" << fpath_old << ")");
+  NVM_DBG(this, "fpath(" << fpath << "), fpath_old(" << fpath_old << ")");
 
   FPathInfo info(fpath);
   if (!info.nvm_managed()) {
-    NVM_TRACE(this, "delegating...");
+    NVM_DBG(this, "delegating...");
     return posix_->ReuseWritableFile(fpath, fpath_old, result, options);
   }
 
@@ -108,12 +101,12 @@ Status EnvNVM::NewWritableFile(
   unique_ptr<WritableFile>* result,
   const EnvOptions& options
 ) {
-  NVM_TRACE(this, "fpath(" << fpath << ")");
+  NVM_DBG(this, "fpath(" << fpath << ")");
 
   FPathInfo info(fpath);
 
   if (!info.nvm_managed()) {
-    NVM_TRACE(this, "delegating...");
+    NVM_DBG(this, "delegating...");
     return posix_->NewWritableFile(fpath, result, options);
   }
 
@@ -124,7 +117,7 @@ Status EnvNVM::NewWritableFile(
     DeleteFileUnguarded(info);
   }
 
-  file = new NVMFile(this, info);
+  file = new NVMFile(this, info, false);
   fs_[info.dpath()].push_back(file);
 
   result->reset(new NVMWritableFile(file, options));
@@ -136,17 +129,17 @@ Status EnvNVM::NewWritableFile(
 // Deletes a file without taking the fs_mutex_
 //
 Status EnvNVM::DeleteFileUnguarded(const FPathInfo& info) {
-  NVM_TRACE(this, "info(" << info.txt() << ")");
+  NVM_DBG(this, "info(" << info.txt() << ")");
 
   auto dit = fs_.find(info.dpath());
   if (dit == fs_.end()) {
-    NVM_TRACE(this, "Dir NOT found");
+    NVM_DBG(this, "Dir NOT found");
     return Status::NotFound();
   }
 
   for (auto it = dit->second.begin(); it != dit->second.end(); ++it) {
     if ((*it)->IsNamed(info.fname())) {
-      NVM_TRACE(this, "File found -- erasing");
+      NVM_DBG(this, "File found -- erasing");
 
       NVMFile *file = *it;
 
@@ -157,17 +150,17 @@ Status EnvNVM::DeleteFileUnguarded(const FPathInfo& info) {
     }
   }
 
-  NVM_TRACE(this, "File NOT found");
+  NVM_DBG(this, "File NOT found");
   return Status::NotFound();
 }
 
 Status EnvNVM::DeleteFile(const std::string& fpath) {
-  NVM_TRACE(this, "fpath(" << fpath << ")");
+  NVM_DBG(this, "fpath(" << fpath << ")");
 
   FPathInfo info(fpath);
 
   if (!info.nvm_managed()) {
-    NVM_TRACE(this, "delegating...");
+    NVM_DBG(this, "delegating...");
     return posix_->FileExists(fpath);
   }
 
@@ -177,12 +170,12 @@ Status EnvNVM::DeleteFile(const std::string& fpath) {
 }
 
 Status EnvNVM::FileExists(const std::string& fpath) {
-  NVM_TRACE(this, "fpath(" << fpath << ")");
+  NVM_DBG(this, "fpath(" << fpath << ")");
 
   FPathInfo info(fpath);
 
   if (!info.nvm_managed()) {
-    NVM_TRACE(this, "delegating...");
+    NVM_DBG(this, "delegating...");
     return posix_->FileExists(fpath);
   }
 
@@ -198,7 +191,7 @@ Status EnvNVM::GetChildren(
   const std::string& dpath,
   std::vector<std::string>* result
 ) {
-  NVM_TRACE(this, "dpath(" << dpath << ")");
+  NVM_DBG(this, "dpath(" << dpath << ")");
 
   posix_->GetChildren(dpath, result);   // Merging posix and nvm
 
@@ -208,7 +201,7 @@ Status EnvNVM::GetChildren(
   }
 
   for (auto fname : *result) {
-    NVM_TRACE(this, "fname(" << fname << ")");
+    NVM_DBG(this, "fname(" << fname << ")");
   }
 
   return Status::OK();
@@ -218,37 +211,53 @@ Status EnvNVM::GetChildrenFileAttributes(
   const std::string& dpath,
   std::vector<FileAttributes>* result
 ) {
-  NVM_TRACE(this, "dpath(" << dpath << ")");
+  NVM_DBG(this, "dpath(" << dpath << ")");
 
   return Status::IOError("GetChildrenFileAttributes --> Not implemented");
 }
 
 NVMFile* EnvNVM::FindFileUnguarded(const FPathInfo& info) {
-  NVM_TRACE(this, "info(" << info.txt() << ")");
+  NVM_DBG(this, "info(" << info.txt() << ")");
 
-  auto dit = fs_.find(info.dpath());
+  auto dit = fs_.find(info.dpath());    // Lookup in loaded files
   if (dit == fs_.end()) {
-    NVM_TRACE(this, "!found");
+    NVM_DBG(this, "!found");
     return NULL;
   }
 
   for (auto it = dit->second.begin(); it != dit->second.end(); ++it) {
     if ((*it)->IsNamed(info.fname())) {
-      NVM_TRACE(this, "found");
+      NVM_DBG(this, "found");
       return *it;
     }
   }
 
-  NVM_TRACE(this, "!found");
+  std::vector<std::string> listing;     // Lookup meta-file in default env
+  Status s = posix_->GetChildren(info.dpath(), &listing);
+  if (!s.ok()) {
+    NVM_DBG(this, "Default-env lookup failed.");
+    return NULL;
+  }
+
+  for (auto entry : listing) {          // Create NVMFile from meta-file
+    if (!FPathInfo::ends_with(entry, "meta"))
+      continue;
+    if (entry.compare(0, info.fname().size(), info.fname()))
+      continue;
+
+    return new NVMFile(this, info, true);
+  }
+
+  NVM_DBG(this, "!found");
   return NULL;
 }
 
 Status EnvNVM::GetFileSize(const std::string& fpath, uint64_t* fsize) {
-  NVM_TRACE(this, "fpath(" << fpath << ")");
+  NVM_DBG(this, "fpath(" << fpath << ")");
 
   FPathInfo info(fpath);
   if (!info.nvm_managed()) {
-    NVM_TRACE(this, "delegating...");
+    NVM_DBG(this, "delegating...");
     return posix_->GetFileSize(fpath, fsize);
   }
 
@@ -268,11 +277,11 @@ Status EnvNVM::GetFileModificationTime(
   const std::string& fpath,
   uint64_t* file_mtime
 ) {
-  NVM_TRACE(this, "fpath(" << fpath << ")");
+  NVM_DBG(this, "fpath(" << fpath << ")");
 
   FPathInfo info(fpath);
   if (!info.nvm_managed()) {
-    NVM_TRACE(this, "delegating...");
+    NVM_DBG(this, "delegating...");
     return posix_->GetFileModificationTime(fpath, file_mtime);
   }
 
@@ -285,7 +294,7 @@ Status EnvNVM::RenameFile(
   const std::string& fpath_src,
   const std::string& fpath_tgt
 ) {
-  NVM_TRACE(this, "fpath_src(" << fpath_src << "), fpath_tgt(" << fpath_tgt << ")");
+  NVM_DBG(this, "fpath_src(" << fpath_src << "), fpath_tgt(" << fpath_tgt << ")");
 
   FPathInfo info_src(fpath_src);
   FPathInfo info_tgt(fpath_tgt);
@@ -297,7 +306,7 @@ Status EnvNVM::RenameFile(
   }
 
   if (!info_src.nvm_managed()) {
-    NVM_TRACE(this, "delegating...");
+    NVM_DBG(this, "delegating...");
     return posix_->RenameFile(fpath_src, fpath_tgt);
   }
 
