@@ -9,16 +9,11 @@ int count = 0;
 
 namespace rocksdb {
 
-static size_t kVBlockSize = 16777216;
-//static size_t kVBlockSize = 524288;
-//static size_t kVBlockSize = 262144;
-//static size_t kVBlockSize = 131072;
-//static size_t kVBlockSize = 65536;
-//static size_t kVBlockSize = 32768;
-//static size_t kVBlockSize = 16384;
-//static size_t kVBlockSize = 8192;
-//static size_t kVBlockSize = 4096;
-static size_t kAlign = kVBlockSize;
+static size_t kNvmVBlockSize = 16777216;
+static size_t kNvmVPageSize = 16384;
+static size_t kNvmAlign = kNvmVPageSize;
+
+static std::string kNvmMetaExt = ".meta";
 
 NVMFile::NVMFile(
   EnvNVM* env,
@@ -28,7 +23,7 @@ NVMFile::NVMFile(
   NVM_DBG(this, "");
 
   if (from_meta) {      // Reconstruct NVMFile from .meta file
-    std::string mpath = info.fpath() + ".meta";
+    std::string mpath = info.fpath() + kNvmMetaExt;
 
     std::ifstream meta(mpath);
     uint64_t fsize = 0, nppas = 0;
@@ -84,9 +79,9 @@ void NVMFile::Rename(const std::string& fname) {
 }
 
 size_t NVMFile::GetRequiredBufferAlignment(void) const {
-  NVM_DBG(this, "hard-coded return(kAlign)");
+  NVM_DBG(this, "hard-coded return(kNvmAlign)");
 
-  return kAlign;
+  return kNvmAlign;
 }
 
 void NVMFile::Ref(void) {
@@ -232,8 +227,8 @@ Status NVMFile::Close(void) {
 // Used by SequentialFile, RandomAccessFile, WritableFile
 Status NVMFile::InvalidateCache(size_t offset, size_t length) {
 
-  size_t first = offset / kVBlockSize;
-  size_t count = length / kVBlockSize;
+  size_t first = offset / kNvmVPageSize;
+  size_t count = length / kNvmVPageSize;
 
   for (size_t idx = first; idx < (first+count); ++idx) {
     if (buffers_[idx]) {
@@ -252,19 +247,19 @@ Status NVMFile::PositionedAppend(const Slice& slice, uint64_t offset) {
   const char* data = slice.data();
   const size_t data_nbytes = slice.size();
 
-  size_t nbufs = (offset + data_nbytes) / kVBlockSize;
+  size_t nbufs = (offset + data_nbytes) / kNvmVPageSize;
   for (size_t i = buffers_.size(); i < nbufs; ++i) {
-    buffers_.push_back(new char[kVBlockSize]);
+    buffers_.push_back(new char[kNvmVPageSize]);
   }
 
   // Translate offset to buffer and offset within buffer
-  size_t buf_idx = offset / kVBlockSize;
-  size_t buf_offset = offset % kVBlockSize;
+  size_t buf_idx = offset / kNvmVPageSize;
+  size_t buf_offset = offset % kNvmVPageSize;
 
   size_t nbytes_remaining = data_nbytes;
   size_t nbytes_written = 0;
   while(nbytes_remaining > 0) {
-    size_t avail = kVBlockSize - buf_offset;
+    size_t avail = kNvmVPageSize - buf_offset;
     size_t nbytes = std::min(nbytes_remaining, avail);
 
     memcpy(buffers_[buf_idx] + buf_offset, data + nbytes_written, nbytes);
@@ -285,7 +280,7 @@ Status NVMFile::wmeta(void) const {
   unique_ptr<WritableFile> fmeta;
 
   Status s = env_->posix_->NewWritableFile(
-    info_.fpath()+".meta", &fmeta, env_options_
+    info_.fpath() + kNvmMetaExt, &fmeta, env_options_
   );
   if (!s.ok()) {
     return s;
@@ -338,7 +333,7 @@ Status NVMFile::Flush(void) {
 Status NVMFile::Truncate(uint64_t size) {
   NVM_DBG(this, "size(" << size << ")");
 
-  size_t needed = size / kVBlockSize;
+  size_t needed = size / kNvmVPageSize;
 
   // De-allocate unused buffers
   for(size_t i = needed+1; i < buffers_.size(); ++i) {
@@ -369,10 +364,10 @@ Status NVMFile::Read(
     return Status::OK();
   }
 
-  size_t buf = offset / kVBlockSize;
-  size_t buf_offset = offset % kVBlockSize;
+  size_t buf = offset / kNvmVPageSize;
+  size_t buf_offset = offset % kNvmVPageSize;
 
-  if (n <= kVBlockSize - buf_offset) { // All within a single block
+  if (n <= kNvmVPageSize - buf_offset) { // All within a single block
     *result = Slice(buffers_[buf] + buf_offset, n);
     return Status::OK();
   }
@@ -381,7 +376,7 @@ Status NVMFile::Read(
   char* dst = scratch;
 
   while (bytes_to_copy > 0) {
-    size_t avail = kVBlockSize - buf_offset;
+    size_t avail = kNvmVPageSize - buf_offset;
     if (avail > bytes_to_copy) {
       avail = bytes_to_copy;
     }
