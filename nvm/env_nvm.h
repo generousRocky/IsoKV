@@ -11,6 +11,7 @@
 #include "util/thread_status_updater.h"
 #include "util/mutexlock.h"
 #include "port/port.h"
+#include <liblightnvm.h>
 
 //#define NVM_DBG_ENABLED 1
 #ifdef NVM_DBG_ENABLED
@@ -132,11 +133,11 @@ class NvmRandomAccessFile;      // Declared here, defined here
 
 class NvmFile {
 public:
-  NvmFile(
-    EnvNVM* env,
-    const FPathInfo& info,
-    bool from_meta
-  );
+  // Construct an NvmFile using nvm device associated with Env
+  NvmFile(EnvNVM* env, const FPathInfo& info);
+
+  // Construct an NvmFile from meta
+  NvmFile(EnvNVM* env, const FPathInfo& info, const std::string mpath);
 
   Status wmeta(void) const;
 
@@ -173,6 +174,8 @@ public:
   const std::string& GetFname(void) const;
   const std::string& GetDpath(void) const;
 
+  void fill_buffers(uint64_t offset, size_t n, char* scratch);
+
   void Ref(void);
   void Unref(void);
 
@@ -194,7 +197,15 @@ private:
 
   FPathInfo info_;
   uint64_t fsize_;
-  std::vector<uint64_t> ppas_;
+
+  std::string dev_name_;
+
+  NVM_DEV dev_;
+  size_t vpage_nbytes_;
+  size_t vblock_nbytes_;
+  size_t vblock_nvpages_;
+
+  std::vector<NVM_VBLOCK> vblocks_;
 };
 
 //
@@ -348,7 +359,8 @@ public:
   }
 
   // PUBLIC ADDITIONS the environment interface - BEGIN
-  std::string txt(void) const { return ""; };
+  std::string txt(void) const { return ""; }
+  std::string GetDevName(void) const { return dev_name_; }
   // PUBLIC ADDITIONS the environment interface - END
 
 private:
@@ -583,9 +595,10 @@ private:
   void operator=(const Env&);
 
   std::string uri_;
+  std::string dev_name_;
+
   std::map<std::string, std::vector<NvmFile*>> fs_;
   port::Mutex fs_mutex_; // Serializing lookup, creation, and deletion
-
 };
 
 //
@@ -621,6 +634,7 @@ public:
     }
 
     NVM_DBG(file_, "forwarding");
+    file_->fill_buffers(pos_, n, scratch);
     Status s = file_->Read(pos_, n, result, scratch);
     if (s.ok()) {
       pos_ += result->size();
@@ -684,6 +698,7 @@ public:
   ) const override {
     NVM_DBG(file_, "forwarding");
 
+    file_->fill_buffers(offset, n, scratch);
     return file_->Read(offset, n, result, scratch);
   }
 

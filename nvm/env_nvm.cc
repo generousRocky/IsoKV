@@ -5,6 +5,7 @@
 #include <linux/limits.h>
 #include "rocksdb/utilities/env_registry.h"
 #include "env_nvm.h"
+#include <exception>
 
 namespace rocksdb {
 
@@ -22,7 +23,14 @@ EnvNVM::EnvNVM(
   const std::string& uri
 ) : Env(), posix_(Env::Default()), uri_(uri), fs_() {
 
-  std::string db_path;
+  std::string uri_prefix = "nvm://";
+
+  if (uri_.find(uri_prefix))
+    throw std::runtime_error("invalid uri");
+
+  dev_name_ = uri_.substr(uri_prefix.size());
+
+  NVM_DBG(this, "uri(" << uri << "), dev_name(" << dev_name_ <<")");
 }
 
 EnvNVM::~EnvNVM(void) {
@@ -112,12 +120,23 @@ Status EnvNVM::NewWritableFile(
 
   MutexLock lock(&fs_mutex_);
 
-  NvmFile *file = FindFileUnguarded(info);
+  NvmFile *file;
+
+  file = FindFileUnguarded(info);       // Delete existing file
   if (file) {
     DeleteFileUnguarded(info);
   }
 
-  file = new NvmFile(this, info, false);
+  try {                                 // Construct the new file
+    file = new NvmFile(this, info);
+  } catch (std::runtime_error& exc) {
+    NVM_DBG(this, "Failed creating NvmFile, e(" << exc.what() << ")");
+  }
+
+  if (!file) {
+    return Status::IOError("Failed creating NvmFile");
+  }
+
   fs_[info.dpath()].push_back(file);
 
   result->reset(new NvmWritableFile(file, options));
@@ -237,13 +256,21 @@ NvmFile* EnvNVM::FindFileUnguarded(const FPathInfo& info) {
     return NULL;
   }
 
-  for (auto entry : listing) {          // Create NvmFile from meta-file
+  for (auto entry : listing) {          // Find .meta files
     if (!FPathInfo::ends_with(entry, "meta"))
       continue;
     if (entry.compare(0, info.fname().size(), info.fname()))
       continue;
 
-    return new NvmFile(this, info, true);
+    try {
+      NvmFile *file = new NvmFile(               // Create NvmFile from meta-file
+        this, info, info.dpath() + std::string(1, FPathInfo::sep) + entry
+      );
+      return file;
+    } catch (std::runtime_error& exc) {
+      NVM_DBG(this, "Failed creation from meta, e(" << exc.what() << ")");
+      return NULL;
+    }
   }
 
   NVM_DBG(this, "!found");

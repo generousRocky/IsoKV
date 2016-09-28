@@ -36,8 +36,8 @@ set(SOURCE_FILES_T02
   env_nvm_file.cc
   env_nvm_t02.cc)
 
-include_directories(/home/safl/git/rocksdb/include)
-include_directories(/home/safl/git/rocksdb)
+include_directories(../include)
+include_directories(../)
 include_directories(${CMAKE_SOURCE_DIR})
 
 get_filename_component(LIB_RDB "../librocksdb_debug.a" ABSOLUTE)
@@ -45,11 +45,15 @@ if (NOT EXISTS $LIB_RDB)
   get_filename_component(LIB_RDB "../librocksdb.a" ABSOLUTE)
 endif()
 
+find_library(LIBLIGHTNVM NAMES lightnvm)
+
 add_executable(env_nvm_t01 ${HEADER_FILES} ${SOURCE_FILES_T01})
-target_link_libraries(env_nvm_t01 pthread rt gflags z snappy ${LIB_RDB} pthread)
+target_link_libraries(env_nvm_t01 pthread
+	rt gflags z snappy ${LIB_RDB} pthread ${LIBLIGHTNVM})
 
 add_executable(env_nvm_t02 ${HEADER_FILES} ${SOURCE_FILES_T02})
-target_link_libraries(env_nvm_t02 pthread rt gflags z snappy ${LIB_RDB} pthread)
+target_link_libraries(env_nvm_t02
+	pthread rt gflags z snappy ${LIB_RDB} pthread ${LIBLIGHTNVM})
 
 install(TARGETS env_nvm_t01 DESTINATION bin)
 install(TARGETS env_nvm_t02 DESTINATION bin)

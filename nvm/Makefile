@@ -43,7 +43,7 @@ t01:
 	./$(BUILD_DIR)/env_nvm_t01 1 > /tmp/jazz.log
 
 t02:
-	./$(BUILD_DIR)/env_nvm_t02 10 500000 1 0 > /tmp/jazz.log
+	./$(BUILD_DIR)/env_nvm_t02 3 50000 1 0 > /tmp/jazz.log
 
 t03:
 	./nvmdb_bench.sh ../ /tmp/jazz > /tmp/jazz.log
