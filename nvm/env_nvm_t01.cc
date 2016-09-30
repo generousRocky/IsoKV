@@ -39,10 +39,15 @@ int main(int argc, char *argv[]) {
   char *rbuf = new char[kFsize];
   char *wbuf = new char[kFsize];
 
-  for (size_t i = 0; i < kFsize; ++i) {
-    wbuf[i] = (i % 26) + 65;
+  char prefix[] = "++++START++++";
+  char suffix[] = "----END----\n";
+
+  strcpy(wbuf, prefix);
+  for (size_t i = strlen(prefix); i < kFsize; ++i) {
+    //wbuf[i] = (i % 26) + 65;
+    wbuf[i] = 65;
   }
-  wbuf[kFsize-1] = '\n';
+  strcpy(wbuf + (kFsize - strlen(suffix)), suffix);
 
   for (size_t offset = 0; offset < kFsize; offset += align) {
     Slice wslice(wbuf+offset, align);
@@ -66,13 +71,14 @@ int main(int argc, char *argv[]) {
   rfile.reset(nullptr);
 
   size_t nerr = 0;
-  for (size_t i = 0; (i < kFsize) && (nerr < 500); ++i) {
-    if (wbuf[i] != rslice[i]) {
+  for (size_t i = 0; i < kFsize; ++i) {
+    assert(wbuf[i] == rslice[i]);
+    if ((wbuf[i] != rslice[i]) && \
+      ((i < 50) || (i > kFsize-50) || (rslice[i] > 65 || rslice[i] < 90))) {
       ++nerr;
       std::cout << "wbuf[" << i << "](" << wbuf[i] << ") != "
                 << "rbuf[" << i << "](" << rslice[i] << ")" << std::endl;
     }
-    //assert(wbuf[i] == rslice[i]);
   }
 
   delete [] wbuf;

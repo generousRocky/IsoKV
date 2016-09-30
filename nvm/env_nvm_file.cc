@@ -24,8 +24,8 @@ NvmFile::NvmFile(
   if (!dev_)
     throw std::runtime_error("Failed opening nvm device.");
 
-  vpage_nbytes_ = nvm_dev_get_vpage_nbytes(dev_);
-  vblock_nbytes_ = nvm_dev_get_vblock_nbytes(dev_);
+  vpage_nbytes_ = nvm_dev_attr_vpage_nbytes(dev_);
+  vblock_nbytes_ = nvm_dev_attr_vblock_nbytes(dev_);
   vblock_nvpages_ = vblock_nbytes_ / vpage_nbytes_;
 
   NVM_DBG(this, "vpage_nbytes_(" << vpage_nbytes_ << ") ");
@@ -54,8 +54,8 @@ NvmFile::NvmFile(
   if (!dev_)
     throw std::runtime_error("Failed opening nvm device.");
 
-  vpage_nbytes_ = nvm_dev_get_vpage_nbytes(dev_);
-  vblock_nbytes_ = nvm_dev_get_vblock_nbytes(dev_);
+  vpage_nbytes_ = nvm_dev_attr_vpage_nbytes(dev_);
+  vblock_nbytes_ = nvm_dev_attr_vblock_nbytes(dev_);
   vblock_nvpages_ = vblock_nbytes_ / vpage_nbytes_;
 
   NVM_DBG(this, "vpage_nbytes_(" << vpage_nbytes_ << ") ");
@@ -270,7 +270,7 @@ Status NvmFile::PositionedAppend(const Slice& slice, uint64_t offset) {
 
   size_t nbufs = (offset + data_nbytes) / vpage_nbytes_;
   for (size_t i = buffers_.size(); i < nbufs; ++i) {
-    buffers_.push_back(new char[vpage_nbytes_]);
+    buffers_.push_back(new char[vpage_nbytes_]());
   }
 
   // Translate offset to buffer and offset within buffer
@@ -282,6 +282,9 @@ Status NvmFile::PositionedAppend(const Slice& slice, uint64_t offset) {
   while(nbytes_remaining > 0) {
     size_t avail = vpage_nbytes_ - buf_offset;
     size_t nbytes = std::min(nbytes_remaining, avail);
+
+    if (!buffers_[buf_idx])
+      buffers_[buf_idx] = new char[vpage_nbytes_]();
 
     memcpy(buffers_[buf_idx] + buf_offset, data + nbytes_written, nbytes);
 
@@ -312,18 +315,18 @@ Status NvmFile::wmeta(void) const {
   meta += std::to_string(fsize_) + "\n";
   meta += std::to_string(vblocks_.size()) + "\n";
   for (auto vblock : vblocks_) {
-    meta += std::to_string(nvm_vblock_get_ppa(vblock)) + "\n";
+    meta += std::to_string(nvm_vblock_attr_ppa(vblock)) + "\n";
   }
 
   Slice slice(meta.c_str(), meta.size());
   s = fmeta->Append(slice);
   if (!s.ok()) {
-    NVM_DBG(this, "s(" << s.ToString() << ")");
+    NVM_DBG(this, "meta append failed s(" << s.ToString() << ")");
   }
 
   s = fmeta->Flush();
   if (!s.ok()) {
-    NVM_DBG(this, "s(" << s.ToString() << ")");
+    NVM_DBG(this, "meta flush failed s(" << s.ToString() << ")");
   }
 
   fmeta.reset(nullptr);
@@ -341,12 +344,12 @@ Status NvmFile::Flush(void) {
   // Ensure that have reserved blocks
   for (size_t i = vblocks_.size(); i < blks_needed; ++i) {
     NVM_VBLOCK blk = nvm_vblock_new();
-    NVM_DBG(this, "i(" << i << ")");
+
     if (!blk)
-      NVM_DBG(this, "failed allocating block");
+      NVM_DBG(this, "failed allocating block i(" << i << ")");
 
     if (nvm_vblock_get(blk, dev_))
-      NVM_DBG(this, "failed getting block");
+      NVM_DBG(this, "failed getting block i(" << i << ")");
 
     vblocks_.push_back(blk);
   }
@@ -395,8 +398,9 @@ Status NvmFile::Truncate(uint64_t size) {
 void NvmFile::fill_buffers(uint64_t offset, size_t n, char* scratch) {
   NVM_DBG(this, "offset(" << offset << "), n(" << n << ")");
 
-  size_t first_buf_idx = offset / vpage_nbytes_;
-  size_t bufs_required = (n + vpage_nbytes_ -1) / vpage_nbytes_;
+  // TODO: only fill required buffers instead of all of them
+  size_t first_buf_idx = 0;
+  size_t bufs_required = (fsize_ + vpage_nbytes_ - 1) / vpage_nbytes_;
 
   // Make sure there are entries
   for (size_t i = buffers_.size(); i < bufs_required; ++i)
@@ -407,7 +411,7 @@ void NvmFile::fill_buffers(uint64_t offset, size_t n, char* scratch) {
     if (buffers_[buf_idx])
       continue;
 
-    buffers_[buf_idx] = new char[vpage_nbytes_];
+    buffers_[buf_idx] = new char[vpage_nbytes_]();
 
     size_t blk_idx = buf_idx / vblock_nvpages_;
     size_t blk_off = buf_idx % vblock_nvpages_;
@@ -419,8 +423,6 @@ void NvmFile::fill_buffers(uint64_t offset, size_t n, char* scratch) {
     if (!nvm_vblock_pread(vblocks_[blk_idx], buffers_[buf_idx], 1, blk_off))
       NVM_DBG(this, "read failure");
   }
-
-  NVM_DBG(this, "bufs_required(" << bufs_required << ")");
 }
 
 // Assumes that data is available in buffers_.
