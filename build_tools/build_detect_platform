@@ -124,6 +124,7 @@ case "$TARGET_OS" in
             COMMON_FLAGS="$COMMON_FLAGS -fno-builtin-memcmp"
         fi
         PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lpthread -lrt"
+        PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -llightnvm"
         # PORT_FILES=port/linux/linux_specific.cc
         ;;
     SunOS)
