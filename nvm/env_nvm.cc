@@ -160,8 +160,14 @@ Status EnvNVM::DeleteFileUnguarded(const FPathInfo& info) {
     if ((*it)->IsNamed(info.fname())) {
       NVM_DBG(this, "File found -- erasing");
 
+      (*it)->Truncate(0);
       (*it)->Unref();
       dit->second.erase(it);
+
+      Status s = posix_->DeleteFile(info.fpath() + kNvmMetaExt);
+      if (!s.ok()) {
+        NVM_DBG(this, "Failed deleting meta-file.");
+      }
 
       return Status::OK();
     }
@@ -256,7 +262,7 @@ NvmFile* EnvNVM::FindFileUnguarded(const FPathInfo& info) {
   }
 
   for (auto entry : listing) {          // Find .meta files
-    if (!FPathInfo::ends_with(entry, "meta"))
+    if (!FPathInfo::ends_with(entry, kNvmMetaExt))
       continue;
     if (entry.compare(0, info.fname().size(), info.fname()))
       continue;

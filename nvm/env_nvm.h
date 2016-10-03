@@ -13,7 +13,7 @@
 #include "port/port.h"
 #include <liblightnvm.h>
 
-//#define NVM_DBG_ENABLED 1
+#define NVM_DBG_ENABLED 1
 #ifdef NVM_DBG_ENABLED
 
 inline std::string methodName(const std::string& prettyFunction) {
@@ -53,6 +53,7 @@ inline std::string methodName(const std::string& prettyFunction) {
 
 namespace rocksdb {
 
+static std::string kNvmMetaExt = ".meta";
 
 // Splits a file path into a directory path, filename and determines whether the
 // file is managed by EnvNVM. That is, whether it is write-ahead-log or sst
@@ -201,6 +202,7 @@ private:
   std::string dev_name_;
 
   NVM_DEV dev_;
+  NVM_GEO geo_;
   size_t vpage_nbytes_;
   size_t vblock_nbytes_;
   size_t vblock_nvpages_;

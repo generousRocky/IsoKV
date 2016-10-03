@@ -11,7 +11,6 @@ int count = 0;
 
 namespace rocksdb {
 
-static std::string kNvmMetaExt = ".meta";
 
 NvmFile::NvmFile(
   EnvNVM* env, const FPathInfo& info
@@ -21,9 +20,12 @@ NvmFile::NvmFile(
   dev_name_ = env_->GetDevName();
 
   dev_ = nvm_dev_open(dev_name_.c_str());
-  if (!dev_)
+  if (!dev_) {
+    NVM_DBG(this, "failed opening(" << dev_name_ << ")");
     throw std::runtime_error("Failed opening nvm device.");
+  }
 
+  geo_ = nvm_dev_attr_geo(dev_);
   vpage_nbytes_ = nvm_dev_attr_vpage_nbytes(dev_);
   vblock_nbytes_ = nvm_dev_attr_vblock_nbytes(dev_);
   vblock_nvpages_ = vblock_nbytes_ / vpage_nbytes_;
@@ -54,6 +56,7 @@ NvmFile::NvmFile(
   if (!dev_)
     throw std::runtime_error("Failed opening nvm device.");
 
+  geo_ = nvm_dev_attr_geo(dev_);
   vpage_nbytes_ = nvm_dev_attr_vpage_nbytes(dev_);
   vblock_nbytes_ = nvm_dev_attr_vblock_nbytes(dev_);
   vblock_nvpages_ = vblock_nbytes_ / vpage_nbytes_;
@@ -65,11 +68,6 @@ NvmFile::NvmFile(
   NVM_DBG(this, "vpage_nbytes_(" << vpage_nbytes_ << ") ");
   NVM_DBG(this, "vblock_nbytes_(" << vblock_nbytes_ << ") ");
   NVM_DBG(this, "vblock_nvpages_(" << vblock_nvpages_ << ") ");
-
-  // TODO: Remove this
-  for (auto vblock : vblocks_) {
-    nvm_vblock_pr(vblock);
-  }
 }
 
 NvmFile::~NvmFile(void) {
@@ -77,8 +75,13 @@ NvmFile::~NvmFile(void) {
 
   for (auto &buf : buffers_) {
     if (buf) {
-      //delete [] buf;
       free(buf);
+    }
+  }
+
+  for (auto &blk : vblocks_) {
+    if (blk) {
+      nvm_vblock_free(&blk);
     }
   }
 
@@ -263,7 +266,6 @@ Status NvmFile::InvalidateCache(size_t offset, size_t length) {
 
   for (size_t idx = first; idx < (first+count); ++idx) {
     if (buffers_[idx]) {
-      //delete [] buffers_[idx];
       free(buffers_[idx]);
       buffers_[idx] = NULL;
     }
@@ -281,7 +283,6 @@ Status NvmFile::PositionedAppend(const Slice& slice, uint64_t offset) {
 
   size_t nbufs = (offset + data_nbytes) / vpage_nbytes_;
   for (size_t i = buffers_.size(); i < nbufs; ++i) {
-    //buffers_.push_back(new char[vpage_nbytes_]());
     buffers_.push_back((char*)nvm_vpage_buf_alloc(nvm_dev_attr_geo(dev_)));
   }
 
@@ -296,7 +297,6 @@ Status NvmFile::PositionedAppend(const Slice& slice, uint64_t offset) {
     size_t nbytes = std::min(nbytes_remaining, avail);
 
     if (!buffers_[buf_idx]) {
-      //buffers_[buf_idx] = new char[vpage_nbytes_]();
       buffers_[buf_idx] = (char*)nvm_vpage_buf_alloc(nvm_dev_attr_geo(dev_));
     }
 
@@ -328,8 +328,16 @@ Status NvmFile::wmeta(void) const {
   meta += dev_name_ + "\n";
   meta += std::to_string(fsize_) + "\n";
   meta += std::to_string(vblocks_.size()) + "\n";
-  for (auto vblock : vblocks_) {
-    meta += std::to_string(nvm_vblock_attr_ppa(vblock)) + "\n";
+  for (size_t blk_idx = 0; blk_idx < vblocks_.size(); ++blk_idx) {
+    NVM_DBG(this, "blk_idx(" << blk_idx << ")");
+
+    if (!vblocks_[blk_idx]) {
+      NVM_DBG(this, "skipping...");
+      continue;
+    }
+
+    NVM_DBG(this, "adding to meta...");
+    meta += std::to_string(nvm_vblock_attr_ppa(vblocks_[blk_idx])) + "\n";
   }
 
   Slice slice(meta.c_str(), meta.size());
@@ -355,19 +363,27 @@ Status NvmFile::Flush(void) {
   size_t blks_needed = (buffers_.size() + vblock_nvpages_ -1) / vblock_nvpages_;
   NVM_DBG(this, "blks_needed(" << blks_needed << ")");
 
-  // Ensure that have reserved blocks
+  // Ensure that have enough blocks reserved for flushing the file content
   for (size_t i = vblocks_.size(); i < blks_needed; ++i) {
     NVM_VBLOCK blk = nvm_vblock_new();
+    size_t ch = i % geo_.nchannels;
+    size_t ln = i % geo_.nluns;
 
-    if (!blk)
+    if (!blk) {
       NVM_DBG(this, "failed allocating block i(" << i << ")");
+      return Status::IOError("Failed reserving NVM (ENOMEM)");
+    }
 
-    if (nvm_vblock_get(blk, dev_))
-      NVM_DBG(this, "failed getting block i(" << i << ")");
+    if (nvm_vblock_gets(blk, dev_, ch, ln)) {
+      NVM_DBG(this, "failed getting block i(" << i << "), ch(" << ch << "), ln(" << ln << ")");
+      nvm_vblock_free(&blk);
+      return Status::IOError("Failed reserving NVM (nvm_vblock_gets ERR)");
+    }
 
     vblocks_.push_back(blk);
   }
 
+  // Do the actual write to media
   for (size_t buf_idx = 0; buf_idx < buffers_.size(); ++buf_idx) {
     if (!buffers_[buf_idx])
       continue;
@@ -379,11 +395,11 @@ Status NvmFile::Flush(void) {
             << "), blk_idx(" << blk_idx
             << "), blk_off(" << blk_off << ")");
 
-    if (!nvm_vblock_pwrite(vblocks_[blk_idx], buffers_[buf_idx], 1, blk_off))
+    if (!nvm_vblock_pwrite(vblocks_[blk_idx], buffers_[buf_idx], 1, blk_off)) {
       NVM_DBG(this, "write failed");
+    }
 
-    //delete [] buffers_[buf_idx];
-    free(buffers_[buf_idx]);
+    free(buffers_[buf_idx]);    // Remove buffered data
     buffers_[buf_idx] = NULL;
   }
 
@@ -392,19 +408,31 @@ Status NvmFile::Flush(void) {
 
 // Used by WritableFile
 Status NvmFile::Truncate(uint64_t size) {
-  NVM_DBG(this, "size(" << size << ")");
+  NVM_DBG(this, "size(" << size << "), nvblocks(" << vblocks_.size() << ")");
 
-  size_t needed = size / vpage_nbytes_;
+  size_t bufs_required = (size + vpage_nbytes_ - 1) / vpage_nbytes_;
+  size_t blks_required = (bufs_required + vblock_nvpages_ -1) / vblock_nvpages_;
 
-  // De-allocate unused buffers
-  for(size_t buf_idx = needed+1; buf_idx < buffers_.size(); ++buf_idx) {
+  // De-allocate buffers that are no longer required
+  for(size_t buf_idx = bufs_required; buf_idx < buffers_.size(); ++buf_idx) {
     NVM_DBG(this, "buf_idx(" << buf_idx << ")");
-    //delete [] buffers_[i];
     free(buffers_[buf_idx]);
     buffers_[buf_idx] = NULL;
   }
 
-  // TODO: Release allocated NVM
+  // Release blocks that are no longer required
+  for(size_t blk_idx = blks_required; blk_idx < vblocks_.size(); ++blk_idx) {
+    NVM_DBG(this, "blk_idx(" << blk_idx << ")");
+
+    if (!vblocks_[blk_idx]) {
+      NVM_DBG(this, "nothing here... skipping...");
+      continue;
+    }
+
+    nvm_vblock_put(vblocks_[blk_idx]);
+    nvm_vblock_free(&vblocks_[blk_idx]);
+    vblocks_[blk_idx] = NULL;
+  }
 
   fsize_ = size;
 
