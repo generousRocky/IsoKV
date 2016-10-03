@@ -50,4 +50,6 @@ t03:
 
 b01:
 	./nvmdb_bench.sh ../ /tmp/jazz > /tmp/jazz.log
+
+b02:
 	./nvmdb_bench16MB.sh ../ /tmp/jazz > /tmp/jazz16MB.log
