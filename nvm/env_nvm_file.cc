@@ -38,7 +38,7 @@ NvmFile::NvmFile(
 ) : env_(env), buffers_(), refs_(), info_(info), fsize_(), vblocks_() {
 
   std::ifstream meta(mpath);
-  uint64_t nppas = 0;
+  uint64_t nppas = 0, ppa;
 
   if (!(meta >> dev_name_)) {
     NVM_DBG(this, "shucks...");
@@ -58,9 +58,18 @@ NvmFile::NvmFile(
   vblock_nbytes_ = nvm_dev_attr_vblock_nbytes(dev_);
   vblock_nvpages_ = vblock_nbytes_ / vpage_nbytes_;
 
+  while(meta >> ppa) {
+    vblocks_.push_back(nvm_vblock_new_on_dev(dev_, ppa));
+  }
+
   NVM_DBG(this, "vpage_nbytes_(" << vpage_nbytes_ << ") ");
   NVM_DBG(this, "vblock_nbytes_(" << vblock_nbytes_ << ") ");
   NVM_DBG(this, "vblock_nvpages_(" << vblock_nvpages_ << ") ");
+
+  // TODO: Remove this
+  for (auto vblock : vblocks_) {
+    nvm_vblock_pr(vblock);
+  }
 }
 
 NvmFile::~NvmFile(void) {
@@ -68,7 +77,8 @@ NvmFile::~NvmFile(void) {
 
   for (auto &buf : buffers_) {
     if (buf) {
-      delete [] buf;
+      //delete [] buf;
+      free(buf);
     }
   }
 
@@ -253,7 +263,8 @@ Status NvmFile::InvalidateCache(size_t offset, size_t length) {
 
   for (size_t idx = first; idx < (first+count); ++idx) {
     if (buffers_[idx]) {
-      delete [] buffers_[idx];
+      //delete [] buffers_[idx];
+      free(buffers_[idx]);
       buffers_[idx] = NULL;
     }
   }
@@ -270,7 +281,8 @@ Status NvmFile::PositionedAppend(const Slice& slice, uint64_t offset) {
 
   size_t nbufs = (offset + data_nbytes) / vpage_nbytes_;
   for (size_t i = buffers_.size(); i < nbufs; ++i) {
-    buffers_.push_back(new char[vpage_nbytes_]());
+    //buffers_.push_back(new char[vpage_nbytes_]());
+    buffers_.push_back((char*)nvm_vpage_buf_alloc(nvm_dev_attr_geo(dev_)));
   }
 
   // Translate offset to buffer and offset within buffer
@@ -283,8 +295,10 @@ Status NvmFile::PositionedAppend(const Slice& slice, uint64_t offset) {
     size_t avail = vpage_nbytes_ - buf_offset;
     size_t nbytes = std::min(nbytes_remaining, avail);
 
-    if (!buffers_[buf_idx])
-      buffers_[buf_idx] = new char[vpage_nbytes_]();
+    if (!buffers_[buf_idx]) {
+      //buffers_[buf_idx] = new char[vpage_nbytes_]();
+      buffers_[buf_idx] = (char*)nvm_vpage_buf_alloc(nvm_dev_attr_geo(dev_));
+    }
 
     memcpy(buffers_[buf_idx] + buf_offset, data + nbytes_written, nbytes);
 
@@ -368,7 +382,8 @@ Status NvmFile::Flush(void) {
     if (!nvm_vblock_pwrite(vblocks_[blk_idx], buffers_[buf_idx], 1, blk_off))
       NVM_DBG(this, "write failed");
 
-    delete [] buffers_[buf_idx];
+    //delete [] buffers_[buf_idx];
+    free(buffers_[buf_idx]);
     buffers_[buf_idx] = NULL;
   }
 
@@ -382,10 +397,11 @@ Status NvmFile::Truncate(uint64_t size) {
   size_t needed = size / vpage_nbytes_;
 
   // De-allocate unused buffers
-  for(size_t i = needed+1; i < buffers_.size(); ++i) {
-    NVM_DBG(this, "i(" << i << ")");
-    delete [] buffers_[i];
-    buffers_[i] = NULL;
+  for(size_t buf_idx = needed+1; buf_idx < buffers_.size(); ++buf_idx) {
+    NVM_DBG(this, "buf_idx(" << buf_idx << ")");
+    //delete [] buffers_[i];
+    free(buffers_[buf_idx]);
+    buffers_[buf_idx] = NULL;
   }
 
   // TODO: Release allocated NVM
@@ -402,6 +418,8 @@ void NvmFile::fill_buffers(uint64_t offset, size_t n, char* scratch) {
   size_t first_buf_idx = 0;
   size_t bufs_required = (fsize_ + vpage_nbytes_ - 1) / vpage_nbytes_;
 
+  NVM_DBG(this, "first_buf_idx(" << first_buf_idx << "), bufs_required(" << bufs_required << ")");
+
   // Make sure there are entries
   for (size_t i = buffers_.size(); i < bufs_required; ++i)
     buffers_.push_back(NULL);
@@ -411,7 +429,7 @@ void NvmFile::fill_buffers(uint64_t offset, size_t n, char* scratch) {
     if (buffers_[buf_idx])
       continue;
 
-    buffers_[buf_idx] = new char[vpage_nbytes_]();
+    buffers_[buf_idx] = (char*)nvm_vpage_buf_alloc(nvm_dev_attr_geo(dev_));;
 
     size_t blk_idx = buf_idx / vblock_nvpages_;
     size_t blk_off = buf_idx % vblock_nvpages_;
@@ -420,8 +438,7 @@ void NvmFile::fill_buffers(uint64_t offset, size_t n, char* scratch) {
             << "), blk_idx(" << blk_idx
             << "), blk_off(" << blk_off << ")");
 
-    if (!nvm_vblock_pread(vblocks_[blk_idx], buffers_[buf_idx], 1, blk_off))
-      NVM_DBG(this, "read failure");
+    nvm_vblock_pread(vblocks_[blk_idx], buffers_[buf_idx], 1, blk_off);
   }
 }
 
@@ -437,6 +454,7 @@ Status NvmFile::Read(
     n = available;
   }
   if (n == 0) {
+    NVM_DBG(this, "no buffers...");
     *result = Slice();
     return Status::OK();
   }
@@ -444,16 +462,19 @@ Status NvmFile::Read(
   size_t buf = offset / vpage_nbytes_;
   size_t buf_offset = offset % vpage_nbytes_;
 
-  if (n <= vpage_nbytes_ - buf_offset) { // All within a single block
+  if (n <= vpage_nbytes_ - buf_offset) {        // Available in a single buffer
+    NVM_DBG(this, "single buffer...");
     *result = Slice(buffers_[buf] + buf_offset, n);
     return Status::OK();
   }
 
-  size_t bytes_to_copy = n;
+  NVM_DBG(this, "multi buffer...");
+  size_t bytes_to_copy = n;                     // Multiple buffers
   char* dst = scratch;
 
   while (bytes_to_copy > 0) {
     size_t avail = vpage_nbytes_ - buf_offset;
+    NVM_DBG(this, "buf(" << buf << "), offset(" << buf_offset << "), avail(" << avail << ")");
     if (avail > bytes_to_copy) {
       avail = bytes_to_copy;
     }

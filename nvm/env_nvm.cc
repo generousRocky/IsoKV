@@ -237,16 +237,15 @@ NvmFile* EnvNVM::FindFileUnguarded(const FPathInfo& info) {
   NVM_DBG(this, "info(" << info.txt() << ")");
 
   auto dit = fs_.find(info.dpath());    // Lookup in loaded files
-  if (dit == fs_.end()) {
-    NVM_DBG(this, "!found");
-    return NULL;
-  }
-
-  for (auto it = dit->second.begin(); it != dit->second.end(); ++it) {
-    if ((*it)->IsNamed(info.fname())) {
-      NVM_DBG(this, "found");
-      return *it;
+  if (dit != fs_.end()) {
+    for (auto it = dit->second.begin(); it != dit->second.end(); ++it) {
+      if ((*it)->IsNamed(info.fname())) {
+        NVM_DBG(this, "found");
+        return *it;
+      }
     }
+    NVM_DBG(this, "!found (no such directory)");
+    return NULL;
   }
 
   std::vector<std::string> listing;     // Lookup meta-file in default env
@@ -263,9 +262,11 @@ NvmFile* EnvNVM::FindFileUnguarded(const FPathInfo& info) {
       continue;
 
     try {
-      NvmFile *file = new NvmFile(               // Create NvmFile from meta-file
+      NvmFile *file = new NvmFile(      // Create NvmFile from meta-file
         this, info, info.dpath() + std::string(1, FPathInfo::sep) + entry
       );
+      fs_[info.dpath()].push_back(file);
+
       return file;
     } catch (std::runtime_error& exc) {
       NVM_DBG(this, "Failed creation from meta, e(" << exc.what() << ")");

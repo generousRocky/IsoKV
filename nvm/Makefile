@@ -46,5 +46,8 @@ t02:
 	./$(BUILD_DIR)/env_nvm_t02 3 50000 1 0 > /tmp/jazz.log
 
 t03:
+	./$(BUILD_DIR)/env_nvm_t03 3 50000 1 0 > /tmp/jazz.log
+
+b01:
 	./nvmdb_bench.sh ../ /tmp/jazz > /tmp/jazz.log
 	./nvmdb_bench16MB.sh ../ /tmp/jazz > /tmp/jazz16MB.log
