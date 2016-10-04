@@ -38,6 +38,8 @@ NvmStore::~NvmStore(void) {
   NVM_DBG(this, "");
   Status s;
 
+  nvm_dev_close(dev_);
+
   s = wmeta();
   if (!s.ok()) {
     NVM_DBG(this, "writing meta failed.");
