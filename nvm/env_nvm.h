@@ -127,10 +127,51 @@ private:
 };
 
 class EnvNVM;                   // Declared here, defined here and in envnvm.cc
+class NvmStore;                 // Declared here, defined in env_nvm_store.cc
 class NvmFile;                  // Declared here, defined in envnvm_file.cc
 class NvmWritableFile;          // Declared here, defined here
 class NvmSequentialFile;        // Declared here, defined here
 class NvmRandomAccessFile;      // Declared here, defined here
+
+//
+// Stateful wrapper for nvm_vblock_[get|put] to facilitate preallocation of
+// vblocks and provide accounting of reservations across device.
+class NvmStore {
+public:
+  NvmStore(
+    EnvNVM* env,
+    const std::string& dev_name,
+    const std::string& mpath,
+    size_t rate
+  );
+
+  ~NvmStore(void);
+
+  NVM_VBLOCK get(void);
+
+  void put(NVM_VBLOCK blk);
+
+protected:
+
+  Status reserve(void);
+
+  Status release(void);
+
+  Status wmeta(void);
+
+  std::string txt(void);
+
+  EnvNVM* env_;
+  NVM_DEV dev_;
+  std::string dev_name_;
+  NVM_GEO geo_;
+  std::string mpath_;
+  size_t rate_;
+
+  port::Mutex mutex_;
+  size_t curs_;
+  std::list<NVM_VBLOCK> reserved_;
+};
 
 class NvmFile {
 public:
@@ -589,6 +630,7 @@ public:
   }
 
   Env* posix_;
+  NvmStore* store_;
 
 private:
 
@@ -599,8 +641,11 @@ private:
   std::string uri_;
   std::string dev_name_;
 
+  std::string rpath_;   // Path to persist state for NvmStore
+
   std::map<std::string, std::vector<NvmFile*>> fs_;
   port::Mutex fs_mutex_; // Serializing lookup, creation, and deletion
+
 };
 
 //

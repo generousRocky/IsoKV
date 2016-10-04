@@ -56,6 +56,7 @@ LIB_SOURCES =                                                   \
   memtable/skiplistrep.cc                                       \
   memtable/vectorrep.cc                                         \
   nvm/env_nvm.cc                                                \
+  nvm/env_nvm_store.cc                                          \
   nvm/env_nvm_file.cc                                           \
   port/stack_trace.cc                                           \
   port/port_posix.cc                                            \

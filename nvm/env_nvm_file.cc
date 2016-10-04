@@ -365,19 +365,10 @@ Status NvmFile::Flush(void) {
 
   // Ensure that have enough blocks reserved for flushing the file content
   for (size_t i = vblocks_.size(); i < blks_needed; ++i) {
-    NVM_VBLOCK blk = nvm_vblock_new();
-    size_t ch = i % geo_.nchannels;
-    size_t ln = i % geo_.nluns;
-
+    NVM_VBLOCK blk = env_->store_->get();
     if (!blk) {
       NVM_DBG(this, "failed allocating block i(" << i << ")");
       return Status::IOError("Failed reserving NVM (ENOMEM)");
-    }
-
-    if (nvm_vblock_gets(blk, dev_, ch, ln)) {
-      NVM_DBG(this, "failed getting block i(" << i << "), ch(" << ch << "), ln(" << ln << ")");
-      nvm_vblock_free(&blk);
-      return Status::IOError("Failed reserving NVM (nvm_vblock_gets ERR)");
     }
 
     vblocks_.push_back(blk);
@@ -429,8 +420,7 @@ Status NvmFile::Truncate(uint64_t size) {
       continue;
     }
 
-    nvm_vblock_put(vblocks_[blk_idx]);
-    nvm_vblock_free(&vblocks_[blk_idx]);
+    env_->store_->put(vblocks_[blk_idx]);
     vblocks_[blk_idx] = NULL;
   }
 

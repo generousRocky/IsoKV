@@ -30,12 +30,17 @@ EnvNVM::EnvNVM(
 
   dev_name_ = uri_.substr(uri_prefix.size());
 
+  std::string mpath("/tmp/store.nvm");
+
+  store_ = new NvmStore(this, dev_name_, mpath, 10);
+
   NVM_DBG(this, "uri(" << uri << "), dev_name(" << dev_name_ <<")");
 }
 
 EnvNVM::~EnvNVM(void) {
   NVM_DBG(this, "");
 
+  delete store_;
 }
 
 Status EnvNVM::NewSequentialFile(
