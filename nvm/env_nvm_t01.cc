@@ -13,9 +13,11 @@ static size_t kMB = 1 << 20;
 static size_t kFsize = kMB * 16;
 static char fn[] = "/tmp/testfile.log";
 
+#include "env_nvm_t00.cc"
+
 int main(int argc, char *argv[]) {
 
-  Args args(argc, argv, {"foo"});
+  Args args(argc, argv, {"delete_existing"});
   if (argc < 2) {
     args.pr_usage();
     return -1;
@@ -29,61 +31,54 @@ int main(int argc, char *argv[]) {
   EnvOptions opt_e;
   Status s;
 
-  unique_ptr<WritableFile> wfile;
-  s = env->NewWritableFile(fn, &wfile, opt_e);
-  assert(s.ok());
+  Sample sample(kFsize);                // Create buffers
+  sample.fill(65);
 
-  size_t align = wfile->GetRequiredBufferAlignment();
-
-  char *scratch = new char[kFsize];
-  char *rbuf = new char[kFsize];
-  char *wbuf = new char[kFsize];
-
-  char prefix[] = "++++START++++";
-  char suffix[] = "----END----\n";
-
-  strcpy(wbuf, prefix);
-  for (size_t i = strlen(prefix); i < kFsize; ++i) {
-    //wbuf[i] = (i % 26) + 65;
-    wbuf[i] = 65;
+  s = env->FileExists(fn);
+  if (s.ok() && args["delete_existing"]) {
+    env->DeleteFile(fn);
   }
-  strcpy(wbuf + (kFsize - strlen(suffix)), suffix);
 
-  for (size_t offset = 0; offset < kFsize; offset += align) {
-    Slice wslice(wbuf+offset, align);
-    s = wfile->Append(wslice);
+  s = env->FileExists(fn);
+  if (!s.ok()) {                        // Construct the file
+    unique_ptr<WritableFile> wfile;
+    s = env->NewWritableFile(fn, &wfile, opt_e);
     assert(s.ok());
 
-    if (!(offset % (align * 4)))  // Flush after every fourth append
-      s = wfile->Flush();
+    size_t align = wfile->GetRequiredBufferAlignment();
+
+    for (size_t offset = 0; offset < kFsize; offset += align) {
+      Slice wslice(sample.wbuf + offset, align);
+      s = wfile->Append(wslice);
+      assert(s.ok());
+
+      if (!(offset % (align * 4)))      // Flush after every fourth append
+        s = wfile->Flush();
+    }
+
+    wfile.reset(nullptr);
   }
 
-  wfile.reset(nullptr);
-
-  unique_ptr<SequentialFile> rfile;
+  unique_ptr<SequentialFile> rfile;     // Read the file
   s = env->NewSequentialFile(fn, &rfile, opt_e);
   assert(s.ok());
 
-  Slice rslice(rbuf, kFsize);
-  s = rfile->Read(kFsize, &rslice, scratch);
+  Slice rslice(sample.rbuf, kFsize);
+  s = rfile->Read(kFsize, &rslice, sample.scratch);
   assert(s.ok());
 
   rfile.reset(nullptr);
 
-  size_t nerr = 0;
+  size_t nerr = 0;                      // Compare
   for (size_t i = 0; i < kFsize; ++i) {
-    assert(wbuf[i] == rslice[i]);
-    if ((wbuf[i] != rslice[i]) && \
+    assert(sample.wbuf[i] == rslice[i]);
+    if ((sample.wbuf[i] != rslice[i]) && \
       ((i < 50) || (i > kFsize-50) || (rslice[i] > 65 || rslice[i] < 90))) {
       ++nerr;
-      std::cout << "wbuf[" << i << "](" << wbuf[i] << ") != "
+      std::cout << "buf[" << i << "](" << sample.wbuf[i] << ") != "
                 << "rbuf[" << i << "](" << rslice[i] << ")" << std::endl;
     }
   }
-
-  delete [] wbuf;
-  delete [] rbuf;
-  delete [] scratch;
 
   return 0;
 }

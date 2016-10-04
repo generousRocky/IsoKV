@@ -39,14 +39,14 @@ clean-test:
 	rm -r /tmp/jazz || true
 	rm /tmp/jazz.log || true
 
-t01:
+t01_0:
+	./$(BUILD_DIR)/env_nvm_t01 0 > /tmp/jazz.log
+
+t01_1:
 	./$(BUILD_DIR)/env_nvm_t01 1 > /tmp/jazz.log
 
 t02:
 	./$(BUILD_DIR)/env_nvm_t02 3 50000 1 0 > /tmp/jazz.log
-
-t03:
-	./$(BUILD_DIR)/env_nvm_t03 3 50000 1 0 > /tmp/jazz.log
 
 b01:
 	./nvmdb_bench.sh ../ /tmp/jazz > /tmp/jazz.log
