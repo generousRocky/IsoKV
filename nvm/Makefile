@@ -41,9 +41,13 @@ clean-test:
 
 t01_0:
 	./$(BUILD_DIR)/env_nvm_t01 0 > /tmp/jazz.log
+	cat /tmp/store.nvm
+	cat /tmp/testfile.log.meta
 
 t01_1:
 	./$(BUILD_DIR)/env_nvm_t01 1 > /tmp/jazz.log
+	cat /tmp/store.nvm
+	cat /tmp/testfile.log.meta
 
 t02:
 	./$(BUILD_DIR)/env_nvm_t02 3 50000 1 0 > /tmp/jazz.log
