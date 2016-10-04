@@ -70,17 +70,20 @@ Status NvmStore::reserve(void) {
   NVM_DBG(this, "");
 
   while(reserved_.size() < rate_) {
-    NVM_VBLOCK blk = nvm_vblock_new();
+    NVM_VBLOCK blk;
+
+    blk = nvm_vblock_new();
     if (!blk) {
       NVM_DBG(this, "Failed allocating vblock (ENOMEM)");
       return Status::IOError("Failed allocating vblock (ENOMEM)");
     }
 
-    size_t ch = curs_ % geo_.nchannels;
-    size_t ln = curs_ % geo_.nluns;
+    const size_t ch = curs_ % geo_.nchannels;
+    const size_t ln = curs_ % geo_.nluns;
 
     if (nvm_vblock_gets(blk, dev_, ch, ln)) {
-      NVM_DBG(this, "Failed `nvm_vblock_gets`, ch(" << ch << "), ln(" << ln << ")");
+      NVM_DBG(this, "Failed _gets: ch(" << ch << "), ln(" << ln << ")");
+      nvm_vblock_free(&blk);
       return Status::IOError("Failed nvm_vblock_gets");
     }
 
