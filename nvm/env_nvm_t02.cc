@@ -73,7 +73,7 @@ int main(int argc, char *argv[]) {
   args.pr_args();
 
   std::unique_ptr<Env> env_guard;
-  Env *env = NewEnvFromUri("nvm://nvme0n1", &env_guard);
+  Env *env = NewEnvFromUri("nvm://nvme0n1/opt/rtest/nvm.meta", &env_guard);
   assert(env);
 
   Options options;
@@ -88,7 +88,7 @@ int main(int argc, char *argv[]) {
   ReadOptions roptions;
 
   DB* db;
-  Status s = DB::Open(options, "/tmp/jazz", &db);
+  Status s = DB::Open(options, "/opt/rtest/db", &db);
   std::cout << s.ToString() << std::endl;
   assert(s.ok());
 

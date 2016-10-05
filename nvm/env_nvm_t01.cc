@@ -11,7 +11,7 @@ using namespace rocksdb;
 
 static size_t kMB = 1 << 20;
 static size_t kFsize = kMB * 16;
-static char fn[] = "/tmp/testfile.log";
+static char fn[] = "/opt/rtest/testfile.log";
 
 #include "env_nvm_t00.cc"
 
@@ -25,7 +25,7 @@ int main(int argc, char *argv[]) {
   args.pr_args();
 
   std::unique_ptr<Env> env_guard;
-  Env *env = NewEnvFromUri("nvm://nvme0n1", &env_guard);
+  Env *env = NewEnvFromUri("nvm://nvme0n1/opt/rtest/nvm.meta", &env_guard);
   assert(env);
 
   EnvOptions opt_e;

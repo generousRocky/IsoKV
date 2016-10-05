@@ -36,24 +36,23 @@ rocks:
 	cd .. && make release -j$(nproc)
 
 clean-test:
-	rm -r /tmp/jazz || true
-	rm /tmp/jazz.log || true
+	rm -r /opt/rtest || true
 
 t01_0:
 	./$(BUILD_DIR)/env_nvm_t01 0 > /tmp/jazz.log
-	cat /tmp/store.nvm
-	cat /tmp/testfile.log.meta
+	cat /opt/rtest/nvm.meta
+	cat /opt/rtest/testfile.log.meta
 
 t01_1:
 	./$(BUILD_DIR)/env_nvm_t01 1 > /tmp/jazz.log
-	cat /tmp/store.nvm
-	cat /tmp/testfile.log.meta
+	cat /opt/rtest/nvm.meta
+	cat /opt/rtest/testfile.log.meta
 
 t02:
 	./$(BUILD_DIR)/env_nvm_t02 3 50000 1 0 > /tmp/jazz.log
 
 b01:
-	./nvmdb_bench.sh ../ /tmp/jazz > /tmp/jazz.log
+	./nvmdb_bench.sh ../ /opt/rtest/db > /tmp/jazz.log
 
 b02:
-	./nvmdb_bench16MB.sh ../ /tmp/jazz > /tmp/jazz16MB.log
+	./nvmdb_bench16MB.sh ../ /opt/rtest/db > /tmp/jazz16MB.log

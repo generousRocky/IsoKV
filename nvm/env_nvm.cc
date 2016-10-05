@@ -9,6 +9,8 @@
 
 namespace rocksdb {
 
+static std::string kUriPrefix = "nvm://";
+
 static EnvRegistrar nvm_reg(
   "nvm://",
   [](const std::string& uri, std::unique_ptr<Env>* env_guard) {
@@ -23,18 +25,31 @@ EnvNVM::EnvNVM(
   const std::string& uri
 ) : Env(), posix_(Env::Default()), uri_(uri), fs_() {
 
-  std::string uri_prefix = "nvm://";
+  if (uri_.find(kUriPrefix)) {          // Must start with prefix
+    NVM_DBG(this, "Invalid uri(1)");
+    throw std::runtime_error("Invalid uri(1)");
+  }
+                                        // Must contain "mpath"
+  size_t path_offset = uri_.find('/', kUriPrefix.size());
+  if (path_offset == std::string::npos) {
+    NVM_DBG(this, "Invalid uri(2)");
+    throw std::runtime_error("Invalid uri(2)");
+  }
 
-  if (uri_.find(uri_prefix))
-    throw std::runtime_error("invalid uri");
+  FPathInfo mpath(uri_.substr(path_offset));
+  Status s = posix_->FileExists(mpath.dpath());
+  if (!s.ok()) {
+    NVM_DBG(this, "Invalid uri(3)");
+    throw std::runtime_error("Invalid uri(3)");
+  }
 
-  dev_name_ = uri_.substr(uri_prefix.size());
+  dev_name_ = uri_.substr(kUriPrefix.size(), path_offset - kUriPrefix.size());
 
-  std::string mpath("/tmp/store.nvm");
+  NVM_DBG(this, "uri_(" << uri_ << ")");
+  NVM_DBG(this, "mpath(" << mpath.fpath() << ")");
+  NVM_DBG(this, "dev_name_(" << dev_name_ << ")");
 
-  store_ = new NvmStore(this, dev_name_, mpath, 10);
-
-  NVM_DBG(this, "uri(" << uri << "), dev_name(" << dev_name_ <<")");
+  store_ = new NvmStore(this, dev_name_, mpath.fpath(), 10);
 }
 
 EnvNVM::~EnvNVM(void) {
