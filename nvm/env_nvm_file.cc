@@ -14,7 +14,8 @@ namespace rocksdb {
 
 NvmFile::NvmFile(
   EnvNVM* env, const FPathInfo& info
-) : env_(env), buffers_(), refs_(), info_(info), fsize_(), vblocks_() {
+) : env_(env), buffers_(), refs_(), info_(info), fsize_(), vblocks_(),
+    rretry_(2), wretry_(2) {
   NVM_DBG(this, "");
 
   dev_name_ = env_->GetDevName();
@@ -37,7 +38,8 @@ NvmFile::NvmFile(
 
 NvmFile::NvmFile(
   EnvNVM* env, const FPathInfo& info, const std::string mpath
-) : env_(env), buffers_(), refs_(), info_(info), fsize_(), vblocks_() {
+) : env_(env), buffers_(), refs_(), info_(info), fsize_(), vblocks_(),
+    rretry_(2), wretry_(2) {
 
   std::ifstream meta(mpath);
   uint64_t nppas = 0, ppa;
@@ -386,8 +388,20 @@ Status NvmFile::Flush(void) {
             << "), blk_idx(" << blk_idx
             << "), blk_off(" << blk_off << ")");
 
-    if (!nvm_vblock_pwrite(vblocks_[blk_idx], buffers_[buf_idx], 1, blk_off)) {
-      NVM_DBG(this, "write failed");
+    int nfail = 0;
+    while(nfail < wretry_) {
+      ssize_t err;
+      err = nvm_vblock_pwrite(vblocks_[blk_idx], buffers_[buf_idx], blk_off);
+      if (!err)
+        break;
+
+      ++nfail;
+      NVM_DBG(this, "failed write, err(" << err << ")");
+    }
+
+    if (nfail == rretry_) {
+      NVM_DBG(this, "failures (write) exceeded retry");
+      return Status::IOError("failures (write) exceeded retry");
     }
 
     free(buffers_[buf_idx]);    // Remove buffered data
@@ -429,7 +443,7 @@ Status NvmFile::Truncate(uint64_t size) {
   return wmeta();
 }
 
-void NvmFile::fill_buffers(uint64_t offset, size_t n, char* scratch) {
+Status NvmFile::fill_buffers(uint64_t offset, size_t n, char* scratch) {
   NVM_DBG(this, "offset(" << offset << "), n(" << n << ")");
 
   // TODO: only fill required buffers instead of all of them
@@ -447,7 +461,7 @@ void NvmFile::fill_buffers(uint64_t offset, size_t n, char* scratch) {
     if (buffers_[buf_idx])
       continue;
 
-    buffers_[buf_idx] = (char*)nvm_vpage_buf_alloc(nvm_dev_attr_geo(dev_));;
+    buffers_[buf_idx] = (char*)nvm_vpage_buf_alloc(nvm_dev_attr_geo(dev_));
 
     size_t blk_idx = buf_idx / vblock_nvpages_;
     size_t blk_off = buf_idx % vblock_nvpages_;
@@ -456,8 +470,25 @@ void NvmFile::fill_buffers(uint64_t offset, size_t n, char* scratch) {
             << "), blk_idx(" << blk_idx
             << "), blk_off(" << blk_off << ")");
 
-    nvm_vblock_pread(vblocks_[blk_idx], buffers_[buf_idx], 1, blk_off);
+    int nfail = 0;
+    while(nfail < rretry_) {
+      ssize_t err;
+
+      err = nvm_vblock_pread(vblocks_[blk_idx], buffers_[buf_idx], blk_off);
+      if (!err)
+        break;
+
+      ++nfail;
+      NVM_DBG(this, "failed read, err(" << err << ")");
+    }
+
+    if (nfail == rretry_) {
+      NVM_DBG(this, "failures (read) exceeded retry");
+      return Status::IOError("failures (read) exceeded retry");
+    }
   }
+
+  return Status::OK();
 }
 
 // Assumes that data is available in buffers_.

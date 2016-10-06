@@ -216,7 +216,7 @@ public:
   const std::string& GetFname(void) const;
   const std::string& GetDpath(void) const;
 
-  void fill_buffers(uint64_t offset, size_t n, char* scratch);
+  Status fill_buffers(uint64_t offset, size_t n, char* scratch);
 
   void Ref(void);
   void Unref(void);
@@ -249,6 +249,8 @@ private:
   size_t vblock_nvpages_;
 
   std::vector<NVM_VBLOCK> vblocks_;
+  int rretry_;
+  int wretry_;
 };
 
 //
@@ -679,13 +681,24 @@ public:
       *result = Slice();
       return Status::OK();
     }
+    NVM_DBG(file_, "forwarding (fill buffers + read buffers)");
+
+    Status s;
+
+    s = file_->fill_buffers(pos_, n, scratch);
+    if (!s.ok()) {
+      NVM_DBG(file_, "failed filling buffers");
+      return s;
+    }
 
     NVM_DBG(file_, "forwarding");
-    file_->fill_buffers(pos_, n, scratch);
-    Status s = file_->Read(pos_, n, result, scratch);
-    if (s.ok()) {
-      pos_ += result->size();
+    s = file_->Read(pos_, n, result, scratch);
+    if (!s.ok()) {
+      NVM_DBG(file_, "failed forwarded read")
+      return s;
     }
+
+    pos_ += result->size();
 
     NVM_DBG(file_, "pos_(" << pos_ << ")");
     return s;
@@ -743,10 +756,22 @@ public:
     Slice* result,
     char* scratch
   ) const override {
-    NVM_DBG(file_, "forwarding");
+    NVM_DBG(file_, "forwarding (fill buffers + read buffers)");
 
-    file_->fill_buffers(offset, n, scratch);
-    return file_->Read(offset, n, result, scratch);
+    Status s;
+
+    s = file_->fill_buffers(offset, n, scratch);
+    if (!s.ok()) {
+      NVM_DBG(file_, "failed filling buffers");
+      return s;
+    }
+
+    s = file_->Read(offset, n, result, scratch);
+    if (!s.ok()) {
+      NVM_DBG(file_, "failed reading buffers");
+    }
+
+    return s;
   }
 
   virtual bool ShouldForwardRawRequest(void) const override {
