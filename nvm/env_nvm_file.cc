@@ -456,7 +456,7 @@ Status NvmFile::fill_buffers(uint64_t offset, size_t n, char* scratch) {
   for (size_t i = buffers_.size(); i < bufs_required; ++i)
     buffers_.push_back(NULL);
 
-  std::list<size_t> failed;
+  //std::list<size_t> failed;
 
   // Read vblock pages and fill buffers
   for (size_t buf_idx = first_buf_idx; buf_idx < bufs_required; ++buf_idx) {
@@ -473,10 +473,11 @@ Status NvmFile::fill_buffers(uint64_t offset, size_t n, char* scratch) {
     err = nvm_vblock_pread(vblocks_[blk_idx], buffers_[buf_idx], blk_off);
     if (err) {
       NVM_DBG(this, "failed read, err(" << err << ")");
-      failed.push_back(buf_idx);
+      //failed.push_back(buf_idx);
     }
   }
 
+  /*
   // Try again with the failed buffers
   int nfails = 0;
   while(nfails < rretry_) {
@@ -507,6 +508,7 @@ Status NvmFile::fill_buffers(uint64_t offset, size_t n, char* scratch) {
     ++nfails;
     env_->SleepForMicroseconds(backoff);
   }
+  */
 
   return Status::OK();
 }
