@@ -494,8 +494,11 @@ Status NvmFile::fill_buffers(uint64_t offset, size_t n, char* scratch) {
       err = nvm_vblock_pread(vblocks_[blk_idx], buffers_[buf_idx], blk_off);
       if (err) {
         NVM_DBG(this, "retry failed...");
+        failed.pop_front();
+        failed.push_back(buf_idx);
         continue;
       }
+
       failed.pop_front();
       NVM_DBG(this, "recovered! wooo :)");
       nfails = 0;
