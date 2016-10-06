@@ -32,7 +32,8 @@ int main(int argc, char *argv[]) {
   Status s;
 
   Sample sample(kFsize);                // Create buffers
-  sample.fill(65);
+  //sample.fill(65);
+  sample.fill();
 
   s = env->FileExists(fn);
   if (s.ok() && args["delete_existing"]) {
@@ -71,14 +72,15 @@ int main(int argc, char *argv[]) {
 
   size_t nerr = 0;                      // Compare
   for (size_t i = 0; i < kFsize; ++i) {
-    assert(sample.wbuf[i] == rslice[i]);
-    if ((sample.wbuf[i] != rslice[i]) && \
-      ((i < 50) || (i > kFsize-50) || (rslice[i] > 65 || rslice[i] < 90))) {
+    //assert(sample.wbuf[i] == rslice[i]);
+
+    if (sample.wbuf[i] != rslice[i]) {
       ++nerr;
       std::cout << "buf[" << i << "](" << sample.wbuf[i] << ") != "
                 << "rbuf[" << i << "](" << rslice[i] << ")" << std::endl;
     }
   }
+  std::cerr << "nerr(" << nerr << ")" << std::endl;
 
   return 0;
 }
