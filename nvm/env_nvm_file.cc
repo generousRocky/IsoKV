@@ -15,7 +15,7 @@ namespace rocksdb {
 NvmFile::NvmFile(
   EnvNVM* env, const FPathInfo& info
 ) : env_(env), buffers_(), refs_(), info_(info), fsize_(), vblocks_(),
-    rretry_(2), wretry_(2) {
+    rretry_(20), wretry_(20) {
   NVM_DBG(this, "");
 
   dev_name_ = env_->GetDevName();
@@ -399,7 +399,7 @@ Status NvmFile::Flush(void) {
       NVM_DBG(this, "failed write, err(" << err << ")");
     }
 
-    if (nfail == rretry_) {
+    if (nfail == wretry_) {
       NVM_DBG(this, "failures (write) exceeded retry");
       return Status::IOError("failures (write) exceeded retry");
     }
@@ -456,36 +456,53 @@ Status NvmFile::fill_buffers(uint64_t offset, size_t n, char* scratch) {
   for (size_t i = buffers_.size(); i < bufs_required; ++i)
     buffers_.push_back(NULL);
 
-  // Now fill the entries
+  std::list<size_t> failed;
+
+  // Read vblock pages and fill buffers
   for (size_t buf_idx = first_buf_idx; buf_idx < bufs_required; ++buf_idx) {
+    size_t blk_idx, blk_off, err;
+
     if (buffers_[buf_idx])
       continue;
 
     buffers_[buf_idx] = (char*)nvm_vpage_buf_alloc(nvm_dev_attr_geo(dev_));
 
-    size_t blk_idx = buf_idx / vblock_nvpages_;
-    size_t blk_off = buf_idx % vblock_nvpages_;
+    blk_idx = buf_idx / vblock_nvpages_;
+    blk_off = buf_idx % vblock_nvpages_;
 
-    NVM_DBG(this, "buf_idx(" << buf_idx
-            << "), blk_idx(" << blk_idx
-            << "), blk_off(" << blk_off << ")");
+    err = nvm_vblock_pread(vblocks_[blk_idx], buffers_[buf_idx], blk_off);
+    if (err) {
+      NVM_DBG(this, "failed read, err(" << err << ")");
+      failed.push_back(buf_idx);
+    }
+  }
 
-    int nfail = 0;
-    while(nfail < rretry_) {
-      ssize_t err;
+  // Try again with the failed buffers
+  int nfails = 0;
+  while(nfails < rretry_) {
+    int backoff = std::pow(2, nfails);
+
+    while(!failed.empty()) {
+      size_t buf_idx, blk_idx, blk_off, err;
+      buf_idx = failed.front();
+
+      NVM_DBG(this, "retrying buf_idx(" << buf_idx << ")");
+
+      blk_idx = buf_idx / vblock_nvpages_;
+      blk_off = buf_idx % vblock_nvpages_;
 
       err = nvm_vblock_pread(vblocks_[blk_idx], buffers_[buf_idx], blk_off);
-      if (!err)
-        break;
-
-      ++nfail;
-      NVM_DBG(this, "failed read, err(" << err << ")");
+      if (err) {
+        NVM_DBG(this, "retry failed...");
+        continue;
+      }
+      failed.pop_front();
+      NVM_DBG(this, "recovered! wooo :)");
+      nfails = 0;
     }
 
-    if (nfail == rretry_) {
-      NVM_DBG(this, "failures (read) exceeded retry");
-      return Status::IOError("failures (read) exceeded retry");
-    }
+    ++nfails;
+    env_->SleepForMicroseconds(backoff);
   }
 
   return Status::OK();
