@@ -52,11 +52,12 @@ NVM_VBLOCK NvmStore::get(void) {
 
   if (reserved_.empty()) {
     reserve();
-    wmeta();
   }
 
   NVM_VBLOCK blk = reserved_.front();
   reserved_.pop_front();
+
+  wmeta();
 
   return blk;
 }
