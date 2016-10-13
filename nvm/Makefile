@@ -42,11 +42,13 @@ t01_0:
 	./$(BUILD_DIR)/env_nvm_t01 0 > /tmp/jazz.log
 	cat /opt/rtest/nvm.meta
 	cat /opt/rtest/testfile.log.meta
+	nvm_addr fmt_p nvme0n1 `tail -1 /opt/rtest/testfile.log.meta`
 
 t01_1:
 	./$(BUILD_DIR)/env_nvm_t01 1 > /tmp/jazz.log
 	cat /opt/rtest/nvm.meta
 	cat /opt/rtest/testfile.log.meta
+	nvm_addr fmt_p nvme0n1 `tail -1 /opt/rtest/testfile.log.meta`
 
 t02:
 	./$(BUILD_DIR)/env_nvm_t02 3 50000 1 0 > /tmp/jazz.log
