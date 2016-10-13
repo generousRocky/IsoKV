@@ -65,7 +65,7 @@ NVM_VBLOCK NvmStore::get(void) {
 void NvmStore::put(NVM_VBLOCK blk) {
   NVM_DBG(this, "");
 
-  nvm_vblock_put(blk);
+  //nvm_vblock_put(blk);
   nvm_vblock_free(&blk);
 }
 
@@ -74,7 +74,32 @@ Status NvmStore::reserve(void) {
 
   while(reserved_.size() < rate_) {
     NVM_VBLOCK blk;
+    NVM_ADDR addr;
+    ssize_t err;
 
+    addr.g.ch = 0;
+    addr.g.lun = 0;
+    addr.g.pl = 0;
+    addr.g.blk = curs_ % geo_.nblocks;
+    addr.g.pg = 0;
+    addr.g.sec = 0;
+
+    //addr.g.lun = (curs_ % geo_.nluns);
+    //addr.g.blk = (curs_ / geo_.nluns) % geo_.nblocks;
+
+    blk = nvm_vblock_new_on_dev(dev_, addr.ppa);
+    if (!blk) {
+      NVM_DBG(this, "Failed allocating vblock (ENOMEM)");
+      return Status::IOError("Failed allocating vblock (ENOMEM)");
+    }
+
+    err = nvm_vblock_erase(blk);
+    if (err) {
+      NVM_DBG(this, "Failed nvm_vblock_erase err(" << err << ")");
+      return Status::IOError("Failed erasing vblock");
+    }
+
+    /*
     blk = nvm_vblock_new();
     if (!blk) {
       NVM_DBG(this, "Failed allocating vblock (ENOMEM)");
@@ -89,6 +114,7 @@ Status NvmStore::reserve(void) {
       nvm_vblock_free(&blk);
       return Status::IOError("Failed nvm_vblock_gets");
     }
+    */
 
     reserved_.push_back(blk);
     ++curs_;
@@ -102,7 +128,7 @@ Status NvmStore::release(void) {
 
   while(!reserved_.empty()) {
     NVM_VBLOCK blk = reserved_.back();
-    nvm_vblock_put(blk);
+    //nvm_vblock_put(blk);
     reserved_.pop_back();
     nvm_vblock_free(&blk);
   }

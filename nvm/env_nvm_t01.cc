@@ -10,7 +10,7 @@
 using namespace rocksdb;
 
 static size_t kMB = 1 << 20;
-static size_t kFsize = kMB * 16;
+static size_t kFsize = kMB * 16 + (65536*20);
 static char fn[] = "/opt/rtest/testfile.log";
 
 #include "env_nvm_t00.cc"
@@ -48,13 +48,22 @@ int main(int argc, char *argv[]) {
 
     size_t align = wfile->GetRequiredBufferAlignment();
 
-    for (size_t offset = 0; offset < kFsize; offset += align) {
-      Slice wslice(sample.wbuf + offset, align);
+    size_t nbytes_remaining = kFsize;
+    size_t nbytes_written = 0;
+
+    while(nbytes_written < kFsize) {
+      size_t nbytes = std::min(nbytes_remaining, align);
+
+      std::cout << "nbytes(" << nbytes << ")" << std::endl;
+      std::cout << "nbytes_written(" << nbytes_written << ")" << std::endl;
+      std::cout << "nbytes_remaining(" << nbytes_remaining << ")" << std::endl;
+
+      Slice wslice(sample.wbuf + nbytes_written, nbytes);
       s = wfile->Append(wslice);
       assert(s.ok());
 
-      if (!(offset % (align * 4)))      // Flush after every fourth append
-        s = wfile->Flush();
+      nbytes_written += nbytes;
+      nbytes_remaining -= nbytes;
     }
 
     wfile.reset(nullptr);

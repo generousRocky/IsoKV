@@ -298,11 +298,18 @@ Status NvmFile::PositionedAppend(const Slice& slice, uint64_t offset) {
     size_t avail = vpage_nbytes_ - buf_offset;
     size_t nbytes = std::min(nbytes_remaining, avail);
 
+    NVM_DBG(this, "avail(" << avail << "), nbytes(" << nbytes << ")");
+    NVM_DBG(this, "buf_idx(" << buf_idx << ")");
+    NVM_DBG(this, "buf_offset(" << buf_offset << ")");
+    NVM_DBG(this, "nbytes_written(" << nbytes_written << ")");
+    NVM_DBG(this, "nbytes_remaining(" << nbytes_remaining << ")");
     if (!buffers_[buf_idx]) {
+      NVM_DBG(this, "allocating buffer...");
       buffers_[buf_idx] = (char*)nvm_vpage_buf_alloc(nvm_dev_attr_geo(dev_));
     }
-
+    NVM_DBG(this, "memcpy...");
     memcpy(buffers_[buf_idx] + buf_offset, data + nbytes_written, nbytes);
+    NVM_DBG(this, "...memcpy");
 
     nbytes_remaining -= nbytes;
     nbytes_written += nbytes;
@@ -413,7 +420,9 @@ Status NvmFile::Flush(void) {
 
 // Used by WritableFile
 Status NvmFile::Truncate(uint64_t size) {
-  NVM_DBG(this, "size(" << size << "), nvblocks(" << vblocks_.size() << ")");
+  NVM_DBG(this, "fsize_(" << fsize_ << ")" <<
+                ", size(" << size << ")" <<
+                ", nvblocks(" << vblocks_.size() << ")");
 
   size_t bufs_required = (size + vpage_nbytes_ - 1) / vpage_nbytes_;
   size_t blks_required = (bufs_required + vblock_nvpages_ -1) / vblock_nvpages_;
@@ -443,6 +452,35 @@ Status NvmFile::Truncate(uint64_t size) {
   return wmeta();
 }
 
+Status NvmFile::pad_last_block(void) {
+  const size_t pad_blk_idx = fsize_ / vblock_nbytes_;
+  const size_t pad_nbytes = vblock_nbytes_ - (fsize_ % vblock_nbytes_);
+  const size_t pad_blk_offset = (vblock_nbytes_ - pad_nbytes) / vpage_nbytes_;
+
+  NVM_DBG(this, "pad_nbytes(" << pad_nbytes << ")");
+  NVM_DBG(this, "pad_blk_idx(" << pad_blk_idx << ")");
+  NVM_DBG(this, "pad_blk_offset(" << pad_blk_offset << ")");
+
+  if (!pad_nbytes)
+    return Status::OK();
+
+  if (!fsize_)
+    return Status::OK();
+
+  char *buf = (char*)nvm_vpage_buf_alloc(geo_);
+  for (size_t off = pad_blk_offset; off < vblock_nvpages_; ++off) {
+    NVM_DBG(this, "pad blk_idx(" << pad_blk_idx << "), off(" << off << ")");
+
+    ssize_t err = nvm_vblock_pwrite(vblocks_[pad_blk_idx], buf, off);
+
+    if (err) {
+      return Status::IOError("nvm_block_pwrite(...) failed when padding");
+    }
+  }
+
+  return Status::OK();
+}
+
 Status NvmFile::fill_buffers(uint64_t offset, size_t n, char* scratch) {
   NVM_DBG(this, "offset(" << offset << "), n(" << n << ")");
 
@@ -455,8 +493,6 @@ Status NvmFile::fill_buffers(uint64_t offset, size_t n, char* scratch) {
   // Make sure there are entries
   for (size_t i = buffers_.size(); i < bufs_required; ++i)
     buffers_.push_back(NULL);
-
-  //std::list<size_t> failed;
 
   // Read vblock pages and fill buffers
   for (size_t buf_idx = first_buf_idx; buf_idx < bufs_required; ++buf_idx) {
@@ -472,47 +508,14 @@ Status NvmFile::fill_buffers(uint64_t offset, size_t n, char* scratch) {
 
     err = nvm_vblock_pread(vblocks_[blk_idx], buffers_[buf_idx], blk_off);
     if (err) {
-      NVM_DBG(this, "failed read, "
+      NVM_DBG(this, "failed nvm_vblock_pread, "
               << "buf_idx(" << buf_idx << "), "
               << "blk_idx(" << blk_idx << "), "
               << "blk_off(" << blk_off << "), "
               << "err(" << err << ")");
-      //failed.push_back(buf_idx);
+      return Status::IOError("nvm_vblock_pread(...) failed.");
     }
   }
-
-  /*
-  // Try again with the failed buffers
-  int nfails = 0;
-  while(nfails < rretry_) {
-    int backoff = std::pow(2, nfails);
-
-    while(!failed.empty()) {
-      size_t buf_idx, blk_idx, blk_off, err;
-      buf_idx = failed.front();
-
-      NVM_DBG(this, "retrying buf_idx(" << buf_idx << ")");
-
-      blk_idx = buf_idx / vblock_nvpages_;
-      blk_off = buf_idx % vblock_nvpages_;
-
-      err = nvm_vblock_pread(vblocks_[blk_idx], buffers_[buf_idx], blk_off);
-      if (err) {
-        NVM_DBG(this, "retry failed...");
-        failed.pop_front();
-        failed.push_back(buf_idx);
-        continue;
-      }
-
-      failed.pop_front();
-      NVM_DBG(this, "recovered! wooo :)");
-      nfails = 0;
-    }
-
-    ++nfails;
-    env_->SleepForMicroseconds(backoff);
-  }
-  */
 
   return Status::OK();
 }

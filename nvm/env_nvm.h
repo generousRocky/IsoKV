@@ -216,6 +216,7 @@ public:
   const std::string& GetFname(void) const;
   const std::string& GetDpath(void) const;
 
+  Status pad_last_block(void);
   Status fill_buffers(uint64_t offset, size_t n, char* scratch);
 
   void Ref(void);
@@ -843,6 +844,7 @@ public:
     // Probably need to pad such that written data can be read back
 
     file_->Flush();
+    file_->pad_last_block();
     file_->Unref();
   }
 
