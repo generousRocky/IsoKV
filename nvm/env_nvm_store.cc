@@ -139,34 +139,7 @@ Status NvmStore::release(void) {
 Status NvmStore::wmeta(void) {
   NVM_DBG(this, "");
 
-  unique_ptr<WritableFile> fmeta;
-
-  Status s = env_->posix_->NewWritableFile(mpath_, &fmeta, EnvOptions());
-  if (!s.ok()) {
-    return s;
-  }
-
-  std::string meta("");
-  meta += std::to_string(curs_) + "\n";
-  meta += std::string("---\n");
-  for (auto blk : reserved_) {
-    meta += std::to_string(nvm_vblock_attr_ppa(blk)) + "\n";
-  }
-
-  Slice slice(meta.c_str(), meta.size());
-  s = fmeta->Append(slice);
-  if (!s.ok()) {
-    NVM_DBG(this, "meta append failed s(" << s.ToString() << ")");
-  }
-
-  s = fmeta->Flush();
-  if (!s.ok()) {
-    NVM_DBG(this, "meta flush failed s(" << s.ToString() << ")");
-  }
-
-  fmeta.reset(nullptr);
-
-  return s;
+  return env_->wmeta(mpath_, dev_name_, curs_, reserved_);
 }
 
 std::string NvmStore::txt(void) {

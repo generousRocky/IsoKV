@@ -13,7 +13,7 @@
 #include "port/port.h"
 #include <liblightnvm.h>
 
-#define NVM_DBG_ENABLED 1
+//#define NVM_DBG_ENABLED 1
 #ifdef NVM_DBG_ENABLED
 
 inline std::string methodName(const std::string& prettyFunction) {
@@ -181,8 +181,6 @@ public:
   // Construct an NvmFile from meta
   NvmFile(EnvNVM* env, const FPathInfo& info, const std::string mpath);
 
-  Status wmeta(void) const;
-
   bool UseOSBuffer() const;
   bool UseDirectIO() const;
 
@@ -216,12 +214,12 @@ public:
   const std::string& GetFname(void) const;
   const std::string& GetDpath(void) const;
 
-  Status pad_last_block(void);
-  Status fill_buffers(uint64_t offset, size_t n, char* scratch);
-
   void Ref(void);
   void Unref(void);
 
+  Status wmeta(void);
+  Status pad_last_block(void);
+  Status fill_buffers(uint64_t offset, size_t n, char* scratch);
   std::string txt(void) const;
 
 private:
@@ -231,27 +229,26 @@ private:
   void operator=(const NvmFile&);
 
   EnvNVM* env_;
-  EnvOptions env_options_;
-
-  std::vector<char *> buffers_;
-
   port::Mutex refs_mutex_;
   int refs_;
-
   FPathInfo info_;
   uint64_t fsize_;
 
   std::string dev_name_;
-
   NVM_DEV dev_;
   NVM_GEO geo_;
+  const int wretry_;
+
   size_t vpage_nbytes_;
   size_t vblock_nbytes_;
   size_t vblock_nvpages_;
-
   std::vector<NVM_VBLOCK> vblocks_;
-  int rretry_;
-  int wretry_;
+
+  size_t buf_nbytes_;
+  size_t buf_nvpages_;
+  size_t buf_nflushed_;
+  std::vector<char *> buffers_;
+
 };
 
 //
@@ -262,6 +259,49 @@ class EnvNVM : public Env {
 public:
   EnvNVM(const std::string& uri);
   ~EnvNVM(void);
+
+  // We want this code to work for both vector and list
+  template <typename ContainerT>
+  Status wmeta(const std::string& mpath, const std::string& dev_name,
+               int head, const ContainerT& vblocks) {
+    NVM_DBG(this, "");
+
+    unique_ptr<WritableFile> fmeta;
+
+    Status s = posix_->NewWritableFile(mpath, &fmeta, EnvOptions());
+    if (!s.ok()) {
+      return s;
+    }
+
+    std::string meta("");
+    meta += std::to_string(head) + "\n";
+    meta += std::string("---\n");
+    for (auto blk : vblocks) {
+      meta += dev_name;
+      meta += ",";
+      meta += std::to_string(nvm_vblock_attr_ppa(blk));
+      meta += ",";
+      meta += "0";
+      meta += "\n";
+    }
+
+    Slice slice(meta.c_str(), meta.size());
+    s = fmeta->Append(slice);
+    if (!s.ok()) {
+      NVM_DBG(this, "meta append failed s(" << s.ToString() << ")");
+      fmeta.reset(nullptr);
+      return s;
+    }
+
+    s = fmeta->Flush();
+    if (!s.ok()) {
+      NVM_DBG(this, "meta flush failed s(" << s.ToString() << ")");
+    }
+
+    fmeta.reset(nullptr);
+
+    return s;
+  }
 
   // Open (an existing) file with sequential read-only access
   //
@@ -844,7 +884,6 @@ public:
     // Probably need to pad such that written data can be read back
 
     file_->Flush();
-    file_->pad_last_block();
     file_->Unref();
   }
 
@@ -883,6 +922,8 @@ public:
   // writes. The behavior is undefined if called with other writes to follow.
   virtual Status Truncate(uint64_t size) override {
     NVM_DBG(file_, "forwarding");
+
+    file_->pad_last_block();
 
     return file_->Truncate(size);
   }
