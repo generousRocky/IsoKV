@@ -148,7 +148,7 @@ Status EnvNVM::NewWritableFile(
   }
 
   try {                                 // Construct the new file
-    file = new NvmFile(this, info);
+    file = new NvmFile(this, info, "");
   } catch (std::runtime_error& exc) {
     NVM_DBG(this, "Failed creating NvmFile, e(" << exc.what() << ")");
   }

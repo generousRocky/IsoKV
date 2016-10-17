@@ -10,6 +10,13 @@ NvmStore::NvmStore(
   size_t rate
 ) : env_(env), dev_name_(dev_name), mpath_(mpath), rate_(rate), curs_(0) {
 
+  std::deque<uint64_t> meta_ppas, meta_skips;
+
+  Status s = env_->posix_->FileExists(mpath);   // Load from meta
+  if (s.ok()) {
+    s = env_->rmeta(mpath, curs_, dev_name_, meta_ppas, meta_skips);
+  }
+
   dev_ = nvm_dev_open(dev_name_.c_str());       // Open device
   if (!dev_) {
     NVM_DBG(this, "too bad.");
@@ -17,19 +24,14 @@ NvmStore::NvmStore(
   }
   geo_ = nvm_dev_attr_geo(dev_);                // Grab geometry
 
-  Status s = env_->posix_->FileExists(mpath);   // Load curs_ and reservations_
-  if (s.ok()) {
-    std::ifstream meta(mpath);
-    std::string foo;
-    size_t ppa;
-    if (!(meta >> curs_)) {
-      NVM_DBG(this, "shucks...");
-    }
-    if (!(meta >> foo)) {
-      NVM_DBG(this, "shucks...");
-    }
-    while(meta >> ppa) {
-      reserved_.push_back(nvm_vblock_new_on_dev(dev_, ppa));
+  for (auto ppa : meta_ppas) {                  // Populate reservations
+    reserved_.push_back(nvm_vblock_new_on_dev(dev_, ppa));
+  }
+
+  for (auto skip : meta_skips) {                // Check skips
+    if (skip) {
+      NVM_DBG(this, "skip(" << skip << ")");
+      throw std::runtime_error("Got skip in store meta");
     }
   }
 }
@@ -139,7 +141,7 @@ Status NvmStore::release(void) {
 Status NvmStore::wmeta(void) {
   NVM_DBG(this, "");
 
-  return env_->wmeta(mpath_, dev_name_, curs_, reserved_);
+  return env_->wmeta(mpath_, curs_, dev_name_, reserved_);
 }
 
 std::string NvmStore::txt(void) {

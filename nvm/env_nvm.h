@@ -1,6 +1,7 @@
 #ifndef STORAGE_ROCKSDB_ENVNVM_H_
 #define STORAGE_ROCKSDB_ENVNVM_H_
 
+#include <iostream>
 #include <sstream>
 #include <fstream>
 #include <iomanip>
@@ -170,15 +171,13 @@ protected:
 
   port::Mutex mutex_;
   size_t curs_;
-  std::list<NVM_VBLOCK> reserved_;
+  std::deque<NVM_VBLOCK> reserved_;
 };
 
 class NvmFile {
 public:
   // Construct an NvmFile using nvm device associated with Env
-  NvmFile(EnvNVM* env, const FPathInfo& info);
-
-  // Construct an NvmFile from meta
+  // if mpath exists, meta-data will be loaded from file via default-env
   NvmFile(EnvNVM* env, const FPathInfo& info, const std::string mpath);
 
   bool UseOSBuffer() const;
@@ -240,15 +239,17 @@ private:
   const int wretry_;
 
   size_t vpage_nbytes_;
-  size_t vblock_nbytes_;
-  size_t vblock_nvpages_;
-  std::vector<NVM_VBLOCK> vblocks_;
 
   size_t buf_nbytes_;
   size_t buf_nvpages_;
   size_t buf_nflushed_;
   std::vector<char *> buffers_;
 
+  size_t vblock_nbytes_;
+  size_t vblock_nvpages_;
+  size_t vblock_nbufs_;
+  std::deque<NVM_VBLOCK> vblocks_;
+  std::deque<uint64_t> skips_;
 };
 
 //
@@ -260,47 +261,85 @@ public:
   EnvNVM(const std::string& uri);
   ~EnvNVM(void);
 
-  // We want this code to work for both vector and list
-  template <typename ContainerT>
-  Status wmeta(const std::string& mpath, const std::string& dev_name,
-               int head, const ContainerT& vblocks) {
-    NVM_DBG(this, "");
-
-    unique_ptr<WritableFile> fmeta;
-
-    Status s = posix_->NewWritableFile(mpath, &fmeta, EnvOptions());
-    if (!s.ok()) {
-      return s;
-    }
+  Status wmeta(const std::string& mpath,
+               size_t head,
+               const std::string& dev_name,
+               const std::deque<NVM_VBLOCK>& vblocks,
+               const std::deque<uint64_t>& skips) {
+    NVM_DBG(this, "mpath(" << mpath << ")");
 
     std::string meta("");
     meta += std::to_string(head) + "\n";
-    meta += std::string("---\n");
-    for (auto blk : vblocks) {
-      meta += dev_name;
-      meta += ",";
-      meta += std::to_string(nvm_vblock_attr_ppa(blk));
-      meta += ",";
-      meta += "0";
-      meta += "\n";
+    meta += dev_name + "\n";
+    for (size_t idx = 0; idx < vblocks.size(); ++idx) {
+      NVM_VBLOCK vblk = vblocks[idx];
+      if (vblk) {
+        meta += std::to_string(nvm_vblock_attr_ppa(vblk));
+        meta += " ";
+        meta += std::to_string(skips[idx]);
+        meta += "\n";
+      }
     }
-
     Slice slice(meta.c_str(), meta.size());
-    s = fmeta->Append(slice);
+
+    return WriteStringToFile(posix_, slice, mpath, true);
+  }
+
+  Status wmeta(const std::string& mpath,
+               size_t head,
+               const std::string& dev_name,
+               const std::deque<NVM_VBLOCK>& vblocks) {
+    NVM_DBG(this, "mpath(" << mpath << ")");
+
+    std::deque<uint64_t> skips(vblocks.size());
+
+    return wmeta(mpath, head, dev_name, vblocks, skips);
+  }
+
+  Status rmeta(const std::string& mpath,
+               size_t &head,
+               std::string& dev_name,
+               std::deque<uint64_t>& ppas,
+               std::deque<uint64_t>& skips) {
+    NVM_DBG(this, "mpath(" << mpath << ")");
+
+    std::string meta;
+
+    Status s = ReadFileToString(posix_, mpath, &meta);  // Read file into meta
     if (!s.ok()) {
-      NVM_DBG(this, "meta append failed s(" << s.ToString() << ")");
-      fmeta.reset(nullptr);
+      NVM_DBG(this, "file to string failed.");
       return s;
     }
 
-    s = fmeta->Flush();
-    if (!s.ok()) {
-      NVM_DBG(this, "meta flush failed s(" << s.ToString() << ")");
+    std::istringstream ss(meta);
+    if (!(ss >> head)) {                // Read head
+      NVM_DBG(this, "failed parsing head from meta");
+      return Status::IOError("Failed parsing head from meta");
+    }
+    if (!(ss >> dev_name)) {            // Read dev_name
+      NVM_DBG(this, "failed getting dev_name");
+      return Status::IOError("Failed parsing dev_name");
     }
 
-    fmeta.reset(nullptr);
+    uint64_t ppa, skip;
+    while (ss >> ppa && ss >> skip) {   // ppa and skip
+      std::cout << "ppa(" << ppa << ")" << ", skip(" << skip << ")" << std::endl;
+      ppas.push_back(ppa);
+      skips.push_back(skip);
+    }
 
     return s;
+  }
+
+  Status rmeta(const std::string& mpath,
+               size_t &head,
+               std::string& dev_name,
+               std::deque<uint64_t>& ppas) {
+    NVM_DBG(this, "mpath(" << mpath << ")");
+
+    std::deque<uint64_t> skips;
+
+    return rmeta(mpath, head, dev_name, ppas, skips);
   }
 
   // Open (an existing) file with sequential read-only access
