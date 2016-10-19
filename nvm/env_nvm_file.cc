@@ -2,10 +2,31 @@
 #include <iostream>
 #include <fstream>
 #include <csignal>
-
 #include "util/coding.h"
 #include "env_nvm.h"
 #include <liblightnvm.h>
+
+#include <execinfo.h>
+#ifndef NVM_TRACE
+#define NVM_TRACE 1
+void nvm_trace_pr(void) {
+  void *array[1024];
+  size_t size;
+  char **strings;
+  size_t i;
+
+  size = backtrace(array, 1024);
+  strings = backtrace_symbols(array, size);
+
+  printf("Got %zd stack frames.\n", size);
+
+  for (i = 0; i < size; i++) {
+    printf("%s\n", strings[i]);
+  }
+
+  free(strings);
+}
+#endif
 
 int count = 0;
 
@@ -27,7 +48,7 @@ NvmFile::NvmFile(
 
   Status s = env_->posix_->FileExists(mpath);
   if (s.ok()) {                                 // Load from meta
-    Status s = env_->rmeta(mpath, fsize_, dev_name_, meta_ppas, meta_skips);
+    s = env_->rmeta(mpath, fsize_, dev_name_, meta_ppas, meta_skips);
     if (!s.ok()) {
       throw std::runtime_error("Failed reading meta");
     }
@@ -148,23 +169,23 @@ std::string NvmFile::txt(void) const {
 
 // Used by WritableFile
 bool NvmFile::UseDirectIO(void) const {
-  NVM_DBG(this, "hard-coded return(true)");
+  NVM_DBG(this, "return(" << std::boolalpha << c_UseDirectIO << ")");
 
-  return true;
+  return c_UseDirectIO;
 }
 
 // Used by WritableFile
 bool NvmFile::UseOSBuffer(void) const {
-  NVM_DBG(this, "hard-coded return(false)");
+  NVM_DBG(this, "return(" << std::boolalpha << c_UseOSBuffer << ")");
 
-  return false;
+  return c_UseOSBuffer;
 }
 
 // Used by WritableFile
 bool NvmFile::IsSyncThreadSafe(void) const {
-  NVM_DBG(this, "hard-coded return(false)");
+  NVM_DBG(this, "hard-coded return");
 
-  return false;
+  return true;
 }
 
 //
@@ -261,36 +282,40 @@ Status NvmFile::InvalidateCache(size_t offset, size_t length) {
 }
 
 // Used by WritableFile
-Status NvmFile::Append(const Slice& data) {
-  NVM_DBG(this, "forwarding");
+Status NvmFile::Append(const Slice& slice) {
 
-  return PositionedAppend(data, GetFileSize());
-}
+  size_t offset = fsize_;
 
-// Used by WritableFile
-Status NvmFile::PositionedAppend(const Slice& slice, uint64_t offset) {
-  NVM_DBG(this, "offset(" << offset << "), slice-size(" << slice.size() << ")");
+  NVM_DBG(this, "fsize_(" << fsize_ << ")-aligned(" << !(fsize_ % vpage_nbytes_) << ")");
+  NVM_DBG(this, "offset(" << offset << ")-aligned(" << !(offset % vpage_nbytes_) << ")");
+  NVM_DBG(this, "slice-size(" << slice.size() << ")-aligned(" << !(slice.size() % vpage_nbytes_) << ")");
 
   const char* data = slice.data();
   const size_t data_nbytes = slice.size();
 
   size_t nbufs = (offset + data_nbytes) / buf_nbytes_;
   for (size_t i = buffers_.size(); i < nbufs; ++i) {
-    buffers_.push_back((char*)nvm_vpage_buf_alloc(nvm_dev_attr_geo(dev_)));
-  }
-
-  if (offset < fsize_) {
-    std::cout << "writing: offset(" << offset << "),  < fsize_(" << fsize_ << ")" << std::endl;
+    buffers_.push_back((char*)nvm_buf_alloc(geo_, buf_nbytes_));
   }
 
   // Translate offset to buffer and offset within buffer
   size_t buf_idx = offset / buf_nbytes_;
   size_t buf_offset = offset % buf_nbytes_;
 
-  std::cout << "buf_idx(" << buf_idx << "), buf_nflushed_(" << buf_nflushed_ << ")" << std::endl;
-  std::cout << "buf_offset(" << buf_offset << ")" << std::endl;
+  NVM_DBG(this, "BUF: "
+              << "buf_nflushed_(" << buf_nflushed_ << "), "
+              << "nbufs(" << nbufs << ")");
+  NVM_DBG(this, "BUF: "
+              << "buf_idx(" << buf_idx << "), "
+              << "buf_offset(" << buf_offset << ")");
+
+  if (offset < fsize_) {
+    NVM_DBG(this, "WARN: offset(" << offset << ") < fsize_(" << fsize_ << ")");
+  }
+
   if (buf_nflushed_ && buf_idx <= buf_nflushed_ - 1) {
-    std::cout << "THIS IS BAD, writing to buf that has already been flushed" << std::endl;
+    NVM_DBG(this, "ERR: writing to a flushed buffer");
+    return Status::IOError("Re-writing offset => writing a flushed buffer.");
   }
 
   size_t nbytes_remaining = data_nbytes;
@@ -311,8 +336,21 @@ Status NvmFile::PositionedAppend(const Slice& slice, uint64_t offset) {
   }
 
   fsize_ += nbytes_written;
+  NVM_DBG(this, "WROTE -- fsize_(" << fsize_ << ")");
 
   return Status::OK();
+}
+
+// Used by WritableFile
+Status NvmFile::PositionedAppend(const Slice& slice, uint64_t offset) {
+
+  NVM_DBG(this, "fsize_(" << fsize_ << ")-aligned(" << !(fsize_ % vpage_nbytes_) << ")");
+  NVM_DBG(this, "offset(" << offset << ")-aligned(" << !(offset % vpage_nbytes_) << ")");
+  NVM_DBG(this, "slice-size(" << slice.size() << ")-aligned(" << !(slice.size() % vpage_nbytes_) << ")");
+
+  NVM_DBG(this, "!! NOT SUPPORTED !!");
+
+  return Status::NotSupported();
 }
 
 Status NvmFile::wmeta(void) {
@@ -327,7 +365,7 @@ Status NvmFile::wmeta(void) {
 Status NvmFile::Flush(void) {
   NVM_DBG(this, "flushing to media...");
 
-  size_t blks_needed = (buffers_.size() + vblock_nvpages_ -1) / vblock_nvpages_;
+  size_t blks_needed = (buffers_.size() + vblock_nbufs_ -1) / vblock_nbufs_;
   NVM_DBG(this, "blks_needed(" << blks_needed << ")");
 
   // Ensure that have enough blocks reserved for flushing the file content
@@ -347,27 +385,33 @@ Status NvmFile::Flush(void) {
     if (!buffers_[buf_idx])
       continue;
 
-    size_t blk_idx = buf_idx / vblock_nvpages_;
-    size_t blk_off = buf_idx % vblock_nvpages_;
+    size_t blk_idx = buf_idx / vblock_nbufs_;
+    size_t blk_off = buf_idx % vblock_nbufs_;
 
-    NVM_DBG(this, "buf_idx(" << buf_idx
-            << "), blk_idx(" << blk_idx
-            << "), blk_off(" << blk_off << ")");
+    for (size_t buf_pg_off = 0; buf_pg_off < buf_nvpages_; ++buf_pg_off) {
+      NVM_DBG(this, "buf_idx(" << buf_idx
+              << "), blk_idx(" << blk_idx
+              << "), blk_off(" << blk_off << ")");
 
-    int nfail = 0;
-    while(nfail < wretry_) {
-      ssize_t err;
-      err = nvm_vblock_pwrite(vblocks_[blk_idx], buffers_[buf_idx], blk_off);
-      if (!err)
-        break;
+      int nfail = 0;
+      while(nfail < wretry_) {
+        ssize_t err;
+        err = nvm_vblock_pwrite(
+          vblocks_[blk_idx],
+          buffers_[buf_idx] + (buf_pg_off * vpage_nbytes_),
+          blk_off + buf_pg_off
+        );
+        if (!err)
+          break;
 
-      ++nfail;
-      NVM_DBG(this, "failed write, err(" << err << ")");
-    }
+        ++nfail;
+        NVM_DBG(this, "failed write, err(" << err << ")");
+      }
 
-    if (nfail == wretry_) {
-      NVM_DBG(this, "failures (write) exceeded retry");
-      return Status::IOError("failures (write) exceeded retry");
+      if (nfail == wretry_) {
+        NVM_DBG(this, "failures (write) exceeded retry");
+        return Status::IOError("failures (write) exceeded retry");
+      }
     }
 
     free(buffers_[buf_idx]);    // Remove buffered data
@@ -386,7 +430,7 @@ Status NvmFile::Truncate(uint64_t size) {
                 ", nvblocks(" << vblocks_.size() << ")");
 
   size_t bufs_required = (size + buf_nbytes_ - 1) / buf_nbytes_;
-  size_t blks_required = (bufs_required + vblock_nvpages_ -1) / vblock_nvpages_;
+  size_t blks_required = (bufs_required + vblock_nbufs_ -1) / vblock_nbufs_;
 
   // De-allocate buffers that are no longer required
   for(size_t buf_idx = bufs_required; buf_idx < buffers_.size(); ++buf_idx) {
@@ -425,6 +469,15 @@ Status NvmFile::pad_last_block(void) {
   if (!fsize_)
     return Status::OK();
 
+  if (pad_nbytes == vblock_nbytes_)
+    return Status::OK();
+
+  NVM_DBG(this, "padding: "
+                << "pad_blk_idx(" << pad_blk_idx << "), "
+                << "pad_nbytes(" << pad_nbytes << "), "
+                << "pad_blk_offset(" << pad_blk_offset << "), "
+                << "fsize_(" << fsize_ << ")");
+
   char *buf = (char*)nvm_buf_alloc(geo_, buf_nbytes_);
   nvm_buf_fill(buf, buf_nbytes_);
 
@@ -461,19 +514,25 @@ Status NvmFile::fill_buffers(uint64_t offset, size_t n, char* scratch) {
     if (buffers_[buf_idx])
       continue;
 
-    buffers_[buf_idx] = (char*)nvm_vpage_buf_alloc(nvm_dev_attr_geo(dev_));
+    buffers_[buf_idx] = (char*)nvm_buf_alloc(geo_, buf_nbytes_);
 
     blk_idx = buf_idx / vblock_nbufs_;
     blk_off = buf_idx % vblock_nbufs_;
 
-    err = nvm_vblock_pread(vblocks_[blk_idx], buffers_[buf_idx], blk_off);
-    if (err) {
-      NVM_DBG(this, "failed nvm_vblock_pread, "
-              << "buf_idx(" << buf_idx << "), "
-              << "blk_idx(" << blk_idx << "), "
-              << "blk_off(" << blk_off << "), "
-              << "err(" << err << ")");
-      return Status::IOError("nvm_vblock_pread(...) failed.");
+    for (size_t buf_pg_off = 0; buf_pg_off < buf_nvpages_; ++buf_pg_off) {
+      err = nvm_vblock_pread(
+        vblocks_[blk_idx],
+        buffers_[buf_idx] + (buf_pg_off * vpage_nbytes_),
+        blk_off + buf_pg_off
+      );
+      if (err) {
+        NVM_DBG(this, "failed nvm_vblock_pread, "
+                << "buf_idx(" << buf_idx << "), "
+                << "blk_idx(" << blk_idx << "), "
+                << "blk_off(" << blk_off << "), "
+                << "err(" << err << ")");
+        return Status::IOError("nvm_vblock_pread(...) failed.");
+      }
     }
   }
 

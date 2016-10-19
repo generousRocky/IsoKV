@@ -14,7 +14,9 @@
 #include "port/port.h"
 #include <liblightnvm.h>
 
-//#define NVM_DBG_ENABLED 1
+
+
+#define NVM_DBG_ENABLED 1
 #ifdef NVM_DBG_ENABLED
 
 inline std::string methodName(const std::string& prettyFunction) {
@@ -227,6 +229,18 @@ private:
   NvmFile(const NvmFile&);      // No copying allowed.
   void operator=(const NvmFile&);
 
+  //const bool c_UseDirectIO = true;
+  //const bool c_UseOSBuffer = true;
+
+  //const bool c_UseDirectIO = false;
+  //const bool c_UseOSBuffer = false;
+
+  const bool c_UseDirectIO = true;
+  const bool c_UseOSBuffer = false;
+
+  //const bool c_UseDirectIO = false;
+  //const bool c_UseOSBuffer = true;
+
   EnvNVM* env_;
   port::Mutex refs_mutex_;
   int refs_;
@@ -311,18 +325,18 @@ public:
       return s;
     }
 
-    std::istringstream ss(meta);
-    if (!(ss >> head)) {                // Read head
+    std::istringstream meta_ss(meta);
+    if (!(meta_ss >> head)) {                // Read head
       NVM_DBG(this, "failed parsing head from meta");
       return Status::IOError("Failed parsing head from meta");
     }
-    if (!(ss >> dev_name)) {            // Read dev_name
+    if (!(meta_ss >> dev_name)) {            // Read dev_name
       NVM_DBG(this, "failed getting dev_name");
       return Status::IOError("Failed parsing dev_name");
     }
 
     uint64_t ppa, skip;
-    while (ss >> ppa && ss >> skip) {   // ppa and skip
+    while (meta_ss >> ppa && meta_ss >> skip) {   // ppa and skip
       std::cout << "ppa(" << ppa << ")" << ", skip(" << skip << ")" << std::endl;
       ppas.push_back(ppa);
       skips.push_back(skip);
@@ -942,18 +956,23 @@ public:
     return file_->GetRequiredBufferAlignment();
   }
 
-  virtual Status Append(const Slice& data) override {
-    NVM_DBG(file_, "forwarding");
+  virtual Status Append(const Slice& slice) override {
+    NVM_DBG(file_, "forwarding...");
 
-    return file_->Append(data);
+    return file_->Append(slice);
   }
 
   // Positioned write for unbuffered access default forward to simple append as
   // most of the tests are buffered by default
-  virtual Status PositionedAppend(const Slice& data, uint64_t offset) override {
-    NVM_DBG(file_, "forwarding");
+  virtual Status PositionedAppend(const Slice& slice, uint64_t offset) override {
 
-    return file_->PositionedAppend(data, offset);
+    if (offset == file_->GetFileSize()) {
+      NVM_DBG(file_, "forwarding to Append (offset == fsize_)");
+      return file_->Append(slice);
+    } else {
+      NVM_DBG(file_, "forwarding to PositionedAppend (offset != fsize_)");
+      return file_->PositionedAppend(slice, offset);
+    }
   }
 
   // Truncate is necessary to trim the file to the correct size before closing.
