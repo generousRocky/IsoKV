@@ -965,14 +965,9 @@ public:
   // Positioned write for unbuffered access default forward to simple append as
   // most of the tests are buffered by default
   virtual Status PositionedAppend(const Slice& slice, uint64_t offset) override {
+    NVM_DBG(file_, "forwarding...");
 
-    if (offset == file_->GetFileSize()) {
-      NVM_DBG(file_, "forwarding to Append (offset == fsize_)");
-      return file_->Append(slice);
-    } else {
-      NVM_DBG(file_, "forwarding to PositionedAppend (offset != fsize_)");
-      return file_->PositionedAppend(slice, offset);
-    }
+    return file_->PositionedAppend(slice, offset);
   }
 
   // Truncate is necessary to trim the file to the correct size before closing.

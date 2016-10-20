@@ -18,7 +18,7 @@ taskset -c 0-$(nproc) ./db_bench \
 --use_existing_db=0 \
 --env_uri="nvm://nvme0n1/opt/rtest/nvm.meta" \
 --db=$DB_PATH \
---benchmarks=fillseq \
+--benchmarks=fillseq,overwrite,overwrite \
 --num=$NUM \
 --value_size=$VALUE_SIZE \
 --verify_checksum=1 \

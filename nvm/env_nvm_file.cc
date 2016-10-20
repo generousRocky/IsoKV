@@ -283,24 +283,28 @@ Status NvmFile::InvalidateCache(size_t offset, size_t length) {
 
 // Used by WritableFile
 Status NvmFile::Append(const Slice& slice) {
+  NVM_DBG(this, "");
 
-  size_t offset = fsize_;
+  return PositionedAppend(slice, fsize_);
+}
 
-  NVM_DBG(this, "fsize_(" << fsize_ << ")-aligned(" << !(fsize_ % vpage_nbytes_) << ")");
-  NVM_DBG(this, "offset(" << offset << ")-aligned(" << !(offset % vpage_nbytes_) << ")");
-  NVM_DBG(this, "slice-size(" << slice.size() << ")-aligned(" << !(slice.size() % vpage_nbytes_) << ")");
+// Used by WritableFile
+Status NvmFile::PositionedAppend(const Slice& slice, uint64_t offset) {
+  NVM_DBG(this, "fsize_(" << fsize_ << ")-aligned(" << !(fsize_ % buf_nbytes_) << ")");
+  NVM_DBG(this, "offset(" << offset << ")-aligned(" << !(offset % buf_nbytes_) << ")");
+  NVM_DBG(this, "slice-size(" << slice.size() << ")-aligned(" << !(slice.size() % buf_nbytes_) << ")");
 
   const char* data = slice.data();
   const size_t data_nbytes = slice.size();
+
+  // Translate offset to buffer and offset within buffer
+  size_t buf_idx = offset / buf_nbytes_;
+  size_t buf_offset = offset % buf_nbytes_;
 
   size_t nbufs = (offset + data_nbytes) / buf_nbytes_;
   for (size_t i = buffers_.size(); i < nbufs; ++i) {
     buffers_.push_back((char*)nvm_buf_alloc(geo_, buf_nbytes_));
   }
-
-  // Translate offset to buffer and offset within buffer
-  size_t buf_idx = offset / buf_nbytes_;
-  size_t buf_offset = offset % buf_nbytes_;
 
   NVM_DBG(this, "BUF: "
               << "buf_nflushed_(" << buf_nflushed_ << "), "
@@ -314,8 +318,9 @@ Status NvmFile::Append(const Slice& slice) {
   }
 
   if (buf_nflushed_ && buf_idx <= buf_nflushed_ - 1) {
-    NVM_DBG(this, "ERR: writing to a flushed buffer");
-    return Status::IOError("Re-writing offset => writing a flushed buffer.");
+    NVM_DBG(this, "ERR: NOT SUPPORTED -- writing to a flushed buffer");
+    NVM_DBG(this, "ERR: stale(" << (buf_nflushed_ - buf_idx) << ")");
+    //return Status::NotSupported("Writing to flushed data.");
   }
 
   size_t nbytes_remaining = data_nbytes;
@@ -336,21 +341,8 @@ Status NvmFile::Append(const Slice& slice) {
   }
 
   fsize_ += nbytes_written;
-  NVM_DBG(this, "WROTE -- fsize_(" << fsize_ << ")");
 
   return Status::OK();
-}
-
-// Used by WritableFile
-Status NvmFile::PositionedAppend(const Slice& slice, uint64_t offset) {
-
-  NVM_DBG(this, "fsize_(" << fsize_ << ")-aligned(" << !(fsize_ % vpage_nbytes_) << ")");
-  NVM_DBG(this, "offset(" << offset << ")-aligned(" << !(offset % vpage_nbytes_) << ")");
-  NVM_DBG(this, "slice-size(" << slice.size() << ")-aligned(" << !(slice.size() % vpage_nbytes_) << ")");
-
-  NVM_DBG(this, "!! NOT SUPPORTED !!");
-
-  return Status::NotSupported();
 }
 
 Status NvmFile::wmeta(void) {
