@@ -481,6 +481,10 @@ Status NvmFile::pad_last_block(void) {
   char *buf = (char*)nvm_buf_alloc(geo_, vpage_nbytes_);
   nvm_buf_fill(buf, vpage_nbytes_);
 
+  NVM_DBG(this, "fsize_(" << fsize_ << "), "
+             << "vblock_nbytes_(" << vblock_nbytes_ << "), "
+             << "vpage_nbytes_(" << vpage_nbytes_ << ")");
+
   for (size_t offset = pad_blk_offset; offset < vblock_nvpages_; ++offset) {
     NVM_DBG(this, "pad blk_idx(" << pad_blk_idx << "), offset(" << offset << ")");
 
