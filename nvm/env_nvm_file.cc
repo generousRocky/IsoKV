@@ -470,39 +470,21 @@ Status NvmFile::pad_last_block(void) {
     return s;
   }
 
-  const size_t pad_blk_idx = fsize_ / vblock_nbytes_;
-  const size_t pad_nbytes = vblock_nbytes_ - (fsize_ % vblock_nbytes_);
-  const size_t pad_blk_offset = (vblock_nbytes_ - pad_nbytes) / buf_nbytes_;
-
-  NVM_DBG(this, "padding: "
-                << "pad_blk_idx(" << pad_blk_idx << "), "
-                << "pad_nbytes(" << pad_nbytes << "), "
-                << "pad_blk_offset(" << pad_blk_offset << "), "
-                << "fsize_(" << fsize_ << ")");
-
-  if (!pad_nbytes) {
-    NVM_DBG(this, "padding: nothing to pad, skipping...");
-    return Status::OK();
-  }
-
   if (!fsize_) {
     NVM_DBG(this, "padding: empty file, skipping...");
     return Status::OK();
   }
 
-  if (pad_nbytes == vblock_nbytes_) {
-    NVM_DBG(this, "padding: entire block, skipping...");
-    return Status::OK();
-  }
+  const size_t pad_blk_idx = fsize_ / vblock_nbytes_;
+  const size_t pad_blk_offset = (fsize_ % vblock_nbytes_) / vpage_nbytes_;
 
-  char *buf = (char*)nvm_buf_alloc(geo_, buf_nbytes_);
-  nvm_buf_fill(buf, buf_nbytes_);
+  char *buf = (char*)nvm_buf_alloc(geo_, vpage_nbytes_);
+  nvm_buf_fill(buf, vpage_nbytes_);
 
-  for (size_t off = pad_blk_offset; off < vblock_nbufs_; ++off) {
-    NVM_DBG(this, "pad blk_idx(" << pad_blk_idx << "), off(" << off << ")");
+  for (size_t offset = pad_blk_offset; offset < vblock_nvpages_; ++offset) {
+    NVM_DBG(this, "pad blk_idx(" << pad_blk_idx << "), offset(" << offset << ")");
 
-    ssize_t err = nvm_vblock_pwrite(vblocks_[pad_blk_idx], buf, off);
-
+    ssize_t err = nvm_vblock_pwrite(vblocks_[pad_blk_idx], buf, offset);
     if (err) {
       return Status::IOError("nvm_block_pwrite(...) failed when padding");
     }
