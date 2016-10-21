@@ -933,8 +933,6 @@ public:
   ~NvmWritableFile(void) {
     NVM_DBG(file_, "");
 
-    // Probably need to pad such that written data can be read back
-
     file_->Flush(false);
     file_->Unref();
   }

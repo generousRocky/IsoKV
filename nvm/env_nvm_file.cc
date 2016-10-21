@@ -462,24 +462,38 @@ Status NvmFile::Truncate(uint64_t size) {
 }
 
 Status NvmFile::pad_last_block(void) {
-  const size_t pad_blk_idx = fsize_ / buf_nbytes_;
-  const size_t pad_nbytes = vblock_nbytes_ - (fsize_ % buf_nbytes_);
+  NVM_DBG(this, "...");
+
+  Status s = Flush(false);      // Flush out...
+  if (!s.ok()) {
+    NVM_DBG(this, "Shit happened...");
+    return s;
+  }
+
+  const size_t pad_blk_idx = fsize_ / vblock_nbytes_;
+  const size_t pad_nbytes = vblock_nbytes_ - (fsize_ % vblock_nbytes_);
   const size_t pad_blk_offset = (vblock_nbytes_ - pad_nbytes) / buf_nbytes_;
-
-  if (!pad_nbytes)
-    return Status::OK();
-
-  if (!fsize_)
-    return Status::OK();
-
-  if (pad_nbytes == vblock_nbytes_)
-    return Status::OK();
 
   NVM_DBG(this, "padding: "
                 << "pad_blk_idx(" << pad_blk_idx << "), "
                 << "pad_nbytes(" << pad_nbytes << "), "
                 << "pad_blk_offset(" << pad_blk_offset << "), "
                 << "fsize_(" << fsize_ << ")");
+
+  if (!pad_nbytes) {
+    NVM_DBG(this, "padding: nothing to pad, skipping...");
+    return Status::OK();
+  }
+
+  if (!fsize_) {
+    NVM_DBG(this, "padding: empty file, skipping...");
+    return Status::OK();
+  }
+
+  if (pad_nbytes == vblock_nbytes_) {
+    NVM_DBG(this, "padding: entire block, skipping...");
+    return Status::OK();
+  }
 
   char *buf = (char*)nvm_buf_alloc(geo_, buf_nbytes_);
   nvm_buf_fill(buf, buf_nbytes_);

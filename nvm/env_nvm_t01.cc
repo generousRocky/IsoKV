@@ -66,6 +66,8 @@ int main(int argc, char *argv[]) {
       nbytes_remaining -= nbytes;
     }
 
+    wfile->Truncate(kFsize);
+    wfile->Close();
     wfile.reset(nullptr);
   }
 
