@@ -319,8 +319,8 @@ Status NvmFile::PositionedAppend(const Slice& slice, uint64_t offset) {
 
   if (buf_nflushed_ && buf_idx <= buf_nflushed_ - 1) {
     NVM_DBG(this, "ERR: NOT SUPPORTED -- writing to a flushed buffer");
-    NVM_DBG(this, "ERR: stale(" << (buf_nflushed_ - buf_idx) << ")");
-    //return Status::NotSupported("Writing to flushed data.");
+    NVM_DBG(this, "stale(" << (buf_nflushed_ - buf_idx) << ")");
+    return Status::NotSupported("Writing to flushed data.");
   }
 
   size_t nbytes_remaining = data_nbytes;
@@ -354,10 +354,20 @@ Status NvmFile::wmeta(void) {
 }
 
 // Used by WritableFile
+
 Status NvmFile::Flush(void) {
+  return Flush(true);
+}
+
+Status NvmFile::Flush(bool all_but_last) {
   NVM_DBG(this, "flushing to media...");
 
-  size_t blks_needed = (buffers_.size() + vblock_nbufs_ -1) / vblock_nbufs_;
+  size_t nbufs = buffers_.size();
+  if (nbufs && all_but_last) {
+    --nbufs;
+  }
+
+  size_t blks_needed = (nbufs + vblock_nbufs_ -1) / vblock_nbufs_;
   NVM_DBG(this, "blks_needed(" << blks_needed << ")");
 
   // Ensure that have enough blocks reserved for flushing the file content
@@ -373,7 +383,7 @@ Status NvmFile::Flush(void) {
   }
 
   // Write to media and free buffers
-  for (size_t buf_idx = 0; buf_idx < buffers_.size(); ++buf_idx) {
+  for (size_t buf_idx = 0; buf_idx < nbufs; ++buf_idx) {
     if (!buffers_[buf_idx])
       continue;
 
@@ -383,7 +393,8 @@ Status NvmFile::Flush(void) {
     for (size_t buf_pg_off = 0; buf_pg_off < buf_nvpages_; ++buf_pg_off) {
       NVM_DBG(this, "buf_idx(" << buf_idx
               << "), blk_idx(" << blk_idx
-              << "), blk_off(" << blk_off << ")");
+              << "), blk_off(" << blk_off
+              << "), buf_pg_off(" << buf_pg_off << ")");
 
       int nfail = 0;
       while(nfail < wretry_) {

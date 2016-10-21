@@ -14,8 +14,6 @@
 #include "port/port.h"
 #include <liblightnvm.h>
 
-
-
 #define NVM_DBG_ENABLED 1
 #ifdef NVM_DBG_ENABLED
 
@@ -196,6 +194,7 @@ public:
   Status RangeSync(uint64_t offset, uint64_t nbytes);
   Status Fsync(void);
   Status Flush(void);
+  Status Flush(bool all_but_last);
 
   void Rename(const std::string& fname);
   void PrepareWrite(size_t offset, size_t len);
@@ -936,7 +935,7 @@ public:
 
     // Probably need to pad such that written data can be read back
 
-    file_->Flush();
+    file_->Flush(false);
     file_->Unref();
   }
 
