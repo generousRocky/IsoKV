@@ -10,6 +10,7 @@
 #include "util/file_reader_writer.h"
 
 #include <algorithm>
+#include <iostream>
 #include <mutex>
 
 #include "port/port.h"
@@ -61,11 +62,16 @@ Status WritableFileWriter::Append(const Slice& data) {
     writable_file_->PrepareWrite(static_cast<size_t>(GetFileSize()), left);
   }
 
-  // Flush only when I/O is buffered
+  /*
+  std::cout << "left(" << left << "), Capacity(" << buf_.Capacity() << "), "
+            << "CurrentSize(" << buf_.CurrentSize() << ")" << std::endl;
+  */
+
+  // Flush only when I/O is os-buffered? This is untrue?
   if (use_os_buffer_ &&
     (buf_.Capacity() - buf_.CurrentSize()) < left) {
     if (buf_.CurrentSize() > 0) {
-      s = Flush();
+      s = Flush(false);
       if (!s.ok()) {
         return s;
       }
@@ -89,7 +95,7 @@ Status WritableFileWriter::Append(const Slice& data) {
       src += appended;
 
       if (left > 0) {
-        s = Flush();
+        s = Flush(false);
         if (!s.ok()) {
           break;
         }
@@ -107,7 +113,7 @@ Status WritableFileWriter::Append(const Slice& data) {
   } else {
     // Writing directly to file bypassing the buffer
     assert(buf_.CurrentSize() == 0);
-    s = WriteBuffered(src, left);
+    s = WriteOSBuffered(src, left);
   }
 
   TEST_KILL_RANDOM("WritableFileWriter::Append:1", rocksdb_kill_odds);
@@ -130,7 +136,7 @@ Status WritableFileWriter::Close() {
     return s;
   }
 
-  s = Flush();  // flush cache to OS
+  s = Flush(false);  // flush cache to OS
 
   // In unbuffered mode we write whole pages so
   // we need to let the file know where data ends.
@@ -153,25 +159,33 @@ Status WritableFileWriter::Close() {
 
 // write out the cached data to the OS cache
 Status WritableFileWriter::Flush() {
+  return Flush(true);
+}
+
+Status WritableFileWriter::Flush(bool external) {
+  //std::cout << "FLUSH -- EXTERNAL(" << std::boolalpha << external << ")" << std::endl;
+
   Status s;
   TEST_KILL_RANDOM("WritableFileWriter::Flush:0",
                    rocksdb_kill_odds * REDUCE_ODDS2);
 
   if (buf_.CurrentSize() > 0) {
     if (use_os_buffer_) {
-      s = WriteBuffered(buf_.BufferStart(), buf_.CurrentSize());
+      s = WriteOSBuffered(buf_.BufferStart(), buf_.CurrentSize());
     } else {
-      s = WriteUnbuffered();
+      s = WriteRocksBuffered();
     }
     if (!s.ok()) {
       return s;
     }
   }
 
-  s = writable_file_->Flush();
+  if (external) {
+    s = writable_file_->Flush();
 
-  if (!s.ok()) {
-    return s;
+    if (!s.ok()) {
+      return s;
+    }
   }
 
   // sync OS cache to disk for every bytes_per_sync_
@@ -204,7 +218,7 @@ Status WritableFileWriter::Flush() {
 }
 
 Status WritableFileWriter::Sync(bool use_fsync) {
-  Status s = Flush();
+  Status s = Flush(false);
   if (!s.ok()) {
     return s;
   }
@@ -271,7 +285,7 @@ size_t WritableFileWriter::RequestToken(size_t bytes, bool align) {
 
 // This method writes to disk the specified data and makes use of the rate
 // limiter if available
-Status WritableFileWriter::WriteBuffered(const char* data, size_t size) {
+Status WritableFileWriter::WriteOSBuffered(const char* data, size_t size) {
   Status s;
   assert(use_os_buffer_);
   const char* src = data;
@@ -290,7 +304,7 @@ Status WritableFileWriter::WriteBuffered(const char* data, size_t size) {
     }
 
     IOSTATS_ADD(bytes_written, allowed);
-    TEST_KILL_RANDOM("WritableFileWriter::WriteBuffered:0", rocksdb_kill_odds);
+    TEST_KILL_RANDOM("WritableFileWriter::WriteOSBuffered:0", rocksdb_kill_odds);
 
     left -= allowed;
     src += allowed;
@@ -308,7 +322,7 @@ Status WritableFileWriter::WriteBuffered(const char* data, size_t size) {
 // whole number of pages to be written again on the next flush because we can
 // only write on aligned
 // offsets.
-Status WritableFileWriter::WriteUnbuffered() {
+Status WritableFileWriter::WriteRocksBuffered() {
   Status s;
 
   assert(!use_os_buffer_);

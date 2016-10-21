@@ -136,6 +136,7 @@ class WritableFileWriter {
   Status Append(const Slice& data);
 
   Status Flush();
+  Status Flush(bool external);
 
   Status Close();
 
@@ -155,11 +156,12 @@ class WritableFileWriter {
   WritableFile* writable_file() const { return writable_file_.get(); }
 
  private:
-  // Used when os buffering is OFF and we are writing
+  // Used when OS buffering is OFF and we are writing
   // DMA such as in Windows unbuffered mode
-  Status WriteUnbuffered();
+  // This instead uses private member buf_ for buffering
+  Status WriteRocksBuffered();
   // Normal write
-  Status WriteBuffered(const char* data, size_t size);
+  Status WriteOSBuffered(const char* data, size_t size);
   Status RangeSync(uint64_t offset, uint64_t nbytes);
   size_t RequestToken(size_t bytes, bool align);
   Status SyncInternal(bool use_fsync);
