@@ -330,7 +330,7 @@ Status NvmFile::PositionedAppend(const Slice& slice, uint64_t offset) {
     size_t nbytes = std::min(nbytes_remaining, avail);
 
     if (!buffers_[buf_idx]) {
-      buffers_[buf_idx] = (char*)nvm_buf_alloc(nvm_dev_attr_geo(dev_), buf_nbytes_);
+      buffers_[buf_idx] = (char*)nvm_buf_alloc(geo_, buf_nbytes_);
     }
     memcpy(buffers_[buf_idx] + buf_offset, data + nbytes_written, nbytes);
 
@@ -340,7 +340,11 @@ Status NvmFile::PositionedAppend(const Slice& slice, uint64_t offset) {
     buf_offset = 0;
   }
 
-  fsize_ += nbytes_written;
+  const size_t fsize_inc = offset + nbytes_written - fsize_;
+
+  fsize_ += fsize_inc;
+  NVM_DBG(this, "fsize_inc(" << fsize_inc << ")");
+  NVM_DBG(this, "nbytes_written(" << nbytes_written << ")");
 
   return Status::OK();
 }
@@ -481,6 +485,8 @@ Status NvmFile::pad_last_block(void) {
   char *buf = (char*)nvm_buf_alloc(geo_, vpage_nbytes_);
   nvm_buf_fill(buf, vpage_nbytes_);
 
+  NVM_DBG(this, "buffers_.size(" << buffers_.size() << ")");
+
   NVM_DBG(this, "fsize_(" << fsize_ << "), "
              << "vblock_nbytes_(" << vblock_nbytes_ << "), "
              << "vpage_nbytes_(" << vpage_nbytes_ << ")");
@@ -500,30 +506,37 @@ Status NvmFile::pad_last_block(void) {
 Status NvmFile::fill_buffers(uint64_t offset, size_t n, char* scratch) {
   NVM_DBG(this, "offset(" << offset << "), n(" << n << ")");
 
-  // TODO: only fill required buffers instead of all of them
-  size_t first_buf_idx = 0;
-  size_t bufs_required = (fsize_ + buf_nbytes_ - 1) / buf_nbytes_;
+  size_t buf_idx_begin = offset / buf_nbytes_;
+  size_t buf_idx_end = std::min(offset + n, fsize_) / buf_nbytes_;
 
-  NVM_DBG(this, "first_buf_idx(" << first_buf_idx << "), bufs_required(" << bufs_required << ")");
+  NVM_DBG(this, "filling: "
+          << "buf_idx_begin(" << buf_idx_begin << "), "
+          << "buf_idx_end(" << buf_idx_end << ")");
 
   // Make sure there are entries
-  for (size_t i = buffers_.size(); i < bufs_required; ++i)
+  for (size_t buf_idx = buffers_.size(); buf_idx <= buf_idx_end; ++buf_idx) {
+    NVM_DBG(this, "adding: entry buf_idx(" << buf_idx << ")");
     buffers_.push_back(NULL);
+  }
 
   // Read vblock pages and fill buffers
-  for (size_t buf_idx = first_buf_idx; buf_idx < bufs_required; ++buf_idx) {
-    size_t blk_idx, blk_off, err;
+  for (size_t buf_idx = buf_idx_begin; buf_idx <= buf_idx_end; ++buf_idx) {
+    size_t blk_idx, blk_off;
 
-    if (buffers_[buf_idx])
+    if (buffers_[buf_idx]) {
+      NVM_DBG(this, "skipping: already filled.");
       continue;
+    }
 
     buffers_[buf_idx] = (char*)nvm_buf_alloc(geo_, buf_nbytes_);
 
     blk_idx = buf_idx / vblock_nbufs_;
     blk_off = buf_idx % vblock_nbufs_;
 
+    NVM_DBG(this, "media: blk_idx(" << blk_idx << "), blk_off(" << blk_off << ")");
+
     for (size_t buf_pg_off = 0; buf_pg_off < buf_nvpages_; ++buf_pg_off) {
-      err = nvm_vblock_pread(
+      size_t err = nvm_vblock_pread(
         vblocks_[blk_idx],
         buffers_[buf_idx] + (buf_pg_off * vpage_nbytes_),
         blk_off + buf_pg_off

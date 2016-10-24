@@ -53,9 +53,11 @@ t01_1:
 t02:
 	./$(BUILD_DIR)/env_nvm_t02 3 50000 1 0 > /tmp/jazz.log
 
-b01:
+clean-bench:
 	rm -r /opt/rtest/db || true
 	rm /tmp/jazz.log || true
+
+b01:
 	./nvmdb_bench.sh ../ /opt/rtest/db 2>&1 | tee -a /tmp/jazz.log
 
 b02:
