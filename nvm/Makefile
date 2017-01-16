@@ -26,9 +26,10 @@ clean:
 
 all: clean default install
 
+.PHONY: tags
 tags:
-	ctags * -R src
-	ctags -R --c++-kinds=+p --fields=+iaS --extra=+q /home/safl/git/rocksdb
+	ctags * -R .
+	ctags -R --c++-kinds=+p --fields=+iaS --extra=+q ../
 
 dev: clean configure make
 

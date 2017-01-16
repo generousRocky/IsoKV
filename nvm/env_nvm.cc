@@ -43,13 +43,15 @@ EnvNVM::EnvNVM(
     throw std::runtime_error("Invalid uri(3)");
   }
 
-  dev_name_ = uri_.substr(kUriPrefix.size(), path_offset - kUriPrefix.size());
+  std::string dev_name = uri_.substr(
+    kUriPrefix.size(), path_offset - kUriPrefix.size()
+  );
 
   NVM_DBG(this, "uri_(" << uri_ << ")");
   NVM_DBG(this, "mpath(" << mpath.fpath() << ")");
-  NVM_DBG(this, "dev_name_(" << dev_name_ << ")");
+  NVM_DBG(this, "dev_name_(" << dev_name << ")");
 
-  store_ = new NvmStore(this, dev_name_, mpath.fpath(), 10);
+  store_ = new NvmStore(this, dev_name, mpath.fpath(), 10);
 }
 
 EnvNVM::~EnvNVM(void) {

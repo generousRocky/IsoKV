@@ -25,7 +25,8 @@ set(SOURCE_FILES
   env_nvm_store.cc
   env_nvm_file.cc
   env_nvm_t01.cc
-  env_nvm_t02.cc)
+  env_nvm_t02.cc
+  env_nvm_t03.cc)
 
 set(SOURCE_FILES_T01
   env_nvm.cc
@@ -38,6 +39,12 @@ set(SOURCE_FILES_T02
   env_nvm_store.cc
   env_nvm_file.cc
   env_nvm_t02.cc)
+
+set(SOURCE_FILES_T03
+  env_nvm.cc
+  env_nvm_store.cc
+  env_nvm_file.cc
+  env_nvm_t03.cc)
 
 include_directories(../include)
 include_directories(../)
@@ -58,5 +65,10 @@ add_executable(env_nvm_t02 ${HEADER_FILES} ${SOURCE_FILES_T02})
 target_link_libraries(env_nvm_t02
 	pthread rt gflags z snappy ${LIB_RDB} pthread ${LIBLIGHTNVM})
 
+add_executable(env_nvm_t03 ${HEADER_FILES} ${SOURCE_FILES_T03})
+target_link_libraries(env_nvm_t03
+	pthread rt gflags z snappy ${LIB_RDB} pthread ${LIBLIGHTNVM})
+
 install(TARGETS env_nvm_t01 DESTINATION bin)
 install(TARGETS env_nvm_t02 DESTINATION bin)
+install(TARGETS env_nvm_t03 DESTINATION bin)

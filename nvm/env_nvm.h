@@ -135,22 +135,20 @@ class NvmSequentialFile;        // Declared here, defined here
 class NvmRandomAccessFile;      // Declared here, defined here
 
 //
-// Stateful wrapper for nvm_vblock_[get|put] to facilitate preallocation of
-// vblocks and provide accounting of reservations across device.
+// Stateful wrapper for provisioning of virtual blocks
 class NvmStore {
 public:
-  NvmStore(
-    EnvNVM* env,
-    const std::string& dev_name,
-    const std::string& mpath,
-    size_t rate
-  );
+  NvmStore(EnvNVM* env, const std::string &dev_name, const std::string& mpath, size_t rate);
 
   ~NvmStore(void);
 
-  NVM_VBLOCK get(void);
+  struct nvm_vblk* get(void);
 
-  void put(NVM_VBLOCK blk);
+  void put(struct nvm_vblk* blk);
+
+  struct nvm_dev *GetDev(void) const { return dev_; }
+  std::string GetDevName(void) const { return dev_name_; }
+  std::string GetDevPath(void) const { return dev_path_; }
 
 protected:
 
@@ -163,15 +161,16 @@ protected:
   std::string txt(void);
 
   EnvNVM* env_;
-  NVM_DEV dev_;
   std::string dev_name_;
-  NVM_GEO geo_;
+  std::string dev_path_;
+  struct nvm_dev *dev_;
+  const struct nvm_geo *geo_;
   std::string mpath_;
   size_t rate_;
 
   port::Mutex mutex_;
   size_t curs_;
-  std::deque<NVM_VBLOCK> reserved_;
+  std::deque<struct nvm_vblk*> reserved_;
 };
 
 class NvmFile {
@@ -219,7 +218,6 @@ public:
 
   Status wmeta(void);
   Status pad_last_block(void);
-  Status fill_buffers(uint64_t offset, size_t n, char* scratch);
   std::string txt(void) const;
 
 private:
@@ -246,28 +244,27 @@ private:
   FPathInfo info_;
   uint64_t fsize_;
 
-  std::string dev_name_;
-  NVM_DEV dev_;
-  NVM_GEO geo_;
-  const int wretry_;
+  size_t align_nbytes_;
+  size_t blk_nbytes_;
 
-  size_t vpage_nbytes_;
-
-  size_t buf_nbytes_;
-  size_t buf_nvpages_;
-  size_t buf_nflushed_;
-  std::vector<char *> buffers_;
-
-  size_t vblock_nbytes_;
-  size_t vblock_nvpages_;
-  size_t vblock_nbufs_;
-  std::deque<NVM_VBLOCK> vblocks_;
-  std::deque<uint64_t> skips_;
+  std::deque<struct nvm_vblk*> blks_;
 };
 
+template<typename T>
+std::string num_to_hex(T i)
+{
+  std::stringstream stream;
+
+  stream << "0x"
+         << std::setfill ('0') << std::setw(16)
+         << std::hex << i;
+
+  return stream.str();
+}
+
 //
-// Environment for non-volatile memory, specifically OpenChannelSSDs accessed
-// via liblightnvm.
+// Environment for non-volatile memory
+// Specifically Open-Channel SSDs accessed via liblightnvm
 //
 class EnvNVM : public Env {
 public:
@@ -277,19 +274,23 @@ public:
   Status wmeta(const std::string& mpath,
                size_t head,
                const std::string& dev_name,
-               const std::deque<NVM_VBLOCK>& vblocks,
-               const std::deque<uint64_t>& skips) {
+               const std::deque<struct nvm_vblk*>& blks) {
     NVM_DBG(this, "mpath(" << mpath << ")");
 
     std::string meta("");
     meta += std::to_string(head) + "\n";
     meta += dev_name + "\n";
-    for (size_t idx = 0; idx < vblocks.size(); ++idx) {
-      NVM_VBLOCK vblk = vblocks[idx];
-      if (vblk) {
-        meta += std::to_string(nvm_vblock_attr_ppa(vblk));
-        meta += " ";
-        meta += std::to_string(skips[idx]);
+    for (size_t idx = 0; idx < blks.size(); ++idx) {
+      struct nvm_vblk* blk = blks[idx];
+
+      if (blk) {
+        int naddrs = nvm_vblk_get_naddrs(blk);
+        struct nvm_addr *addrs = nvm_vblk_get_addrs(blk);
+
+        for (int i = 0; i < naddrs; ++i) {
+          meta += num_to_hex(addrs[i].ppa);
+          meta += " ";
+        }
         meta += "\n";
       }
     }
@@ -298,24 +299,11 @@ public:
     return WriteStringToFile(posix_, slice, mpath, true);
   }
 
-  Status wmeta(const std::string& mpath,
-               size_t head,
-               const std::string& dev_name,
-               const std::deque<NVM_VBLOCK>& vblocks) {
-    NVM_DBG(this, "mpath(" << mpath << ")");
-
-    std::deque<uint64_t> skips(vblocks.size());
-
-    return wmeta(mpath, head, dev_name, vblocks, skips);
-  }
-
   Status rmeta(const std::string& mpath,
                size_t &head,
                std::string& dev_name,
-               std::deque<uint64_t>& ppas,
-               std::deque<uint64_t>& skips) {
+               std::deque<std::vector<struct nvm_addr>>& addrs) {
     NVM_DBG(this, "mpath(" << mpath << ")");
-
     std::string meta;
 
     Status s = ReadFileToString(posix_, mpath, &meta);  // Read file into meta
@@ -333,26 +321,25 @@ public:
       NVM_DBG(this, "failed getting dev_name");
       return Status::IOError("Failed parsing dev_name");
     }
+                                            // Read blocks
+    for (std::string line; std::getline(meta_ss, line, '\n');) {
+      std::vector<struct nvm_addr> vblk_addrs;
+      std::istringstream line_ss(line);
 
-    uint64_t ppa, skip;
-    while (meta_ss >> ppa && meta_ss >> skip) {   // ppa and skip
-      std::cout << "ppa(" << ppa << ")" << ", skip(" << skip << ")" << std::endl;
-      ppas.push_back(ppa);
-      skips.push_back(skip);
+      if (line.empty())
+        continue;
+
+      for(std::string ppa; line_ss >> ppa;) {// read addresses
+        struct nvm_addr addr;
+
+        addr.ppa = strtoul(ppa.c_str(), NULL, 16);
+        vblk_addrs.push_back(addr);
+      }
+
+      addrs.push_back(vblk_addrs);
     }
 
     return s;
-  }
-
-  Status rmeta(const std::string& mpath,
-               size_t &head,
-               std::string& dev_name,
-               std::deque<uint64_t>& ppas) {
-    NVM_DBG(this, "mpath(" << mpath << ")");
-
-    std::deque<uint64_t> skips;
-
-    return rmeta(mpath, head, dev_name, ppas, skips);
   }
 
   // Open (an existing) file with sequential read-only access
@@ -498,7 +485,6 @@ public:
 
   // PUBLIC ADDITIONS the environment interface - BEGIN
   std::string txt(void) const { return ""; }
-  std::string GetDevName(void) const { return dev_name_; }
   // PUBLIC ADDITIONS the environment interface - END
 
 private:
@@ -734,9 +720,6 @@ private:
   void operator=(const Env&);
 
   std::string uri_;
-  std::string dev_name_;
-
-  std::string rpath_;   // Path to persist state for NvmStore
 
   std::map<std::string, std::vector<NvmFile*>> fs_;
   port::Mutex fs_mutex_; // Serializing lookup, creation, and deletion
@@ -777,12 +760,6 @@ public:
     NVM_DBG(file_, "forwarding (fill buffers + read buffers)");
 
     Status s;
-
-    s = file_->fill_buffers(pos_, n, scratch);
-    if (!s.ok()) {
-      NVM_DBG(file_, "failed filling buffers");
-      return s;
-    }
 
     NVM_DBG(file_, "forwarding");
     s = file_->Read(pos_, n, result, scratch);
@@ -852,12 +829,6 @@ public:
     NVM_DBG(file_, "forwarding (fill buffers + read buffers)");
 
     Status s;
-
-    s = file_->fill_buffers(offset, n, scratch);
-    if (!s.ok()) {
-      NVM_DBG(file_, "failed filling buffers");
-      return s;
-    }
 
     s = file_->Read(offset, n, result, scratch);
     if (!s.ok()) {
