@@ -42,7 +42,6 @@ NvmStore::NvmStore(
       NVM_DBG(this, "NvmStore: failed allocating `vblk`");
       throw std::runtime_error("NvmStore: failed allocating `vblk`");
     }
-
     reserved_.push_back(vblk);
   }
 
@@ -71,7 +70,6 @@ struct nvm_vblk* NvmStore::get(void) {
   if (reserved_.empty()) {
     reserve();
   }
-
   struct nvm_vblk* blk = reserved_.front();
   reserved_.pop_front();
 

@@ -295,8 +295,6 @@ Status NvmFile::PositionedAppend(const Slice& slice, uint64_t offset) {
   buf_nbytes_ = offset - (fsize_ - buf_nbytes_);        // Reset buffer start
   fsize_ = offset;                                      // Reset file size
 
-  NVM_DBG(this, "1. fsize_(" << fsize_ << "), buf_nbytes_(" << buf_nbytes_ << ")");
-
   while(nbytes_remaining > 0) {
     size_t avail = buf_nbytes_max_ - buf_nbytes_;
     size_t nbytes = std::min(nbytes_remaining, avail);
@@ -309,13 +307,10 @@ Status NvmFile::PositionedAppend(const Slice& slice, uint64_t offset) {
     buf_nbytes_ += nbytes;
     fsize_ += nbytes;
 
-    NVM_DBG(this, "2. fsize_(" << fsize_ << "), buf_nbytes_(" << buf_nbytes_ << ")");
-
     if (nbytes_remaining && (!Flush().ok())) {
       return Status::IOError("Flushing to media failed.");
     }
   }
-  NVM_DBG(this, "3. fsize_(" << fsize_ << "), buf_nbytes_(" << buf_nbytes_ << ")");
 
   return Status::OK();
 }
@@ -360,22 +355,23 @@ Status NvmFile::Flush(bool all_but_last) {
   size_t offset = fsize_ - buf_nbytes_;
   size_t blk_idx = offset / blk_nbytes_;
 
-  if (!blks_[blk_idx]) {
+  while (blks_.size() <= blk_idx) {
+    NVM_DBG(this, "Getting... env_(" << env_ << "), store_(" << env_->store_ << ")");
     struct nvm_vblk *blk = env_->store_->get();
 
     if (!blk) {
       NVM_DBG(this, "failed allocating block blk_idx(" << blk_idx << ")");
       return Status::IOError("Failed reserving NVM (ENOMEM)");
     }
-
-    blks_[blk_idx] = blk;
+    NVM_DBG(this, "Got a block");
+    blks_.push_back(blk);
   }
 
-  nvm_vblk_pr(blks_[blk_idx]);
   buf_nbytes_ -= flush_tbytes;
 
+  NVM_DBG(this, "Flushing flush_tbytes(" << flush_tbytes << ")");
+
   if (nvm_vblk_write(blks_[blk_idx], buf_, flush_tbytes) < 0) {
-    perror("What is this snitzel!?");
     NVM_DBG(this, "More snitzels");
     return Status::IOError("More snitzels");
   }
