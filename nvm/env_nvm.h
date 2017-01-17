@@ -245,7 +245,13 @@ private:
   uint64_t fsize_;
 
   size_t align_nbytes_;
+  size_t stripe_nbytes_;
   size_t blk_nbytes_;
+
+  char *buf_;
+  size_t buf_nbytes_;
+  size_t buf_nbytes_max_;
+  size_t buf_file_offset_;
 
   std::deque<struct nvm_vblk*> blks_;
 };

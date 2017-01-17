@@ -35,72 +35,61 @@ namespace rocksdb {
 NvmFile::NvmFile(
   EnvNVM* env, const FPathInfo& info, const std::string mpath
 ) :
-  env_(env), refs_(), info_(info), fsize_(), align_nbytes_(),
-  blk_nbytes_(), blks_() {
+  env_(env), refs_(), info_(info), fsize_(),
+  align_nbytes_(), stripe_nbytes_(), blk_nbytes_(), blks_() {
   NVM_DBG(this, "");
 
   const struct nvm_geo *geo = nvm_dev_get_geo(env_->store_->GetDev());
 
   align_nbytes_ = geo->nplanes * geo->nsectors * geo->sector_nbytes;
-  /*
-  std::deque<uint64_t> meta_bgns, meta_ends;
+  stripe_nbytes_ = align_nbytes_ * geo->nchannels * geo->nluns;
+  blk_nbytes_ = stripe_nbytes_ * geo->nblocks * geo->npages;
 
-  dev_name_ = env_->GetDevName();
+  std::deque<std::vector<struct nvm_addr>> meta_vblks;
 
   Status s = env_->posix_->FileExists(mpath);
   if (s.ok()) {                                 // Load from meta
-    s = env_->rmeta(mpath, fsize_, dev_name_, meta_bgns, meta_ends);
+    std::string dev_path;
+    s = env_->rmeta(mpath, fsize_, dev_path, meta_vblks);
     if (!s.ok()) {
       throw std::runtime_error("Failed reading meta");
     }
+    if (dev_path.compare(env_->store_->GetDevPath())) {
+      throw std::runtime_error("Invalid device");
+    }
   }
 
-
-  if (meta_bgns.size() != meta_ends.size())
-    throw std::runtime_error("Invalid meta: #bgns != #ends");
-
-  for(size_t i = 0; i < meta_bgns.size(); ++i) {
-    NVM_ADDR ppa_bgn, ppa_end;
-
-    ppa_bgn.ppa = meta_bgns[i];
-    ppa_end.ppa = meta_ends[i];
-
-    struct nvm_vblk *blk = nvm_sblk_new(dev_, ppa_bgn.g.ch, ppa_end.g.ch,
-                                ppa_bgn.g.lun, ppa_end.g.lun, ppa_bgn.g.blk);
-
-    // NOTE: Assuming all sblks have the same geometry and span
-    // TODO: Implement verification of the assumption
-    geo_ = nvm_sblk_attr_geo(blk);
+  for (size_t i = 0; i < meta_vblks.size(); ++i) {
+    struct nvm_vblk *blk = nvm_vblk_alloc(
+      env_->store_->GetDev(),
+      &meta_vblks[i][0],
+      meta_vblks[i].size()
+    );
+    if (!blk) {
+      throw std::runtime_error("Failed allocating vblk");
+    }
+    blks_.push_back(blk);
   }
 
-  align_nbytes_ = geo_.nchannels * geo_.nluns * \
-                geo_.nplanes * geo_.nsectors * geo_.nbytes;
-  blk_nbytes_ = geo_.nchannels * geo_.nluns * geo_.npages * \
-                geo_.nplanes * geo_.nsectors * geo_.nbytes;
-
-  NVM_DBG(this, "align_nbytes_(" << align_nbytes_ << ") ");
-  NVM_DBG(this, "blk_nbytes_(" << blk_nbufs_ << ") ");
-  */
+  buf_file_offset_ = fsize_;
+  buf_nbytes_ = 0;
+  buf_nbytes_max_ = blk_nbytes_ * 2;
+  buf_ = (char*)nvm_buf_alloc(geo, buf_nbytes_max_);
+  if (!buf_) {
+    throw std::runtime_error("Failed allocating buffer");
+  }
 }
 
 NvmFile::~NvmFile(void) {
   NVM_DBG(this, "");
 
-  /*
-  for (auto &buf : buffers_) {
-    if (buf) {
-      free(buf);
-    }
-  }
-
   for (auto &blk : blks_) {
     if (blk) {
-      nvm_sblk_free(blk);
+      nvm_vblk_free(blk);
     }
   }
 
-  nvm_dev_close(dev_);
-   */
+  free(buf_);
 }
 
 bool NvmFile::IsNamed(const std::string& fname) const {
@@ -286,60 +275,49 @@ Status NvmFile::PositionedAppend(const Slice& slice, uint64_t offset) {
   NVM_DBG(this, "offset(" << offset << ")-aligned(" << !(offset % align_nbytes_) << ")");
   NVM_DBG(this, "slice-size(" << slice.size() << ")-aligned(" << !(slice.size() % align_nbytes_) << ")");
 
-  /*
-  const char* data = slice.data();
+  if (offset < (fsize_ - buf_nbytes_)) {
+    NVM_DBG(this, "ERR: offset(" << offset << ") <  fsize_(" << fsize_ << ") - buf_nbytes_(" << buf_nbytes_ << ")");
+    return Status::IOError("Writing to flushed offset");
+  }
+
+  if (offset > fsize_) {
+    NVM_DBG(this, "ERR: offset(" << offset << ") > fsize_(" << fsize_ << ")");
+    return Status::IOError("Out of bounds");
+  }
+
   const size_t data_nbytes = slice.size();
-
-  // Translate offset to buffer and offset within buffer
-  size_t buf_idx = offset / align_nbytes_;
-  size_t buf_offset = offset % align_nbytes_;
-
-  size_t nbufs = (offset + data_nbytes) / align_nbytes_;
-  for (size_t i = buffers_.size(); i < nbufs; ++i) {
-    buffers_.push_back((char*)nvm_buf_alloc(geo_, align_nbytes_));
-  }
-
-  NVM_DBG(this, "BUF: "
-              << "buf_nflushed_(" << buf_nflushed_ << "), "
-              << "nbufs(" << nbufs << ")");
-  NVM_DBG(this, "BUF: "
-              << "buf_idx(" << buf_idx << "), "
-              << "buf_offset(" << buf_offset << ")");
-
-  if (offset < fsize_) {
-    NVM_DBG(this, "WARN: offset(" << offset << ") < fsize_(" << fsize_ << ")");
-  }
-
-  if (buf_nflushed_ && buf_idx <= buf_nflushed_ - 1) {
-    NVM_DBG(this, "ERR: NOT SUPPORTED -- writing to a flushed buffer");
-    NVM_DBG(this, "stale(" << (buf_nflushed_ - buf_idx) << ")");
-    return Status::NotSupported("Writing to flushed data.");
-  }
+  const char* data = slice.data();
+  size_t buf_off = fsize_ - offset;
 
   size_t nbytes_remaining = data_nbytes;
   size_t nbytes_written = 0;
+
   while(nbytes_remaining > 0) {
-    size_t avail = align_nbytes_ - buf_offset;
+    size_t avail = buf_nbytes_max_ - buf_off;
     size_t nbytes = std::min(nbytes_remaining, avail);
 
-    if (!buffers_[buf_idx]) {
-      buffers_[buf_idx] = (char*)nvm_buf_alloc(geo_, align_nbytes_);
-    }
-    memcpy(buffers_[buf_idx] + buf_offset, data + nbytes_written, nbytes);
+    memcpy(buf_ + buf_off, data + nbytes_written, nbytes);
 
     nbytes_remaining -= nbytes;
     nbytes_written += nbytes;
-    ++buf_idx;
-    buf_offset = 0;
+    buf_nbytes_ += nbytes;
+
+    if (nbytes_remaining) {
+      Flush();
+      buf_off = 0;
+    }
   }
 
   const size_t fsize_inc = offset + nbytes_written - fsize_;
 
+  NVM_DBG(this, "offset(" << offset
+      << ") nbytes_written(" << nbytes_written
+      << "), fsize_(" << fsize_
+      << "), buf_nbytes_(" << buf_nbytes_ << ")" );
+
   fsize_ += fsize_inc;
   NVM_DBG(this, "fsize_inc(" << fsize_inc << ")");
   NVM_DBG(this, "nbytes_written(" << nbytes_written << ")");
-
-  */
 
   return Status::OK();
 }
@@ -359,9 +337,29 @@ Status NvmFile::Flush(void) {
 }
 
 Status NvmFile::Flush(bool all_but_last) {
-  NVM_DBG(this, "flushing to media...");
+  NVM_DBG(this, "all_buf_last(" << all_but_last << ")");
+
+  if (!buf_nbytes_) {
+    NVM_DBG(this, "Nothing to flush (case 1)");
+    return Status::OK();
+  }
+
+  if (all_but_last && buf_nbytes_ <= align_nbytes_) {
+    NVM_DBG(this, "Nothing to flush (case 2)");
+    return Status::OK();
+  }
+
+  size_t flush_nbytes = all_but_last ? buf_nbytes_ - align_nbytes_ : buf_nbytes_;
+
+  NVM_DBG(this, "buf_nbytes_(" << buf_nbytes_ << "), flush_nbytes(" << flush_nbytes << ")");
+
+  // TODO: Flush the buffer
+  buf_nbytes_ -= flush_nbytes;
 
   /*
+  size_t blk_idx = offset / blk_nbytes_;
+  size_t blk_off = offset % blk_nbytes_;
+
   size_t nbufs = buffers_.size();
   if (nbufs && all_but_last) {
     --nbufs;
