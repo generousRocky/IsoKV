@@ -73,7 +73,7 @@ NvmFile::NvmFile(
 
   buf_file_offset_ = fsize_;
   buf_nbytes_ = 0;
-  buf_nbytes_max_ = blk_nbytes_ * 2;
+  buf_nbytes_max_ = blk_nbytes_;
   buf_ = (char*)nvm_buf_alloc(geo, buf_nbytes_max_);
   if (!buf_) {
     throw std::runtime_error("Failed allocating buffer");
@@ -271,8 +271,9 @@ Status NvmFile::Append(const Slice& slice) {
 
 // Used by WritableFile
 Status NvmFile::PositionedAppend(const Slice& slice, uint64_t offset) {
-  NVM_DBG(this, "fsize_(" << fsize_ << ")-aligned(" << !(fsize_ % align_nbytes_) << ")");
   NVM_DBG(this, "offset(" << offset << ")-aligned(" << !(offset % align_nbytes_) << ")");
+  NVM_DBG(this, "fsize_(" << fsize_ << ")-aligned(" << !(fsize_ % align_nbytes_) << ")");
+  NVM_DBG(this, "buf_nbytes_(" << buf_nbytes_ << ")-aligned(" << !(buf_nbytes_ % align_nbytes_) << ")");
   NVM_DBG(this, "slice-size(" << slice.size() << ")-aligned(" << !(slice.size() % align_nbytes_) << ")");
 
   if (offset < (fsize_ - buf_nbytes_)) {
@@ -287,37 +288,34 @@ Status NvmFile::PositionedAppend(const Slice& slice, uint64_t offset) {
 
   const size_t data_nbytes = slice.size();
   const char* data = slice.data();
-  size_t buf_off = fsize_ - offset;
 
   size_t nbytes_remaining = data_nbytes;
   size_t nbytes_written = 0;
 
+  buf_nbytes_ = offset - (fsize_ - buf_nbytes_);        // Reset buffer start
+  fsize_ = offset;                                      // Reset file size
+
+  NVM_DBG(this, "1. fsize_(" << fsize_ << "), buf_nbytes_(" << buf_nbytes_ << ")");
+
   while(nbytes_remaining > 0) {
-    size_t avail = buf_nbytes_max_ - buf_off;
+    size_t avail = buf_nbytes_max_ - buf_nbytes_;
     size_t nbytes = std::min(nbytes_remaining, avail);
 
-    memcpy(buf_ + buf_off, data + nbytes_written, nbytes);
+    memcpy(buf_ + buf_nbytes_, data + nbytes_written, nbytes);
 
     nbytes_remaining -= nbytes;
     nbytes_written += nbytes;
-    buf_nbytes_ += nbytes;
 
-    if (nbytes_remaining) {
-      Flush();
-      buf_off = 0;
+    buf_nbytes_ += nbytes;
+    fsize_ += nbytes;
+
+    NVM_DBG(this, "2. fsize_(" << fsize_ << "), buf_nbytes_(" << buf_nbytes_ << ")");
+
+    if (nbytes_remaining && (!Flush().ok())) {
+      return Status::IOError("Flushing to media failed.");
     }
   }
-
-  const size_t fsize_inc = offset + nbytes_written - fsize_;
-
-  NVM_DBG(this, "offset(" << offset
-      << ") nbytes_written(" << nbytes_written
-      << "), fsize_(" << fsize_
-      << "), buf_nbytes_(" << buf_nbytes_ << ")" );
-
-  fsize_ += fsize_inc;
-  NVM_DBG(this, "fsize_inc(" << fsize_inc << ")");
-  NVM_DBG(this, "nbytes_written(" << nbytes_written << ")");
+  NVM_DBG(this, "3. fsize_(" << fsize_ << "), buf_nbytes_(" << buf_nbytes_ << ")");
 
   return Status::OK();
 }
@@ -349,12 +347,38 @@ Status NvmFile::Flush(bool all_but_last) {
     return Status::OK();
   }
 
-  size_t flush_nbytes = all_but_last ? buf_nbytes_ - align_nbytes_ : buf_nbytes_;
+  if (fsize_ < buf_nbytes_) {
+    NVM_DBG(this, "This should not happen!");
+    return Status::IOError("This should not happen!");
+  }
 
-  NVM_DBG(this, "buf_nbytes_(" << buf_nbytes_ << "), flush_nbytes(" << flush_nbytes << ")");
+  size_t flush_tbytes = all_but_last ? buf_nbytes_ - align_nbytes_ : buf_nbytes_;
 
-  // TODO: Flush the buffer
-  buf_nbytes_ -= flush_nbytes;
+  NVM_DBG(this, "buf_nbytes_(" << buf_nbytes_ << "), flush_tbytes(" << flush_tbytes << ")");
+
+  // TODO: Implement this properly
+  size_t offset = fsize_ - buf_nbytes_;
+  size_t blk_idx = offset / blk_nbytes_;
+
+  if (!blks_[blk_idx]) {
+    struct nvm_vblk *blk = env_->store_->get();
+
+    if (!blk) {
+      NVM_DBG(this, "failed allocating block blk_idx(" << blk_idx << ")");
+      return Status::IOError("Failed reserving NVM (ENOMEM)");
+    }
+
+    blks_[blk_idx] = blk;
+  }
+
+  nvm_vblk_pr(blks_[blk_idx]);
+  buf_nbytes_ -= flush_tbytes;
+
+  if (nvm_vblk_write(blks_[blk_idx], buf_, flush_tbytes) < 0) {
+    perror("What is this snitzel!?");
+    NVM_DBG(this, "More snitzels");
+    return Status::IOError("More snitzels");
+  }
 
   /*
   size_t blk_idx = offset / blk_nbytes_;
@@ -430,9 +454,27 @@ Status NvmFile::Truncate(uint64_t size) {
                 ", size(" << size << ")" <<
                 ", nvblocks(" << blks_.size() << ")");
 
+  size_t blks_nreq = (size + blk_nbytes_ -1) / blk_nbytes_;
+
+  // Release blocks that are no longer required
+  for(size_t blk_idx = blks_nreq; blk_idx < blks_.size(); ++blk_idx) {
+    NVM_DBG(this, "blk_idx(" << blk_idx << ")");
+
+    if (!blks_[blk_idx]) {
+      NVM_DBG(this, "nothing here... skipping...");
+      continue;
+    }
+
+    env_->store_->put(blks_[blk_idx]);
+    blks_[blk_idx] = NULL;
+  }
+
+  fsize_ = size;
+
+  // TODO: Adjust buffer accordingly
+
   /*
   size_t bufs_required = (size + align_nbytes_ - 1) / align_nbytes_;
-  size_t blks_required = (bufs_required + blk_nbufs_ -1) / blk_nbufs_;
 
   // De-allocate buffers that are no longer required
   for(size_t buf_idx = bufs_required; buf_idx < buffers_.size(); ++buf_idx) {
@@ -454,7 +496,6 @@ Status NvmFile::Truncate(uint64_t size) {
     blks_[blk_idx] = NULL;
   }
 
-  fsize_ = size;
   */
   return wmeta();
 }
@@ -473,14 +514,15 @@ Status NvmFile::pad_last_block(void) {
     return Status::OK();
   }
 
-  /*
   const size_t blk_idx = fsize_ / blk_nbytes_;
 
-  ssize_t err = nvm_sblk_pad(blks_[blk_idx]);
-  if (err < 0)
-    return Status::IOError("FAILED: nvm_sblk_pad(...)");
+  if (!blks_[blk_idx]) {
+    return Status::IOError("FAILED: No vblk to pad!?");
+  }
 
-    */
+  ssize_t err = nvm_vblk_pad(blks_[blk_idx]);
+  if (err < 0)
+    return Status::IOError("FAILED: nvm_vblk_pad(...)");
 
   return Status::OK();
 }
