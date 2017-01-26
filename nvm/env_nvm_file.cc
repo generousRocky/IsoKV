@@ -307,6 +307,7 @@ Status NvmFile::PositionedAppend(const Slice& slice, uint64_t offset) {
     buf_nbytes_ += nbytes;
     fsize_ += nbytes;
 
+    // Have bytes remaining but no more room in buffer -> flush to media
     if (nbytes_remaining && (!Flush().ok())) {
       return Status::IOError("Flushing to media failed.");
     }
@@ -351,96 +352,45 @@ Status NvmFile::Flush(bool all_but_last) {
 
   NVM_DBG(this, "buf_nbytes_(" << buf_nbytes_ << "), flush_tbytes(" << flush_tbytes << ")");
 
-  // TODO: Implement this properly
+  // Ensure that enough blocks are reserved for flushing buffer
+  while (blks_.size() <= (fsize_ / blk_nbytes_)) {
+    struct nvm_vblk *blk;
+
+    blk = env_->store_->get();
+    if (!blk) {
+      NVM_DBG(this, "Failed reserving NVM");
+      return Status::IOError("Failed reserving NVM");
+    }
+
+    blks_.push_back(blk);
+  }
+
   size_t offset = fsize_ - buf_nbytes_;
-  size_t blk_idx = offset / blk_nbytes_;
+  size_t nbytes_remaining = flush_tbytes;
+  size_t nbytes_written = 0;
 
-  while (blks_.size() <= blk_idx) {
-    NVM_DBG(this, "Getting... env_(" << env_ << "), store_(" << env_->store_ << ")");
-    struct nvm_vblk *blk = env_->store_->get();
+  while (nbytes_remaining > 0) {
+    size_t blk_idx = (offset + nbytes_written) / blk_nbytes_;
+    struct nvm_vblk *blk = blks_[blk_idx];
+    size_t avail = blk_nbytes_ - nvm_vblk_get_pos_write(blk);
+    size_t nbytes = std::min(nbytes_remaining, avail);
+    ssize_t ret;
 
-    if (!blk) {
-      NVM_DBG(this, "failed allocating block blk_idx(" << blk_idx << ")");
-      return Status::IOError("Failed reserving NVM (ENOMEM)");
-    }
-    NVM_DBG(this, "Got a block");
-    blks_.push_back(blk);
-  }
-
-  buf_nbytes_ -= flush_tbytes;
-
-  NVM_DBG(this, "Flushing flush_tbytes(" << flush_tbytes << ")");
-
-  if (nvm_vblk_write(blks_[blk_idx], buf_, flush_tbytes) < 0) {
-    NVM_DBG(this, "More snitzels");
-    return Status::IOError("More snitzels");
-  }
-
-  /*
-  size_t blk_idx = offset / blk_nbytes_;
-  size_t blk_off = offset % blk_nbytes_;
-
-  size_t nbufs = buffers_.size();
-  if (nbufs && all_but_last) {
-    --nbufs;
-  }
-
-  size_t blks_needed = (nbufs + blk_nbufs_ -1) / blk_nbufs_;
-  NVM_DBG(this, "blks_needed(" << blks_needed << ")");
-
-  // Ensure that have enough blocks reserved for flushing the file content
-  for (size_t i = blks_.size(); i < blks_needed; ++i) {
-    struct nvm_vblk *blk = env_->store_->get();
-
-    if (!blk) {
-      NVM_DBG(this, "failed allocating block i(" << i << ")");
-      return Status::IOError("Failed reserving NVM (ENOMEM)");
+    ret = nvm_vblk_write(blk, buf_ + nbytes_written, nbytes);
+    if (ret < 0) {
+      NVM_DBG(this, "nvm_vblk_write(...) failed");
+      return Status::IOError("nvm_vblk_write(...) failed");
     }
 
-    blks_.push_back(blk);
+    nbytes_remaining -= ret;
+    nbytes_written += ret;
   }
 
-  // Write to media and free buffers
-  for (size_t buf_idx = 0; buf_idx < nbufs; ++buf_idx) {
-    if (!buffers_[buf_idx])
-      continue;
+  if (all_but_last)
+    memcpy(buf_, buf_ + nbytes_written, buf_nbytes_ - nbytes_written);
 
-    size_t blk_idx = buf_idx / blk_nbufs_;
-    size_t blk_off = buf_idx % blk_nbufs_;
+  buf_nbytes_ -= nbytes_written;
 
-    for (size_t buf_pg_off = 0; buf_pg_off < buf_nvpgs_; ++buf_pg_off) {
-      NVM_DBG(this, "buf_idx(" << buf_idx
-              << "), blk_idx(" << blk_idx
-              << "), blk_off(" << blk_off
-              << "), buf_pg_off(" << buf_pg_off << ")");
-
-      int nfail = 0;
-      while(nfail < wretry_) {
-        ssize_t err;
-        err = nvm_sblk_write(
-          blks_[blk_idx],
-          buffers_[buf_idx] + (buf_pg_off * vpg_nbytes_),
-          1
-        );
-        if (!err)
-          break;
-
-        ++nfail;
-        NVM_DBG(this, "failed write, err(" << err << ")");
-      }
-
-      if (nfail == wretry_) {
-        NVM_DBG(this, "failures (write) exceeded retry");
-        return Status::IOError("failures (write) exceeded retry");
-      }
-    }
-
-    free(buffers_[buf_idx]);    // Remove buffered data
-    buffers_[buf_idx] = NULL;
-
-    buf_nflushed_ = buf_idx+1;
-  }
-  */
   return wmeta();
 }
 
@@ -529,27 +479,27 @@ Status NvmFile::Read(
 ) const {
   NVM_DBG(this, "offset(" << offset << "), n(" << n << "), fsize(" << fsize_ << ")");
 
-  // n is the MAX number of bytes to read, since it is the since of the scratch
+  // n is the MAX number of bytes to read, since it is the size of the scratch
   // memory. However, there might be n, less than n, or more than n bytes in the
   // file starting from offset.  So we need to know how many bytes we actually
   // need to read..
   const uint64_t nbytes_from_offset = fsize_ - std::min(fsize_, offset);
+
   if (n > nbytes_from_offset) {
     n = nbytes_from_offset;
   }
   if (n == 0) {
-    NVM_DBG(this, "no buffers...");
+    NVM_DBG(this, "nothing left to read...");
     *result = Slice();
     return Status::OK();
   }
   // Now we know that: '0 < n <= nbytes_from_offset'
 
-  /*
-  // TODO: Compute blk and offset within block when reading from multiple blocks
   uint64_t blk_idx = offset / blk_nbytes_;
   uint64_t blk_offset = offset % blk_nbytes_;
+  uint64_t blk_nbytes = std::min(blk_nbytes_ - blk_offset, n);
 
-  ssize_t ret = nvm_sblk_read(blks_[blk_id], scratch, n, blk_offset);
+  ssize_t ret = nvm_vblk_pread(blks_[blk_idx], scratch, blk_nbytes, blk_offset);
 
   if (ret < 0) {
     NVM_DBG(this, "FAILED: nvm_sblk_read");
@@ -557,7 +507,6 @@ Status NvmFile::Read(
   }
 
   *result = Slice(scratch, ret);
-  */
 
   return Status::OK();
 }
