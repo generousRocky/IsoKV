@@ -486,7 +486,8 @@ Status NvmFile::pad_last_block(void) {
 Status NvmFile::Read(
   uint64_t offset, size_t n, Slice* result, char* scratch
 ) const {
-  NVM_DBG(this, "offset(" << offset << "), n(" << n << "), fsize(" << fsize_ << ")");
+  NVM_DBG(this, "offset(" << offset << ")-aligned(" << !(offset % align_nbytes_) << ")");
+  NVM_DBG(this, "n(" << n << ")-aligned(" << !(n % align_nbytes_) << ")");
 
   // n is the MAX number of bytes to read, since it is the size of the scratch
   // memory. However, there might be n, less than n, or more than n bytes in the
@@ -503,6 +504,19 @@ Status NvmFile::Read(
     return Status::OK();
   }
   // Now we know that: '0 < n <= nbytes_from_offset'
+
+  const int offset_is_aligned = !(offset % align_nbytes_);
+  const int n_is_aligned = !(n % align_nbytes_);
+
+  if (!offset_is_aligned) {
+    NVM_DBG(this, "FAILED: unaligned offset");
+    return Status::IOError("FAILED: unaligned offset");
+  }
+
+  if (!n_is_aligned) {
+    NVM_DBG(this, "FAILED: unaligned n");
+    return Status::IOError("FAILED: unaligned n");
+  }
 
   uint64_t blk_idx = offset / blk_nbytes_;
   uint64_t blk_offset = offset % blk_nbytes_;
