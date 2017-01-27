@@ -37,7 +37,9 @@ rocks:
 	cd .. && make release -j$(nproc)
 
 clean-test:
-	rm -r /opt/rtest || true
+	sudo rm -r /opt/rtest || true
+	sudo mkdir -p /opt/rtest/db
+	sudo chown -R `whoami`:`whoami` /opt/rtest
 
 t01_0:
 	./$(BUILD_DIR)/env_nvm_t01 0 > /tmp/jazz.log

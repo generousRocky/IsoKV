@@ -52,10 +52,12 @@ NvmFile::NvmFile(
     std::string dev_path;
     s = env_->rmeta(mpath, fsize_, dev_path, meta_vblks);
     if (!s.ok()) {
-      throw std::runtime_error("Failed reading meta");
+      NVM_DBG(this, "FAILED: reading meta");
+      throw std::runtime_error("FAILED: reading meta");
     }
     if (dev_path.compare(env_->store_->GetDevPath())) {
-      throw std::runtime_error("Invalid device");
+      NVM_DBG(this, "FAILED: invalid device");
+      throw std::runtime_error("FAILED: invalid device");
     }
   }
 
@@ -66,7 +68,9 @@ NvmFile::NvmFile(
       meta_vblks[i].size()
     );
     if (!blk) {
-      throw std::runtime_error("Failed allocating vblk");
+      perror("nvm_vblk_alloc");
+      NVM_DBG(this, "FAILED: allocating vblk");
+      throw std::runtime_error("FAILED: allocating vblk");
     }
     blks_.push_back(blk);
   }
@@ -76,7 +80,8 @@ NvmFile::NvmFile(
   buf_nbytes_max_ = blk_nbytes_;
   buf_ = (char*)nvm_buf_alloc(geo, buf_nbytes_max_);
   if (!buf_) {
-    throw std::runtime_error("Failed allocating buffer");
+    NVM_DBG(this, "FAILED: allocating buffer");
+    throw std::runtime_error("FAILED: allocating buffer");
   }
 }
 
@@ -277,12 +282,12 @@ Status NvmFile::PositionedAppend(const Slice& slice, uint64_t offset) {
   NVM_DBG(this, "slice-size(" << slice.size() << ")-aligned(" << !(slice.size() % align_nbytes_) << ")");
 
   if (offset < (fsize_ - buf_nbytes_)) {
-    NVM_DBG(this, "ERR: offset(" << offset << ") <  fsize_(" << fsize_ << ") - buf_nbytes_(" << buf_nbytes_ << ")");
+    NVM_DBG(this, "FAILED: offset(" << offset << ") <  fsize_(" << fsize_ << ") - buf_nbytes_(" << buf_nbytes_ << ")");
     return Status::IOError("Writing to flushed offset");
   }
 
   if (offset > fsize_) {
-    NVM_DBG(this, "ERR: offset(" << offset << ") > fsize_(" << fsize_ << ")");
+    NVM_DBG(this, "FAILED: offset(" << offset << ") > fsize_(" << fsize_ << ")");
     return Status::IOError("Out of bounds");
   }
 
@@ -344,8 +349,8 @@ Status NvmFile::Flush(bool all_but_last) {
   }
 
   if (fsize_ < buf_nbytes_) {
-    NVM_DBG(this, "This should not happen!");
-    return Status::IOError("This should not happen!");
+    NVM_DBG(this, "FAILED: fsize_ < buf_nbytes_");
+    return Status::IOError("FAILED: fsize_ < buf_nbytes_");
   }
 
   size_t flush_tbytes = all_but_last ? buf_nbytes_ - align_nbytes_ : buf_nbytes_;
@@ -358,8 +363,8 @@ Status NvmFile::Flush(bool all_but_last) {
 
     blk = env_->store_->get();
     if (!blk) {
-      NVM_DBG(this, "Failed reserving NVM");
-      return Status::IOError("Failed reserving NVM");
+      NVM_DBG(this, "FAILED: reserving NVM");
+      return Status::IOError("FAILED: reserving NVM");
     }
 
     blks_.push_back(blk);
@@ -378,8 +383,9 @@ Status NvmFile::Flush(bool all_but_last) {
 
     ret = nvm_vblk_write(blk, buf_ + nbytes_written, nbytes);
     if (ret < 0) {
-      NVM_DBG(this, "nvm_vblk_write(...) failed");
-      return Status::IOError("nvm_vblk_write(...) failed");
+      perror("nvm_vblk_write");
+      NVM_DBG(this, "FAILED: nvm_vblk_write(...)");
+      return Status::IOError("FAILED: nvm_vblk_write(...)");
     }
 
     nbytes_remaining -= ret;
@@ -467,8 +473,11 @@ Status NvmFile::pad_last_block(void) {
   }
 
   ssize_t err = nvm_vblk_pad(blks_[blk_idx]);
-  if (err < 0)
+  if (err < 0) {
+    perror("nvm_vblk_pad");
+    NVM_DBG(this, "FAILED: nvm_vblk_pad(...)");
     return Status::IOError("FAILED: nvm_vblk_pad(...)");
+  }
 
   return Status::OK();
 }
@@ -498,12 +507,18 @@ Status NvmFile::Read(
   uint64_t blk_idx = offset / blk_nbytes_;
   uint64_t blk_offset = offset % blk_nbytes_;
   uint64_t blk_nbytes = std::min(blk_nbytes_ - blk_offset, n);
+  struct nvm_vblk *blk = blks_[blk_idx];
 
-  ssize_t ret = nvm_vblk_pread(blks_[blk_idx], scratch, blk_nbytes, blk_offset);
+  NVM_DBG(this, "blk(" << blk << "), scratch(" << scratch << ")");
+  NVM_DBG(this, "blk_nbytes(" << blk_nbytes << ")");
+  NVM_DBG(this, "blk_offset(" << blk_offset << ")");
+
+  ssize_t ret = nvm_vblk_pread(blk, scratch, blk_nbytes, blk_offset);
 
   if (ret < 0) {
-    NVM_DBG(this, "FAILED: nvm_sblk_read");
-    return Status::IOError("FAILED: nvm_sblk_read");
+    perror("nvm_vblk_read");
+    NVM_DBG(this, "FAILED: nvm_vblk_read");
+    return Status::IOError("FAILED: nvm_vblk_read");
   }
 
   *result = Slice(scratch, ret);
