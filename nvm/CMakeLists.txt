@@ -24,27 +24,27 @@ set(SOURCE_FILES
   env_nvm.cc
   env_nvm_store.cc
   env_nvm_file.cc
-  env_nvm_t01.cc
-  env_nvm_t02.cc
-  env_nvm_t03.cc)
+  tests/env_nvm_t01.cc
+  tests/env_nvm_t02.cc
+  tests/env_nvm_t03.cc)
 
 set(SOURCE_FILES_T01
   env_nvm.cc
   env_nvm_store.cc
   env_nvm_file.cc
-  env_nvm_t01.cc)
+  tests/env_nvm_t01.cc)
 
 set(SOURCE_FILES_T02
   env_nvm.cc
   env_nvm_store.cc
   env_nvm_file.cc
-  env_nvm_t02.cc)
+  tests/env_nvm_t02.cc)
 
 set(SOURCE_FILES_T03
   env_nvm.cc
   env_nvm_store.cc
   env_nvm_file.cc
-  env_nvm_t03.cc)
+  tests/env_nvm_t03.cc)
 
 include_directories(../include)
 include_directories(../)
