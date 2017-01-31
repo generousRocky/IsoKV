@@ -529,11 +529,14 @@ Status NvmFile::Read(
     uint64_t blk_nbytes = std::min(blk_nbytes_ - blk_offset, nbytes_remaining);
     struct nvm_vblk *blk = blks_[blk_idx];
 
-    NVM_DBG(this, "aligned_offset(" << aligned_offset << ")");
     NVM_DBG(this, "aligned_n(" << aligned_n << ")");
     NVM_DBG(this, "blk(" << blk << ")");
     NVM_DBG(this, "blk_nbytes(" << blk_nbytes << ")");
     NVM_DBG(this, "blk_offset(" << blk_offset << ")");
+
+    NVM_DBG(this, "~nbytes_remaining(" << nbytes_remaining << ")");
+    NVM_DBG(this, "~nbytes_read(" << nbytes_read << ")");
+    NVM_DBG(this, "~aligned_offset(" << aligned_offset << ")");
 
     ssize_t ret = nvm_vblk_pread(blk, buf + nbytes_read, blk_nbytes, blk_offset);
     if (ret < 0) {
@@ -545,6 +548,10 @@ Status NvmFile::Read(
     nbytes_remaining -= ret;
     nbytes_read += ret;
     aligned_offset += ret;
+
+    NVM_DBG(this, "~nbytes_remaining(" << nbytes_remaining << ")");
+    NVM_DBG(this, "~nbytes_read(" << nbytes_read << ")");
+    NVM_DBG(this, "~aligned_offset(" << aligned_offset << ")");
   }
 
   memcpy(scratch, buf, n);
