@@ -6,19 +6,19 @@ if [ $# -ne 2 ]; then
 fi
 
 ROCKS_SRC=$1
-DB_PATH=$2
+RBENCH_PATH=$2
 
 pushd $ROCKS_SRC
 
-NUM=200
+NUM=300
 VALUE_SIZE=1048576
 #VALUE_SIZE=4096
 
 taskset -c 0-$(nproc) ./db_bench \
 --use_existing_db=0 \
---env_uri="nvm://nvme0n1/opt/rtest/nvm.meta" \
---db=$DB_PATH \
---benchmarks=fillseq,readseq,readseq \
+--env_uri="nvm://nvme0n1$RBENCH_PATH/nvm.meta" \
+--db="$RBENCH_PATH/db" \
+--benchmarks=fillseq \
 --num=$NUM \
 --value_size=$VALUE_SIZE \
 --verify_checksum=1 \
