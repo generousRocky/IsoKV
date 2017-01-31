@@ -43,7 +43,11 @@ NvmFile::NvmFile(
 
   align_nbytes_ = geo->nplanes * geo->nsectors * geo->sector_nbytes;
   stripe_nbytes_ = align_nbytes_ * geo->nchannels * geo->nluns;
-  blk_nbytes_ = stripe_nbytes_ * geo->nblocks * geo->npages;
+  blk_nbytes_ = stripe_nbytes_ * geo->npages;
+
+  NVM_DBG(this, "align_nbytes(" << align_nbytes_ << ")");
+  NVM_DBG(this, "stripe_nbytes_(" << stripe_nbytes_ << ")");
+  NVM_DBG(this, "blk_nbytes_(" << blk_nbytes_ << ")");
 
   std::deque<std::vector<struct nvm_addr>> meta_vblks;
 
@@ -304,6 +308,8 @@ Status NvmFile::PositionedAppend(const Slice& slice, uint64_t offset) {
     size_t avail = buf_nbytes_max_ - buf_nbytes_;
     size_t nbytes = std::min(nbytes_remaining, avail);
 
+    NVM_DBG(this, "avail(" << avail << ", nbytes(" << nbytes << ")");
+
     memcpy(buf_ + buf_nbytes_, data + nbytes_written, nbytes);
 
     nbytes_remaining -= nbytes;
@@ -311,6 +317,9 @@ Status NvmFile::PositionedAppend(const Slice& slice, uint64_t offset) {
 
     buf_nbytes_ += nbytes;
     fsize_ += nbytes;
+
+    NVM_DBG(this, "buf_nbytes_(" << buf_nbytes_ << ")");
+    NVM_DBG(this, "fsize_(" << fsize_ << ")");
 
     // Have bytes remaining but no more room in buffer -> flush to media
     if (nbytes_remaining && (!Flush().ok())) {
@@ -505,37 +514,43 @@ Status NvmFile::Read(
   }
   // Now we know that: '0 < n <= nbytes_from_offset'
 
-  const int offset_is_aligned = !(offset % align_nbytes_);
-  const int n_is_aligned = !(n % align_nbytes_);
+  uint64_t aligned_offset = offset - offset % align_nbytes_;
+  uint64_t aligned_n = ((n + align_nbytes_ -1) / align_nbytes_) * align_nbytes_;
 
-  if (!offset_is_aligned) {
-    NVM_DBG(this, "FAILED: unaligned offset");
-    return Status::IOError("FAILED: unaligned offset");
+  char *buf = (char*)nvm_buf_alloc(nvm_dev_get_geo(env_->store_->GetDev()),
+                                   aligned_n);
+
+  size_t nbytes_remaining = aligned_n;
+  size_t nbytes_read = 0;
+
+  while (nbytes_remaining > 0) {
+    uint64_t blk_idx = aligned_offset / blk_nbytes_;
+    uint64_t blk_offset = aligned_offset % blk_nbytes_;
+    uint64_t blk_nbytes = std::min(blk_nbytes_ - blk_offset, nbytes_remaining);
+    struct nvm_vblk *blk = blks_[blk_idx];
+
+    NVM_DBG(this, "aligned_offset(" << aligned_offset << ")");
+    NVM_DBG(this, "aligned_n(" << aligned_n << ")");
+    NVM_DBG(this, "blk(" << blk << ")");
+    NVM_DBG(this, "blk_nbytes(" << blk_nbytes << ")");
+    NVM_DBG(this, "blk_offset(" << blk_offset << ")");
+
+    ssize_t ret = nvm_vblk_pread(blk, buf + nbytes_read, blk_nbytes, blk_offset);
+    if (ret < 0) {
+      perror("nvm_vblk_read");
+      NVM_DBG(this, "FAILED: nvm_vblk_read");
+      return Status::IOError("FAILED: nvm_vblk_read");
+    }
+
+    nbytes_remaining -= ret;
+    nbytes_read += ret;
+    aligned_offset += ret;
   }
 
-  if (!n_is_aligned) {
-    NVM_DBG(this, "FAILED: unaligned n");
-    return Status::IOError("FAILED: unaligned n");
-  }
+  memcpy(scratch, buf, n);
+  free(buf);
 
-  uint64_t blk_idx = offset / blk_nbytes_;
-  uint64_t blk_offset = offset % blk_nbytes_;
-  uint64_t blk_nbytes = std::min(blk_nbytes_ - blk_offset, n);
-  struct nvm_vblk *blk = blks_[blk_idx];
-
-  NVM_DBG(this, "blk(" << blk << "), scratch(" << scratch << ")");
-  NVM_DBG(this, "blk_nbytes(" << blk_nbytes << ")");
-  NVM_DBG(this, "blk_offset(" << blk_offset << ")");
-
-  ssize_t ret = nvm_vblk_pread(blk, scratch, blk_nbytes, blk_offset);
-
-  if (ret < 0) {
-    perror("nvm_vblk_read");
-    NVM_DBG(this, "FAILED: nvm_vblk_read");
-    return Status::IOError("FAILED: nvm_vblk_read");
-  }
-
-  *result = Slice(scratch, ret);
+  *result = Slice(scratch, n);
 
   return Status::OK();
 }
