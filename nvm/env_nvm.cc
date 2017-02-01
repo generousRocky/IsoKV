@@ -272,15 +272,13 @@ NvmFile* EnvNVM::FindFileUnguarded(const FPathInfo& info) {
         return *it;
       }
     }
-    NVM_DBG(this, "!found (no such directory)");
-    return NULL;
+    NVM_DBG(this, "!found (not loaded)");
   }
 
   std::vector<std::string> listing;     // Lookup meta-file in default env
   Status s = posix_->GetChildren(info.dpath(), &listing);
   if (!s.ok()) {
-    NVM_DBG(this, "Default-env lookup failed.");
-    return NULL;
+    NVM_DBG(this, "!found (not in default-env)");
   }
 
   for (auto entry : listing) {          // Find .meta files
@@ -302,7 +300,7 @@ NvmFile* EnvNVM::FindFileUnguarded(const FPathInfo& info) {
     }
   }
 
-  NVM_DBG(this, "!found");
+  NVM_DBG(this, "!found (anywhere)");
   return NULL;
 }
 
