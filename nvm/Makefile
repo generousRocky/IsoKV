@@ -37,31 +37,38 @@ rocks:
 	cd .. && make release -j$(nproc)
 
 clean-test:
-	sudo rm -r /opt/rtest || true
-	sudo mkdir -p /opt/rtest/db
-	sudo chown -R `whoami`:`whoami` /opt/rtest
+	@sudo rm -r /opt/rtest || true
+	@sudo mkdir -p /opt/rtest/db || true
+	@sudo chown -R `whoami`:`whoami` /opt/rtest || true
+	@rm /tmp/t0*.log || true
 
-t01_0:
-	./$(BUILD_DIR)/env_nvm_t01 0 > /tmp/jazz.log
+t01_00:
+	./$(BUILD_DIR)/env_nvm_t01 0 2>&1 | tee -a /tmp/t01_00.log
 	cat /opt/rtest/nvm.meta
 	cat /opt/rtest/testfile.log.meta
 	nvm_addr from_hex /dev/nvme0n1 `tail -n +3 /opt/rtest/testfile.log.meta | cut -f 1 -d " "`
 
-t01_1:
-	./$(BUILD_DIR)/env_nvm_t01 1 > /tmp/jazz.log
+t01_01:
+	./$(BUILD_DIR)/env_nvm_t01 1  2>&1 | tee -a /tmp/t01_01.log
 	cat /opt/rtest/nvm.meta
 	cat /opt/rtest/testfile.log.meta
 	nvm_addr from_hex /dev/nvme0n1 `tail -n +3 /opt/rtest/testfile.log.meta | cut -f 1 -d " "`
 
-t02:
-	./$(BUILD_DIR)/env_nvm_t02 3 50000 1 0 > /tmp/jazz.log
+# nruns nkvs do_delete disableWAL
+t02_00:
+	./$(BUILD_DIR)/env_nvm_t02 3 50000 0 1 2>&1 | tee -a /tmp/t02_00.log
+
+t02_01:
+	./$(BUILD_DIR)/env_nvm_t02 3 50000 1 1 2>&1 | tee -a /tmp/t02_01.log
 
 clean-bench:
-	rm -r /opt/rtest/db || true
-	rm /tmp/jazz.log || true
+	@sudo rm -r /opt/rbench || true
+	@sudo mkdir -p /opt/rbench/db || true
+	@sudo chown -R `whoami`:`whoami` /opt/rbench || true
+	@rm /tmp/b0*.log || true
 
 b01:
-	./nvmdb_bench.sh ../ /opt/rtest/db 2>&1 | tee -a /tmp/jazz.log
+	./scripts/nvmdb_bench.sh ../ /opt/rbench 2>&1 | tee -a /tmp/b01.log
 
 b02:
-	./nvmdb_bench16MB.sh ../ /opt/rtest/db > /tmp/jazz16MB.log
+	./scripts/nvmdb_bench16MB.sh ../ /opt/rbench 2>&1 | tee -a /tmp/b02.log

@@ -10,7 +10,7 @@ RBENCH_PATH=$2
 
 pushd $ROCKS_SRC
 
-NUM=300
+NUM=400
 VALUE_SIZE=1048576
 #VALUE_SIZE=4096
 
@@ -18,7 +18,7 @@ taskset -c 0-$(nproc) ./db_bench \
 --use_existing_db=0 \
 --env_uri="nvm://nvme0n1$RBENCH_PATH/nvm.meta" \
 --db="$RBENCH_PATH/db" \
---benchmarks=fillseq \
+--benchmarks=fillseq,overwrite \
 --num=$NUM \
 --value_size=$VALUE_SIZE \
 --verify_checksum=1 \
