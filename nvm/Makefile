@@ -61,14 +61,23 @@ t02_00:
 t02_01:
 	./$(BUILD_DIR)/env_nvm_t02 3 50000 1 1 2>&1 | tee -a /tmp/t02_01.log
 
-clean-bench:
-	@sudo rm -r /opt/rbench || true
+bench-clean:
 	@sudo mkdir -p /opt/rbench/db || true
 	@sudo chown -R `whoami`:`whoami` /opt/rbench || true
-	@rm /tmp/b0*.log || true
+	@rm /tmp/bench_*.log || true
 
+bench-hw-fill:
+	./scripts/bench_hw-fill.sh ../ /opt/rbench 2>&1 | tee -a /tmp/bench_hw_fill.log
+
+bench-hw-read:
+	./scripts/bench_hw-read.sh ../ /opt/rbench 2>&1 | tee -a /tmp/bench_hw_fill.log
+
+# Old stuff
 b01:
 	./scripts/nvmdb_bench.sh ../ /opt/rbench 2>&1 | tee -a /tmp/b01.log
 
 b02:
 	./scripts/nvmdb_bench16MB.sh ../ /opt/rbench 2>&1 | tee -a /tmp/b02.log
+
+fillseq:
+	./scripts/fillseq.sh ../ /opt/rbench 2>&1 | tee -a /tmp/fillseq.log
