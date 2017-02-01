@@ -344,15 +344,15 @@ Status NvmFile::Flush(void) {
   return Flush(true);
 }
 
-Status NvmFile::Flush(bool all_but_last) {
-  NVM_DBG(this, "all_buf_last(" << all_but_last << ")");
+Status NvmFile::Flush(bool skip_last) {
+  NVM_DBG(this, "skip_last(" << skip_last << ")");
 
   if (!buf_nbytes_) {
     NVM_DBG(this, "Nothing to flush (case 1)");
     return Status::OK();
   }
 
-  if (all_but_last && buf_nbytes_ <= align_nbytes_) {
+  if (skip_last && buf_nbytes_ <= align_nbytes_) {
     NVM_DBG(this, "Nothing to flush (case 2)");
     return Status::OK();
   }
@@ -362,7 +362,7 @@ Status NvmFile::Flush(bool all_but_last) {
     return Status::IOError("FAILED: fsize_ < buf_nbytes_");
   }
 
-  size_t flush_tbytes = all_but_last ? buf_nbytes_ - align_nbytes_ : buf_nbytes_;
+  size_t flush_tbytes = skip_last ? buf_nbytes_ - align_nbytes_ : buf_nbytes_;
 
   NVM_DBG(this, "buf_nbytes_(" << buf_nbytes_ << "), flush_tbytes(" << flush_tbytes << ")");
 
@@ -401,10 +401,12 @@ Status NvmFile::Flush(bool all_but_last) {
     nbytes_written += ret;
   }
 
-  if (all_but_last)
+  if (skip_last)
     memcpy(buf_, buf_ + nbytes_written, buf_nbytes_ - nbytes_written);
 
   buf_nbytes_ -= nbytes_written;
+
+  NVM_DBG(this, "buf_nbytes_(" << buf_nbytes_ << "), nbytes_written(" << nbytes_written << ")");
 
   return wmeta();
 }
@@ -522,10 +524,11 @@ Status NvmFile::Read(
 
   size_t nbytes_remaining = aligned_n;
   size_t nbytes_read = 0;
+  size_t read_offset = aligned_offset;
 
   while (nbytes_remaining > 0) {
-    uint64_t blk_idx = aligned_offset / blk_nbytes_;
-    uint64_t blk_offset = aligned_offset % blk_nbytes_;
+    uint64_t blk_idx = read_offset / blk_nbytes_;
+    uint64_t blk_offset = read_offset % blk_nbytes_;
     uint64_t blk_nbytes = std::min(blk_nbytes_ - blk_offset, nbytes_remaining);
     struct nvm_vblk *blk = blks_[blk_idx];
 
@@ -534,9 +537,9 @@ Status NvmFile::Read(
     NVM_DBG(this, "blk_nbytes(" << blk_nbytes << ")");
     NVM_DBG(this, "blk_offset(" << blk_offset << ")");
 
-    NVM_DBG(this, "~nbytes_remaining(" << nbytes_remaining << ")");
-    NVM_DBG(this, "~nbytes_read(" << nbytes_read << ")");
-    NVM_DBG(this, "~aligned_offset(" << aligned_offset << ")");
+    NVM_DBG(this, "=nbytes_remaining(" << nbytes_remaining << ")");
+    NVM_DBG(this, "=nbytes_read(" << nbytes_read << ")");
+    NVM_DBG(this, "=read_offset(" << read_offset << ")");
 
     ssize_t ret = nvm_vblk_pread(blk, buf + nbytes_read, blk_nbytes, blk_offset);
     if (ret < 0) {
@@ -547,14 +550,15 @@ Status NvmFile::Read(
 
     nbytes_remaining -= ret;
     nbytes_read += ret;
-    aligned_offset += ret;
+    read_offset += ret;
 
-    NVM_DBG(this, "~nbytes_remaining(" << nbytes_remaining << ")");
-    NVM_DBG(this, "~nbytes_read(" << nbytes_read << ")");
-    NVM_DBG(this, "~aligned_offset(" << aligned_offset << ")");
+    NVM_DBG(this, "-nbytes_remaining(" << nbytes_remaining << ")");
+    NVM_DBG(this, "+nbytes_read(" << nbytes_read << ")");
+    NVM_DBG(this, "+read_offset(" << read_offset << ")");
   }
 
-  memcpy(scratch, buf, n);
+  NVM_DBG(this, "memcpy to scratch from buf n(" << n << ")");
+  memcpy(scratch, buf + (offset - aligned_offset), n);
   free(buf);
 
   *result = Slice(scratch, n);
