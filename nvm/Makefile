@@ -15,7 +15,7 @@ configure: cmake_check
 	@echo "Modify build configuration in '$(BUILD_DIR)'"
 
 make:
-	cd $(BUILD_DIR) && make
+	cd $(BUILD_DIR) && make -j$(expr `nproc` - 1)
 
 install:
 	cd $(BUILD_DIR) && make install
