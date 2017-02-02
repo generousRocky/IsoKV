@@ -442,18 +442,19 @@ Status NvmFile::pad_last_block(void) {
 
   Status s = Flush(false);      // Flush out...
   if (!s.ok()) {
-    NVM_DBG(this, "padding: Schnitzels hit the fan...");
+    NVM_DBG(this, "FAILED: flushing failed");
     return s;
   }
 
   if (!fsize_) {
-    NVM_DBG(this, "padding: empty file, skipping...");
+    NVM_DBG(this, "empty file, skipping...");
     return Status::OK();
   }
 
   const size_t blk_idx = fsize_ / blk_nbytes_;
 
   if (!blks_[blk_idx]) {
+    NVM_DBG(this, "FAILED: No vblk to pad!?");
     return Status::IOError("FAILED: No vblk to pad!?");
   }
 
