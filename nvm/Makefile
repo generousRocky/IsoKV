@@ -68,7 +68,7 @@ bench-clean:
 	@rm /tmp/bench*.log || true
 
 bench-fill:
-	./scripts/run.sh ./scripts/env_default ./scripts/env_ppa.sh fillseq /opt/rocks 2>&1 | tee -a /tmp/bench-hw-fill.log
+	./scripts/run.sh ./scripts/env_default ./scripts/env_ppa.sh fillseq 2>&1 | tee -a /tmp/bench-hw-fill.log
 
 bench-read:
-	./scripts/run.sh ./scripts/env_default ./scripts/env_ppa.sh readseq /opt/rocks 2>&1 | tee -a /tmp/bench-hw-read.log
+	./scripts/run.sh ./scripts/env_default ./scripts/env_ppa.sh readseq 2>&1 | tee -a /tmp/bench-hw-read.log
