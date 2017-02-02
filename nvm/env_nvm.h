@@ -287,6 +287,9 @@ public:
     meta += std::to_string(head) + "\n";
     meta += dev_name + "\n";
     for (size_t idx = 0; idx < blks.size(); ++idx) {
+      NVM_DBG(this, "idx(" << idx << ")");
+      NVM_DBG(this, "blks[idx](" << blks[idx] << ")");
+
       struct nvm_vblk* blk = blks[idx];
 
       if (blk) {
@@ -314,18 +317,18 @@ public:
 
     Status s = ReadFileToString(posix_, mpath, &meta);  // Read file into meta
     if (!s.ok()) {
-      NVM_DBG(this, "file to string failed.");
+      NVM_DBG(this, "FAILED: ReadFileToString");
       return s;
     }
 
     std::istringstream meta_ss(meta);
     if (!(meta_ss >> head)) {                // Read head
-      NVM_DBG(this, "failed parsing head from meta");
-      return Status::IOError("Failed parsing head from meta");
+      NVM_DBG(this, "FAILED: parsing head from meta");
+      return Status::IOError("FAILED: parsing head from meta");
     }
     if (!(meta_ss >> dev_name)) {            // Read dev_name
-      NVM_DBG(this, "failed getting dev_name");
-      return Status::IOError("Failed parsing dev_name");
+      NVM_DBG(this, "FAILED: getting dev_name");
+      return Status::IOError("FAILED: parsing dev_name");
     }
                                             // Read blocks
     for (std::string line; std::getline(meta_ss, line, '\n');) {
@@ -770,7 +773,7 @@ public:
     NVM_DBG(file_, "forwarding");
     s = file_->Read(pos_, n, result, scratch);
     if (!s.ok()) {
-      NVM_DBG(file_, "failed forwarded read")
+      NVM_DBG(file_, "FAILED: forwarded read")
       return s;
     }
 
@@ -838,7 +841,7 @@ public:
 
     s = file_->Read(offset, n, result, scratch);
     if (!s.ok()) {
-      NVM_DBG(file_, "failed reading buffers");
+      NVM_DBG(file_, "FAILED: failed reading buffers");
     }
 
     return s;

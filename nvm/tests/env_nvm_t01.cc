@@ -10,7 +10,7 @@
 using namespace rocksdb;
 
 static size_t kMB = 1 << 20;
-static size_t kFsize = 16 * kMB;
+static size_t kFsize = 61 * kMB;
 static char fn[] = "/opt/rocks/test/testfile.log";
 
 #include "env_nvm_t00.cc"

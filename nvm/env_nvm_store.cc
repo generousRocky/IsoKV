@@ -19,15 +19,15 @@ NvmStore::NvmStore(
     s = env_->rmeta(mpath, curs_, meta_dev_path, vblks);
 
     if (meta_dev_path.compare(dev_path_)) {
-      NVM_DBG(this, "NvmStore: dev_path != meta_dev_path");
-      throw std::runtime_error("NvmStore: dev_path != meta_dev_path");
+      NVM_DBG(this, "FAILED: dev_path != meta_dev_path");
+      throw std::runtime_error("FAILED: dev_path != meta_dev_path");
     }
   }
 
   dev_ = nvm_dev_open(dev_path_.c_str());       // Open device
   if (!dev_) {
-    NVM_DBG(this, "NvmStore: failed opening device");
-    throw std::runtime_error("NvmStore: failed opening device");
+    NVM_DBG(this, "FAILED: opening device");
+    throw std::runtime_error("FAILED: opening device");
   }
   geo_ = nvm_dev_get_geo(dev_);                         // Grab geometry
 
@@ -39,8 +39,8 @@ NvmStore::NvmStore(
 
     vblk = nvm_vblk_alloc(dev_, &addrs[0], addrs.size());
     if (!vblk) {
-      NVM_DBG(this, "NvmStore: failed allocating `vblk`");
-      throw std::runtime_error("NvmStore: failed allocating `vblk`");
+      NVM_DBG(this, "FAILED: allocating `vblk`");
+      throw std::runtime_error("FAILED: allocating `vblk`");
     }
     reserved_.push_back(vblk);
   }
@@ -57,7 +57,7 @@ NvmStore::~NvmStore(void) {
 
   s = wmeta();
   if (!s.ok()) {
-    NVM_DBG(this, "writing meta failed.");
+    NVM_DBG(this, "FAILED: writing meta");
   }
 
   nvm_dev_close(dev_);
@@ -70,6 +70,7 @@ struct nvm_vblk* NvmStore::get(void) {
   if (reserved_.empty()) {
     reserve();
   }
+
   struct nvm_vblk* blk = reserved_.front();
   reserved_.pop_front();
 
@@ -93,7 +94,8 @@ Status NvmStore::reserve(void) {
     ssize_t err;
 
     if (curs_ >= geo_->nblocks) {
-      return Status::IOError("No more vblks available");
+      NVM_DBG(this, "FAILED: reserve (No more vblks available)");
+      return Status::IOError("FAILED: reserve (No more vblks available)");
     }
 
     blk_idx = curs_++ % geo_->nblocks;
@@ -102,13 +104,13 @@ Status NvmStore::reserve(void) {
       dev_, 0, geo_->nchannels-1, 0, geo_->nluns-1, blk_idx
     );
     if (!blk) {
-      NVM_DBG(this, "Failed allocating vblk (ENOMEM)");
-      return Status::IOError("Failed allocating vblk (ENOMEM)");
+      NVM_DBG(this, "FAILED: allocating vblk (ENOMEM)");
+      return Status::IOError("FAILED: allocating vblk (ENOMEM)");
     }
 
     err = nvm_vblk_erase(blk);
     if (err < 0) {
-      NVM_DBG(this, "Failed nvm_vblk_erase err(" << err << ")");
+      NVM_DBG(this, "FAILED: nvm_vblk_erase err(" << err << ")");
       continue;
     }
 

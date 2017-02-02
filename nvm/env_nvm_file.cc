@@ -434,32 +434,6 @@ Status NvmFile::Truncate(uint64_t size) {
 
   fsize_ = size;
 
-  // TODO: Adjust buffer accordingly
-
-  /*
-  size_t bufs_required = (size + align_nbytes_ - 1) / align_nbytes_;
-
-  // De-allocate buffers that are no longer required
-  for(size_t buf_idx = bufs_required; buf_idx < buffers_.size(); ++buf_idx) {
-    NVM_DBG(this, "buf_idx(" << buf_idx << ")");
-    free(buffers_[buf_idx]);
-    buffers_[buf_idx] = NULL;
-  }
-
-  // Release blocks that are no longer required
-  for(size_t blk_idx = blks_required; blk_idx < blks_.size(); ++blk_idx) {
-    NVM_DBG(this, "blk_idx(" << blk_idx << ")");
-
-    if (!blks_[blk_idx]) {
-      NVM_DBG(this, "nothing here... skipping...");
-      continue;
-    }
-
-    env_->store_->put(blks_[blk_idx]);
-    blks_[blk_idx] = NULL;
-  }
-
-  */
   return wmeta();
 }
 
