@@ -12,8 +12,6 @@ popd
 source $1			# Source in the default/shared arguments
 source $2			# Source in "special" db_bench arguments
 
-echo "sdf($RBENCH_NUM)"
-
 RBENCH_BENCHMARKS=$3		# Get the benchmarks to run
 RBENCH_USE_EXISTING_DB=$4
 
