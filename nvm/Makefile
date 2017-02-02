@@ -68,7 +68,7 @@ bench-clean:
 	@rm /tmp/bench*.log || true
 
 bench-fill:
-	./scripts/run.sh ./scripts/env_shared ./scripts/env_ppa.sh fillseq 2>&1 | tee -a /tmp/bench-hw-fill.log
+	./scripts/run.sh ./scripts/env_shared.sh ./scripts/env_ppa.sh fillseq 2>&1 | tee -a /tmp/bench-hw-fill.log
 
 bench-read:
-	./scripts/run.sh ./scripts/env_shared ./scripts/env_ppa.sh readseq 2>&1 | tee -a /tmp/bench-hw-read.log
+	./scripts/run.sh ./scripts/env_shared.sh ./scripts/env_ppa.sh readseq 2>&1 | tee -a /tmp/bench-hw-read.log
