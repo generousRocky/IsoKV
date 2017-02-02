@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
-if [ $# -ne 3 ]; then
-	echo "Usage: <DEFAULT_ENV> <ENV> <BENCHMARK>"
+if [ $# -ne 4 ]; then
+	echo "Usage: <DEFAULT_ENV> <ENV> <BENCHMARK> <USE_EXISTING>"
 	exit 1
 fi
 
@@ -15,6 +15,6 @@ source $2			# Source in "special" db_bench arguments
 echo "sdf($RBENCH_NUM)"
 
 RBENCH_BENCHMARKS=$3		# Get the benchmarks to run
-RBENCH_USE_EXISTING_DB=0
+RBENCH_USE_EXISTING_DB=$4
 
 rbench				# Run them

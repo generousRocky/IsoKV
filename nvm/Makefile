@@ -70,13 +70,13 @@ bench-clean:
 	@rm /tmp/bench*.log || true
 
 bench-hw-fill:
-	./scripts/run.sh ./scripts/env_shared.sh ./scripts/env_hw.sh fillseq 2>&1 | tee -a /tmp/bench-hw-fill.log
+	./scripts/run.sh ./scripts/env_shared.sh ./scripts/env_hw.sh fillseq 0 2>&1 | tee -a /tmp/bench-hw-fill.log
 
 bench-hw-read:
-	./scripts/run.sh ./scripts/env_shared.sh ./scripts/env_hw.sh readseq 2>&1 | tee -a /tmp/bench-hw-read.log
+	./scripts/run.sh ./scripts/env_shared.sh ./scripts/env_hw.sh readseq 1 2>&1 | tee -a /tmp/bench-hw-read.log
 
 bench-fs-fill:
-	./scripts/run.sh ./scripts/env_shared.sh ./scripts/env_fs.sh fillseq 2>&1 | tee -a /tmp/bench-fs-fill.log
+	./scripts/run.sh ./scripts/env_shared.sh ./scripts/env_fs.sh fillseq 0 2>&1 | tee -a /tmp/bench-fs-fill.log
 
 bench-fs-read:
-	./scripts/run.sh ./scripts/env_shared.sh ./scripts/env_fs.sh readseq 2>&1 | tee -a /tmp/bench-fs-read.log
+	./scripts/run.sh ./scripts/env_shared.sh ./scripts/env_fs.sh readseq 1 2>&1 | tee -a /tmp/bench-fs-read.log
