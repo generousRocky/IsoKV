@@ -62,13 +62,21 @@ test-02-01:
 	./$(BUILD_DIR)/env_nvm_t02 3 50000 1 1 2>&1 | tee -a /tmp/test-02-01.log
 
 bench-clean:
-	@sudo rm -r /opt/rocks/bench || true
-	@sudo mkdir -p /opt/rocks/bench || true
+	@sudo rm -r /opt/rocks/hw || true
+	@sudo rm -r /opt/rocks/fs || true
+	@sudo mkdir -p /opt/rocks/hw || true
+	@sudo mkdir -p /opt/rocks/fs || true
 	@sudo chown -R `whoami`:`whoami` /opt/rocks || true
 	@rm /tmp/bench*.log || true
 
-bench-fill:
-	./scripts/run.sh ./scripts/env_shared.sh ./scripts/env_ppa.sh fillseq 2>&1 | tee -a /tmp/bench-hw-fill.log
+bench-hw-fill:
+	./scripts/run.sh ./scripts/env_shared.sh ./scripts/env_hw.sh fillseq 2>&1 | tee -a /tmp/bench-hw-fill.log
 
-bench-read:
-	./scripts/run.sh ./scripts/env_shared.sh ./scripts/env_ppa.sh readseq 2>&1 | tee -a /tmp/bench-hw-read.log
+bench-hw-read:
+	./scripts/run.sh ./scripts/env_shared.sh ./scripts/env_hw.sh readseq 2>&1 | tee -a /tmp/bench-hw-read.log
+
+bench-fs-fill:
+	./scripts/run.sh ./scripts/env_shared.sh ./scripts/env_fs.sh fillseq 2>&1 | tee -a /tmp/bench-fs-fill.log
+
+bench-fs-read:
+	./scripts/run.sh ./scripts/env_shared.sh ./scripts/env_fs.sh readseq 2>&1 | tee -a /tmp/bench-fs-read.log
