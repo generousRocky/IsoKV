@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-RBENCH_BIN="$HOME/host/rocksdb/db_bench"
+RBENCH_BIN="$HOME/git/rocksdb/db_bench"
 RBENCH_NUM=2000
 RBENCH_VALUE_SIZE=1048576
 RBENCH_VERIFY_CHECKSUM=1
