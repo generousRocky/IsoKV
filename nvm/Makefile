@@ -34,50 +34,41 @@ tags:
 dev: clean configure make
 
 rocks:
-	cd .. && make release -j$(nproc)
+	cd .. && make release -j$(expr `nproc` - 1)
 
-clean-test:
-	@sudo rm -r /opt/rtest || true
-	@sudo mkdir -p /opt/rtest/db || true
-	@sudo chown -R `whoami`:`whoami` /opt/rtest || true
-	@rm /tmp/t0*.log || true
+test-clean:
+	@sudo rm -r /opt/rocks/test || true
+	@sudo mkdir -p /opt/rocks/test || true
+	@sudo chown -R `whoami`:`whoami` /opt/rocks || true
+	@rm /tmp/test-*-*.log || true
 
-t01_00:
-	./$(BUILD_DIR)/env_nvm_t01 0 2>&1 | tee -a /tmp/t01_00.log
-	cat /opt/rtest/nvm.meta
-	cat /opt/rtest/testfile.log.meta
-	nvm_addr from_hex /dev/nvme0n1 `tail -n +3 /opt/rtest/testfile.log.meta | cut -f 1 -d " "`
+test-01-00:
+	./$(BUILD_DIR)/env_nvm_t01 0 2>&1 | tee -a /tmp/test-01-00.log
+	cat /opt/rocks/nvm.meta
+	cat /opt/rocks/test/testfile.log.meta
+	nvm_addr from_hex /dev/nvme0n1 `tail -n +3 /opt/rocks/test/testfile.log.meta | cut -f 1 -d " "`
 
-t01_01:
-	./$(BUILD_DIR)/env_nvm_t01 1  2>&1 | tee -a /tmp/t01_01.log
-	cat /opt/rtest/nvm.meta
-	cat /opt/rtest/testfile.log.meta
-	nvm_addr from_hex /dev/nvme0n1 `tail -n +3 /opt/rtest/testfile.log.meta | cut -f 1 -d " "`
+test-01-01:
+	./$(BUILD_DIR)/env_nvm_t01 1  2>&1 | tee -a /tmp/test-01-01.log
+	cat /opt/rocks/nvm.meta
+	cat /opt/rocks/test/testfile.log.meta
+	nvm_addr from_hex /dev/nvme0n1 `tail -n +3 /opt/rocks/test/testfile.log.meta | cut -f 1 -d " "`
 
 # nruns nkvs do_delete disableWAL
-t02_00:
-	./$(BUILD_DIR)/env_nvm_t02 3 50000 0 1 2>&1 | tee -a /tmp/t02_00.log
+test-02-00:
+	./$(BUILD_DIR)/env_nvm_t02 3 50000 0 1 2>&1 | tee -a /tmp/test-02-00.log
 
-t02_01:
-	./$(BUILD_DIR)/env_nvm_t02 3 50000 1 1 2>&1 | tee -a /tmp/t02_01.log
+test-02-01:
+	./$(BUILD_DIR)/env_nvm_t02 3 50000 1 1 2>&1 | tee -a /tmp/test-02-01.log
 
 bench-clean:
-	@sudo mkdir -p /opt/rbench/db || true
-	@sudo chown -R `whoami`:`whoami` /opt/rbench || true
-	@rm /tmp/bench_*.log || true
+	@sudo rm -r /opt/rocks/bench || true
+	@sudo mkdir -p /opt/rocks/bench || true
+	@sudo chown -R `whoami`:`whoami` /opt/rocks || true
+	@rm /tmp/bench*.log || true
 
-bench-hw-fill:
-	./scripts/bench_hw-fill.sh ../ /opt/rbench 2>&1 | tee -a /tmp/bench_hw_fill.log
+bench-fill:
+	./scripts/run.sh ./scripts/env_default ./scripts/env_ppa.sh fillseq /opt/rocks 2>&1 | tee -a /tmp/bench-hw-fill.log
 
-bench-hw-read:
-	./scripts/bench_hw-read.sh ../ /opt/rbench 2>&1 | tee -a /tmp/bench_hw_fill.log
-
-# Old stuff
-b01:
-	./scripts/nvmdb_bench.sh ../ /opt/rbench 2>&1 | tee -a /tmp/b01.log
-
-b02:
-	./scripts/nvmdb_bench16MB.sh ../ /opt/rbench 2>&1 | tee -a /tmp/b02.log
-
-fillseq:
-	./scripts/fillseq.sh ../ /opt/rbench 2>&1 | tee -a /tmp/fillseq.log
+bench-read:
+	./scripts/run.sh ./scripts/env_default ./scripts/env_ppa.sh readseq /opt/rocks 2>&1 | tee -a /tmp/bench-hw-read.log

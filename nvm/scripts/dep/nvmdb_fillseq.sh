@@ -16,6 +16,8 @@ r=300;
 t=1;
 vs=1048576; bs=65536; cs=1048576; of=500000; si=10000;
 taskset -c 0-$(nproc) ./db_bench \
+--db="$RBENCH_PATH/bench" \
+--env_uri="nvm://nvme0n1$RBENCH_PATH/nvm.meta" \
 --benchmarks=fillseq \
 --disable_seek_compaction=1 \
 --mmap_read=0 \
@@ -30,8 +32,6 @@ taskset -c 0-$(nproc) ./db_bench \
 --cache_numshardbits=4 \
 --open_files=$of \
 --verify_checksum=1 \
---db="$RBENCH_PATH/db" \
---env_uri="nvm://nvme0n1$RBENCH_PATH/nvm.meta" \
 --sync=$sync \
 --disable_wal=1 \
 --compression_type=snappy \

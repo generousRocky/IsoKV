@@ -14,10 +14,19 @@ NUM=300
 VALUE_SIZE=1048576
 #VALUE_SIZE=4096
 
+ARGS=""
+
+if [ -z "$BENCH_ENV_URI" ]; then
+	ARGS="$ARGS --env_uri=$BENCH_ENV_URI"
+fi
+if [ -z "$BENCH_DB" ]; then
+	ARGS="$ARGS --db=$BENCH_DB"
+fi
+
 taskset -c 0-$(nproc) ./db_bench \
---use_existing_db=0 \
 --env_uri="nvm://nvme0n1$RBENCH_PATH/nvm.meta" \
---db="$RBENCH_PATH/db" \
+--db="$RBENCH_PATH/bench" \
+--use_existing_db=0 \
 --benchmarks=fillseq,overwrite \
 --num=$NUM \
 --value_size=$VALUE_SIZE \

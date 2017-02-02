@@ -10,8 +10,8 @@
 using namespace rocksdb;
 
 static size_t kMB = 1 << 20;
-static size_t kFsize = kMB * 16 + (65536*20);
-static char fn[] = "/opt/rtest/testfile.log";
+static size_t kFsize = 16 * kMB;
+static char fn[] = "/opt/rocks/test/testfile.log";
 
 #include "env_nvm_t00.cc"
 
@@ -25,7 +25,7 @@ int main(int argc, char *argv[]) {
   args.pr_args();
 
   std::unique_ptr<Env> env_guard;
-  Env *env = NewEnvFromUri("nvm://nvme0n1/opt/rtest/nvm.meta", &env_guard);
+  Env *env = NewEnvFromUri("nvm://nvme0n1/opt/rocks/nvm.meta", &env_guard);
   assert(env);
 
   EnvOptions opt_e;
@@ -53,10 +53,6 @@ int main(int argc, char *argv[]) {
 
     while(nbytes_written < kFsize) {
       size_t nbytes = std::min(nbytes_remaining, align);
-
-      std::cout << "nbytes(" << nbytes << ")" << std::endl;
-      std::cout << "nbytes_written(" << nbytes_written << ")" << std::endl;
-      std::cout << "nbytes_remaining(" << nbytes_remaining << ")" << std::endl;
 
       Slice wslice(sample.wbuf + nbytes_written, nbytes);
       s = wfile->Append(wslice);

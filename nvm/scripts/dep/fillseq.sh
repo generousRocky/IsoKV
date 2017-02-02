@@ -17,7 +17,7 @@ vs=1048576; bs=65536; cs=1048576; of=500000; si=100;
 --benchmarks=fillseq \
 --disable_seek_compaction=1 \
 --env_uri="nvm://nvme0n1$RBENCH_PATH/nvm.meta" \
---db="$RBENCH_PATH/db" \
+--db="$RBENCH_PATH/bench" \
 --mmap_read=0 \
 --statistics=1 \
 --histogram=1 \
