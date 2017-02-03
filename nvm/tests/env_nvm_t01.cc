@@ -1,11 +1,43 @@
 #include <iostream>
 #include <sstream>
 #include <cassert>
+#include <sys/time.h>
 
 #include "rocksdb/db.h"
 #include "rocksdb/utilities/env_registry.h"
 #include "env_nvm.h"
 #include "args.h"
+
+static size_t start, stop;
+
+static inline size_t wclock_sample(void)
+{
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    return tv.tv_usec + tv.tv_sec * 1000000;
+}
+
+size_t timer_start(void)
+{
+    start = wclock_sample();
+    return start;
+}
+
+size_t timer_stop(void)
+{
+    stop = wclock_sample();
+    return stop;
+}
+
+double timer_elapsed(void)
+{
+    return (stop-start)/(double)1000000.0;
+}
+
+void timer_pr(const char* tool)
+{
+    printf("Ran %s, elapsed wall-clock: %lf\n", tool, timer_elapsed());
+}
 
 using namespace rocksdb;
 
@@ -40,6 +72,8 @@ int main(int argc, char *argv[]) {
     env->DeleteFile(fn);
   }
 
+  timer_start();
+
   s = env->FileExists(fn);
   if (!s.ok()) {                        // Construct the file
     unique_ptr<WritableFile> wfile;
@@ -67,6 +101,11 @@ int main(int argc, char *argv[]) {
     wfile.reset(nullptr);
   }
 
+  timer_stop();
+  timer_pr("Write");
+
+  timer_start();
+
   unique_ptr<SequentialFile> rfile;     // Read the file
   s = env->NewSequentialFile(fn, &rfile, opt_e);
   assert(s.ok());
@@ -74,6 +113,9 @@ int main(int argc, char *argv[]) {
   Slice rslice(sample.rbuf, kFsize);
   s = rfile->Read(kFsize, &rslice, sample.scratch);
   assert(s.ok());
+
+  timer_stop();
+  timer_pr("Read");
 
   rfile.reset(nullptr);
 
