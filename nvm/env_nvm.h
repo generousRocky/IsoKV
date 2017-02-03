@@ -5,9 +5,10 @@
 #include <sstream>
 #include <fstream>
 #include <iomanip>
+#include <deque>
 #include <map>
 #include "rocksdb/env.h"
-#include "util/threadpool.h"
+#include "include/rocksdb/threadpool.h"
 #include "util/thread_local.h"
 #include "util/thread_status_updater.h"
 #include "util/mutexlock.h"
