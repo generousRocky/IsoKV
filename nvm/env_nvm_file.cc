@@ -498,34 +498,38 @@ Status NvmFile::Read(
   uint64_t aligned_offset = offset - offset % align_nbytes_;
   uint64_t aligned_n = ((n + align_nbytes_ -1) / align_nbytes_) * align_nbytes_;
 
-  char *buf = (char*)nvm_buf_alloc(nvm_dev_get_geo(env_->store_->GetDev()),
-                                   aligned_n);
-
   size_t nbytes_remaining = aligned_n;
   size_t nbytes_read = 0;
   size_t read_offset = aligned_offset;
 
+  NVM_DBG(this, "aligned_n(" << aligned_n << ")");
   while (nbytes_remaining > 0) {
     uint64_t blk_idx = read_offset / blk_nbytes_;
     uint64_t blk_offset = read_offset % blk_nbytes_;
-    uint64_t blk_nbytes = std::min(blk_nbytes_ - blk_offset, nbytes_remaining);
     struct nvm_vblk *blk = blks_[blk_idx];
+    uint64_t nbytes = std::min(
+      std::min(blk_nbytes_ - blk_offset, nbytes_remaining),
+      buf_nbytes_max_
+    );
 
-    NVM_DBG(this, "aligned_n(" << aligned_n << ")");
     NVM_DBG(this, "blk(" << blk << ")");
-    NVM_DBG(this, "blk_nbytes(" << blk_nbytes << ")");
     NVM_DBG(this, "blk_offset(" << blk_offset << ")");
+    NVM_DBG(this, "nbytes(" << nbytes << ")");
 
     NVM_DBG(this, "=nbytes_remaining(" << nbytes_remaining << ")");
     NVM_DBG(this, "=nbytes_read(" << nbytes_read << ")");
     NVM_DBG(this, "=read_offset(" << read_offset << ")");
 
-    ssize_t ret = nvm_vblk_pread(blk, buf + nbytes_read, blk_nbytes, blk_offset);
+    ssize_t ret = nvm_vblk_pread(blk, buf_, nbytes, blk_offset);
     if (ret < 0) {
       perror("nvm_vblk_read");
       NVM_DBG(this, "FAILED: nvm_vblk_read");
       return Status::IOError("FAILED: nvm_vblk_read");
     }
+
+    size_t buf_offset = read_offset < offset ? (offset - read_offset) : 0;
+    NVM_DBG(this, "memcpy buf_offset(" << buf_offset << ")");
+    memcpy(scratch + nbytes_read, buf_ + buf_offset, ret);
 
     nbytes_remaining -= ret;
     nbytes_read += ret;
@@ -535,10 +539,6 @@ Status NvmFile::Read(
     NVM_DBG(this, "+nbytes_read(" << nbytes_read << ")");
     NVM_DBG(this, "+read_offset(" << read_offset << ")");
   }
-
-  NVM_DBG(this, "memcpy to scratch from buf n(" << n << ")");
-  memcpy(scratch, buf + (offset - aligned_offset), n);
-  free(buf);
 
   *result = Slice(scratch, n);
 
