@@ -528,8 +528,9 @@ Status NvmFile::Read(
     }
 
     size_t buf_offset = read_offset < offset ? (offset - read_offset) : 0;
-    NVM_DBG(this, "memcpy buf_offset(" << buf_offset << ")");
-    memcpy(scratch + nbytes_read, buf_ + buf_offset, ret);
+    size_t buf_copy = read_offset < offset ? ret - buf_offset : ret;
+    NVM_DBG(this, "memcpy buf_offset(" << buf_offset << "), ret(" << ret << ")");
+    memcpy(scratch + nbytes_read, buf_ + buf_offset, buf_copy);
 
     nbytes_remaining -= ret;
     nbytes_read += ret;

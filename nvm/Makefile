@@ -65,8 +65,10 @@ test-02-01:
 bench-clean:
 	@sudo rm -r /opt/rocks/hw || true
 	@sudo rm -r /opt/rocks/fs || true
+	@sudo rm -r /opt/rocks/qe || true
 	@sudo mkdir -p /opt/rocks/hw || true
 	@sudo mkdir -p /opt/rocks/fs || true
+	@sudo mkdir -p /opt/rocks/qe || true
 	@sudo chown -R `whoami`:`whoami` /opt/rocks || true
 	@rm /tmp/bench*.log || true
 
@@ -75,6 +77,12 @@ bench-hw-fill:
 
 bench-hw-read:
 	./scripts/run.sh ./scripts/env_shared.sh ./scripts/env_hw.sh readseq 1 2>&1 | tee -a /tmp/bench-hw-read.log
+
+bench-qe-fill:
+	./scripts/run.sh ./scripts/env_shared.sh ./scripts/env_qemu.sh fillseq 0 2>&1 | tee -a /tmp/bench-qe-fill.log
+
+bench-qe-read:
+	./scripts/run.sh ./scripts/env_shared.sh ./scripts/env_qemu.sh readseq 1 2>&1 | tee -a /tmp/bench-qe-read.log
 
 bench-fs-fill:
 	./scripts/run.sh ./scripts/env_shared.sh ./scripts/env_fs.sh fillseq 0 2>&1 | tee -a /tmp/bench-fs-fill.log
