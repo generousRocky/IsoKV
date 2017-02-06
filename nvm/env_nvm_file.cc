@@ -497,6 +497,7 @@ Status NvmFile::Read(
 
   uint64_t aligned_offset = offset - offset % align_nbytes_;
   uint64_t aligned_n = ((n + align_nbytes_ -1) / align_nbytes_) * align_nbytes_;
+  uint64_t aligned_diff = offset - aligned_offset;
 
   size_t nbytes_remaining = aligned_n;
   size_t nbytes_read = 0;
@@ -507,10 +508,11 @@ Status NvmFile::Read(
     uint64_t blk_idx = read_offset / blk_nbytes_;
     uint64_t blk_offset = read_offset % blk_nbytes_;
     struct nvm_vblk *blk = blks_[blk_idx];
-    uint64_t nbytes = std::min(
-      std::min(blk_nbytes_ - blk_offset, nbytes_remaining),
+    uint64_t nbytes = std::min({
+      nbytes_remaining,
+      blk_nbytes_ - blk_offset,
       buf_nbytes_max_
-    );
+    });
 
     NVM_DBG(this, "blk(" << blk << ")");
     NVM_DBG(this, "blk_offset(" << blk_offset << ")");
@@ -529,12 +531,17 @@ Status NvmFile::Read(
 
     size_t buf_offset = 0;
     size_t buf_copy = ret;
+
     if (read_offset < offset) {
       buf_offset = offset - read_offset;
       buf_copy = ret - buf_offset;
     }
 
-    buf_copy = std::min(buf_copy, n);
+    buf_copy = std::min({
+      buf_copy,
+      n,
+      nbytes_read + ret - n
+    );
 
     NVM_DBG(this, "buf_offset(" << buf_offset << ")");
     NVM_DBG(this, "buf_copy(" << buf_copy << ")");
