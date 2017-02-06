@@ -34,7 +34,8 @@ tags:
 dev: clean configure make
 
 rocks:
-	cd .. && make release -j$(expr `nproc` - 1)
+	#cd .. && make release -j$(expr `nproc` - 2)
+	cd .. && make release -j8
 
 test-clean:
 	@sudo rm -r /opt/rocks/test || true

@@ -81,12 +81,16 @@ NvmFile::NvmFile(
 
   buf_file_offset_ = fsize_;
   buf_nbytes_ = 0;
-  buf_nbytes_max_ = blk_nbytes_;
+  buf_nbytes_max_ = 4 * stripe_nbytes_;
   buf_ = (char*)nvm_buf_alloc(geo, buf_nbytes_max_);
   if (!buf_) {
     NVM_DBG(this, "FAILED: allocating buffer");
     throw std::runtime_error("FAILED: allocating buffer");
   }
+
+  NVM_DBG(this, "buf_file_offset_(" << buf_file_offset_ << ")");
+  NVM_DBG(this, "buf_nbytes_(" << buf_nbytes_ << ")");
+  NVM_DBG(this, "buf_nbytes_max_(" << buf_nbytes_max_ << ")");
 }
 
 NvmFile::~NvmFile(void) {
