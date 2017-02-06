@@ -527,7 +527,7 @@ Status NvmFile::Read(
       return Status::IOError("FAILED: nvm_vblk_read");
     }
 
-
+    /*
     size_t buf_offset = 0;
     size_t buf_copy = ret;
     if (read_offset < offset) {
@@ -539,6 +539,8 @@ Status NvmFile::Read(
     NVM_DBG(this, "buf_copy(" << buf_copy << ")");
     NVM_DBG(this, "ret(" << ret << ")");
     memcpy(scratch + nbytes_read, buf_ + buf_offset, buf_copy);
+    */
+    memcpy(scratch + nbytes_read, buf_, ret);
 
     nbytes_remaining -= ret;
     nbytes_read += ret;
