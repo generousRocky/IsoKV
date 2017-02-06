@@ -497,7 +497,6 @@ Status NvmFile::Read(
 
   uint64_t aligned_offset = offset - offset % align_nbytes_;
   uint64_t aligned_n = ((n + align_nbytes_ -1) / align_nbytes_) * align_nbytes_;
-  uint64_t aligned_diff = offset - aligned_offset;
 
   size_t nbytes_remaining = aligned_n;
   size_t nbytes_read = 0;
@@ -541,7 +540,7 @@ Status NvmFile::Read(
       buf_copy,
       n,
       nbytes_read + ret - n
-    );
+    });
 
     NVM_DBG(this, "buf_offset(" << buf_offset << ")");
     NVM_DBG(this, "buf_copy(" << buf_copy << ")");
