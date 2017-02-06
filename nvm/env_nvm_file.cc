@@ -527,20 +527,18 @@ Status NvmFile::Read(
       return Status::IOError("FAILED: nvm_vblk_read");
     }
 
-    /*
     size_t buf_offset = 0;
     size_t buf_copy = ret;
     if (read_offset < offset) {
       buf_offset = offset - read_offset;
       buf_copy = ret - buf_offset;
     }
-    NVM_DBG(this, "memcpy ");
+
+    buf_copy = std::min(buf_copy, n);
+
     NVM_DBG(this, "buf_offset(" << buf_offset << ")");
     NVM_DBG(this, "buf_copy(" << buf_copy << ")");
-    NVM_DBG(this, "ret(" << ret << ")");
     memcpy(scratch + nbytes_read, buf_ + buf_offset, buf_copy);
-    */
-    memcpy(scratch + nbytes_read, buf_, ret);
 
     nbytes_remaining -= ret;
     nbytes_read += ret;
