@@ -476,6 +476,7 @@ Status NvmFile::pad_last_block(void) {
 Status NvmFile::Read(
   uint64_t offset, size_t n, Slice* result, char* scratch
 ) const {
+  NVM_DBG(this, "entry");
   NVM_DBG(this, "offset(" << offset << ")-aligned(" << !(offset % align_nbytes_) << ")");
   NVM_DBG(this, "n(" << n << ")-aligned(" << !(n % align_nbytes_) << ")");
 
@@ -558,6 +559,8 @@ Status NvmFile::Read(
   }
 
   *result = Slice(scratch, n);
+
+  NVM_DBG(this, "exit");
 
   return Status::OK();
 }
