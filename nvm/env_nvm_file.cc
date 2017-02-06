@@ -497,12 +497,18 @@ Status NvmFile::Read(
 
   uint64_t aligned_offset = offset - offset % align_nbytes_;
   uint64_t aligned_n = ((n + align_nbytes_ -1) / align_nbytes_) * align_nbytes_;
+  uint64_t skip_head_nbytes = offset - aligned_offset;
+  uint64_t skip_tail_nbytes = aligned_n - n;
+
+  NVM_DBG(this, "aligned_n(" << aligned_n << ")");
+  NVM_DBG(this, "aligned_offset(" << aligned_offset << ")");
+  NVM_DBG(this, "skip_head_nbytes(" << skip_head_nbytes << ")");
+  NVM_DBG(this, "skip_tail_nbytes(" << skip_tail_nbytes << ")");
 
   size_t nbytes_remaining = aligned_n;
   size_t nbytes_read = 0;
   size_t read_offset = aligned_offset;
 
-  NVM_DBG(this, "aligned_n(" << aligned_n << ")");
   while (nbytes_remaining > 0) {
     uint64_t blk_idx = read_offset / blk_nbytes_;
     uint64_t blk_offset = read_offset % blk_nbytes_;
@@ -528,27 +534,23 @@ Status NvmFile::Read(
       return Status::IOError("FAILED: nvm_vblk_read");
     }
 
-    size_t buf_offset = 0;
-    size_t buf_copy = ret;
-
-    if (read_offset < offset) {
-      buf_offset = offset - read_offset;
-      buf_copy = ret - buf_offset;
-    }
-
-    buf_copy = std::min({
-      buf_copy,
-      n,
-      nbytes_read + ret - n
-    });
-
-    NVM_DBG(this, "buf_offset(" << buf_offset << ")");
-    NVM_DBG(this, "buf_copy(" << buf_copy << ")");
-    memcpy(scratch + nbytes_read, buf_ + buf_offset, buf_copy);
+    int first = !nbytes_read;
 
     nbytes_remaining -= ret;
     nbytes_read += ret;
     read_offset += ret;
+
+    int last = !nbytes_remaining;
+
+    if (first && last) {        // Single short read
+      memcpy(scratch, buf_ + skip_head_nbytes, n);
+    } else if (first) {
+      memcpy(scratch, buf_ + skip_head_nbytes, nbytes - skip_head_nbytes);
+    } else if (last) {
+      memcpy(scratch + nbytes_read - ret, buf_, nbytes - skip_tail_nbytes);
+    } else {
+      memcpy(scratch + nbytes_read - ret, buf_, nbytes);
+    }
 
     NVM_DBG(this, "-nbytes_remaining(" << nbytes_remaining << ")");
     NVM_DBG(this, "+nbytes_read(" << nbytes_read << ")");
