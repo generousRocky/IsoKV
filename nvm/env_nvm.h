@@ -135,6 +135,13 @@ class NvmWritableFile;          // Declared here, defined here
 class NvmSequentialFile;        // Declared here, defined here
 class NvmRandomAccessFile;      // Declared here, defined here
 
+enum BlkState {
+  kFree = 0x1,
+  kOpen = 0x2,
+  kReserved = 0x4,
+  kBad = 0x8,
+};
+
 //
 // Stateful wrapper for provisioning of virtual blocks
 class NvmStore {
@@ -153,11 +160,9 @@ public:
 
 protected:
 
-  Status reserve(void);
+  Status recover(const std::string& mpath);
 
-  Status release(void);
-
-  Status wmeta(void);
+  Status persist(const std::string& mpath);
 
   std::string txt(void);
 
@@ -172,6 +177,8 @@ protected:
   port::Mutex mutex_;
   size_t curs_;
   std::deque<struct nvm_vblk*> reserved_;
+
+  std::deque<std::pair<BlkState, struct nvm_vblk*>> blks_;
 };
 
 class NvmFile {
@@ -258,12 +265,12 @@ private:
 };
 
 template<typename T>
-std::string num_to_hex(T i)
+std::string num_to_hex(T i, int width)
 {
   std::stringstream stream;
 
   stream << "0x"
-         << std::setfill ('0') << std::setw(16)
+         << std::setfill ('0') << std::setw(width)
          << std::hex << i;
 
   return stream.str();
@@ -298,7 +305,7 @@ public:
         struct nvm_addr *addrs = nvm_vblk_get_addrs(blk);
 
         for (int i = 0; i < naddrs; ++i) {
-          meta += num_to_hex(addrs[i].ppa);
+          meta += num_to_hex(addrs[i].ppa, 16);
           meta += " ";
         }
         meta += "\n";
