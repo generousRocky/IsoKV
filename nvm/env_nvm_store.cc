@@ -143,6 +143,7 @@ struct nvm_vblk* NvmStore::get(void) {
     switch (entry.first) {
     case kFree:
       if (nvm_vblk_erase(entry.second) < 0) {
+        entry.first = kBad;
         NVM_DBG(this, "WARN: Erase failed blk_idx(" << blk_idx << ")");
         break;
       }
