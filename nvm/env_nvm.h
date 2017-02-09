@@ -175,7 +175,7 @@ protected:
   size_t rate_;
 
   port::Mutex mutex_;
-  size_t curs_;
+  uint16_t curs_;
   std::deque<struct nvm_vblk*> reserved_;
 
   std::deque<std::pair<BlkState, struct nvm_vblk*>> blks_;

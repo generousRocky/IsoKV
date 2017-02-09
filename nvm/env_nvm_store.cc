@@ -79,8 +79,6 @@ Status NvmStore::recover(const std::string& mpath)
   std::string line;                             // Recover states
   for(size_t blk_idx = 0; meta_ss >> line; ++blk_idx) {
     int state = strtoul(line.c_str(), NULL, 16);
-    NVM_DBG(this, "blk_idx(" << blk_idx << "), state(" << state << ")");
-    NVM_DBG(this, "huh(" << BlkState(state) << ")");
 
     switch(state) {
       case kFree:
@@ -169,6 +167,7 @@ void NvmStore::put(struct nvm_vblk* blk) {
   NVM_DBG(this, "");
 
   size_t blk_idx = nvm_vblk_get_addrs(blk)[0].g.blk;
+  NVM_DBG(this, "blk_idx(" << blk_idx << ")");
   blks_[blk_idx].first = kFree;
 }
 

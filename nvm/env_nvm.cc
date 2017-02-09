@@ -263,6 +263,7 @@ Status EnvNVM::GetChildrenFileAttributes(
 
 NvmFile* EnvNVM::FindFileUnguarded(const FPathInfo& info) {
   NVM_DBG(this, "info(" << info.txt() << ")");
+  NVM_DBG(this, "info.dpath(" << info.dpath() << ")");
 
   auto dit = fs_.find(info.dpath());    // Lookup in loaded files
   if (dit != fs_.end()) {
@@ -272,16 +273,19 @@ NvmFile* EnvNVM::FindFileUnguarded(const FPathInfo& info) {
         return *it;
       }
     }
-    NVM_DBG(this, "!found (not loaded)");
   }
+  NVM_DBG(this, "!found (not loaded)");
 
   std::vector<std::string> listing;     // Lookup meta-file in default env
   Status s = posix_->GetChildren(info.dpath(), &listing);
   if (!s.ok()) {
-    NVM_DBG(this, "!found (not in default-env)");
+    NVM_DBG(this, "!found (no files in default-env)");
+    return NULL;
   }
 
   for (auto entry : listing) {          // Find .meta files
+    NVM_DBG(this, "entry(" << entry << ")");
+
     if (!FPathInfo::ends_with(entry, kNvmMetaExt))
       continue;
     if (entry.compare(0, info.fname().size(), info.fname()))
