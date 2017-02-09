@@ -44,7 +44,7 @@ Status NvmStore::recover(const std::string& mpath)
   for (size_t blk_idx = 0; blk_idx < geo_->nblocks; ++blk_idx) {
     struct nvm_vblk *blk;
 
-    blk = nvm_vblk_alloc_line(dev_, 0, geo_->nchannels-1, 0, geo_->nblocks-1,
+    blk = nvm_vblk_alloc_line(dev_, 0, geo_->nchannels-1, 0, geo_->nluns-1,
                               blk_idx);
     if (!blk) {
       NVM_DBG(this, "FAILED: nvm_vblk_alloc_line");

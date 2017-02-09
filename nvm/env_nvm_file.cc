@@ -397,6 +397,7 @@ Status NvmFile::Flush(bool skip_last) {
     ret = nvm_vblk_write(blk, buf_ + nbytes_written, nbytes);
     if (ret < 0) {
       perror("nvm_vblk_write");
+      nvm_vblk_pr(blk);
       NVM_DBG(this, "FAILED: nvm_vblk_write(...)");
       return Status::IOError("FAILED: nvm_vblk_write(...)");
     }
