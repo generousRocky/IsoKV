@@ -41,7 +41,7 @@ rocks:
 
 .PHONY: hash
 hash:
-	$(eval HASH := date | md5sum | cut -b -8)
+	@$(eval HASH := `date | md5sum | cut -b -8`)
 
 test-clean:
 	@sudo rm -r /opt/rocks/test || true
