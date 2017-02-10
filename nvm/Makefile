@@ -1,6 +1,8 @@
 BUILD_TYPE?=Release
 BUILD_DIR?=build
 
+HASH?="none"
+
 default: configure make
 
 debug:
@@ -37,6 +39,10 @@ rocks:
 	#cd .. && make release -j$(expr `nproc` - 2)
 	cd .. && make release -j8
 
+.PHONY: hash
+hash:
+	$(eval HASH := date | md5sum | cut -b -8)
+
 test-clean:
 	@sudo rm -r /opt/rocks/test || true
 	@sudo mkdir -p /opt/rocks/test || true
@@ -44,23 +50,23 @@ test-clean:
 	@rm /tmp/test-*-*.log || true
 
 test-01-00:
-	./$(BUILD_DIR)/env_nvm_t01 0 2>&1 | tee -a /tmp/test-01-00.log
+	./$(BUILD_DIR)/env_nvm_t01 0 2>&1 | tee -a /tmp/test-01-00-$(HASH).log
 	cat /opt/rocks/nvm.meta
 	cat /opt/rocks/test/testfile.log.meta
 	nvm_addr from_hex /dev/nvme0n1 `tail -n +3 /opt/rocks/test/testfile.log.meta | cut -f 1 -d " "`
 
 test-01-01:
-	./$(BUILD_DIR)/env_nvm_t01 1  2>&1 | tee -a /tmp/test-01-01.log
+	./$(BUILD_DIR)/env_nvm_t01 1 2>&1 | tee -a /tmp/test-01-01-$(HASH).log
 	cat /opt/rocks/nvm.meta
 	cat /opt/rocks/test/testfile.log.meta
 	nvm_addr from_hex /dev/nvme0n1 `tail -n +3 /opt/rocks/test/testfile.log.meta | cut -f 1 -d " "`
 
 # nruns nkvs do_delete disableWAL
 test-02-00:
-	./$(BUILD_DIR)/env_nvm_t02 3 50000 0 1 2>&1 | tee -a /tmp/test-02-00.log
+	./$(BUILD_DIR)/env_nvm_t02 3 50000 0 1 2>&1 | tee -a /tmp/test-02-00-$(HASH).log
 
 test-02-01:
-	./$(BUILD_DIR)/env_nvm_t02 3 50000 1 1 2>&1 | tee -a /tmp/test-02-01.log
+	./$(BUILD_DIR)/env_nvm_t02 3 50000 1 1 2>&1 | tee -a /tmp/test-02-01-$(HASH).log
 
 bench-clean:
 	@sudo rm -r /opt/rocks/hw || true
@@ -73,19 +79,19 @@ bench-clean:
 	@rm /tmp/bench*.log || true
 
 bench-hw-fill:
-	./scripts/run.sh ./scripts/env_shared.sh ./scripts/env_hw.sh fillseq 0 2>&1 | tee -a /tmp/bench-hw-fill.log
+	./scripts/run.sh ./scripts/env_shared.sh ./scripts/env_hw.sh fillseq 0 2>&1 | tee -a /tmp/bench-hw-fill-$(HASH).log
 
 bench-hw-read:
-	./scripts/run.sh ./scripts/env_shared.sh ./scripts/env_hw.sh readseq 1 2>&1 | tee -a /tmp/bench-hw-read.log
+	./scripts/run.sh ./scripts/env_shared.sh ./scripts/env_hw.sh readseq 1 2>&1 | tee -a /tmp/bench-hw-read-$(HASH).log
 
 bench-qe-fill:
-	./scripts/run.sh ./scripts/env_shared.sh ./scripts/env_qemu.sh fillseq 0 2>&1 | tee -a /tmp/bench-qe-fill.log
+	./scripts/run.sh ./scripts/env_shared.sh ./scripts/env_qemu.sh fillseq 0 2>&1 | tee -a /tmp/bench-qe-fill-$(HASH).log
 
 bench-qe-read:
-	./scripts/run.sh ./scripts/env_shared.sh ./scripts/env_qemu.sh readseq 1 2>&1 | tee -a /tmp/bench-qe-read.log
+	./scripts/run.sh ./scripts/env_shared.sh ./scripts/env_qemu.sh readseq 1 2>&1 | tee -a /tmp/bench-qe-read-$(HASH).log
 
 bench-fs-fill:
-	./scripts/run.sh ./scripts/env_shared.sh ./scripts/env_fs.sh fillseq 0 2>&1 | tee -a /tmp/bench-fs-fill.log
+	./scripts/run.sh ./scripts/env_shared.sh ./scripts/env_fs.sh fillseq 0 2>&1 | tee -a /tmp/bench-fs-fill-$(HASH).log
 
 bench-fs-read:
-	./scripts/run.sh ./scripts/env_shared.sh ./scripts/env_fs.sh readseq 1 2>&1 | tee -a /tmp/bench-fs-read.log
+	./scripts/run.sh ./scripts/env_shared.sh ./scripts/env_fs.sh readseq 1 2>&1 | tee -a /tmp/bench-fs-read-$(HASH).log
