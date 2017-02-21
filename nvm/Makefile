@@ -79,11 +79,29 @@ bench-clean:
 	@sudo chown -R `whoami`:`whoami` /opt/rocks || true
 	@rm /tmp/bench*.log || true
 
-bench-hw-fill:
-	./scripts/run.sh ./scripts/env_shared.sh ./scripts/env_hw.sh fillseq 0 2>&1 | tee -a /tmp/bench-hw-fill-$(HASH).log
+bench-nvme0-fill:
+	./scripts/run.sh ./scripts/env_shared.sh ./scripts/env_nvm_nvme0.sh fillseq 0 2>&1 | tee -a /tmp/bench-nvme0-fill-$(HASH).log
 
-bench-hw-read:
-	./scripts/run.sh ./scripts/env_shared.sh ./scripts/env_hw.sh readseq 1 2>&1 | tee -a /tmp/bench-hw-read-$(HASH).log
+bench-nvme0-read:
+	./scripts/run.sh ./scripts/env_shared.sh ./scripts/env_nvm_nvme0.sh readseq 1 2>&1 | tee -a /tmp/bench-nvme0-read-$(HASH).log
+
+bench-nvme1-fill:
+	./scripts/run.sh ./scripts/env_shared.sh ./scripts/env_nvm_nvme1.sh fillseq 0 2>&1 | tee -a /tmp/bench-nvme1-fill-$(HASH).log
+
+bench-nvme1-read:
+	./scripts/run.sh ./scripts/env_shared.sh ./scripts/env_nvm_nvme1.sh readseq 1 2>&1 | tee -a /tmp/bench-nvme1-read-$(HASH).log
+
+bench-fs_ss-fill:
+	./scripts/run.sh ./scripts/env_shared.sh ./scripts/env_fs_ss.sh fillseq 0 2>&1 | tee -a /tmp/bench-fs_ss-fill-$(HASH).log
+
+bench-fs_ss-read:
+	./scripts/run.sh ./scripts/env_shared.sh ./scripts/env_fs_ss.sh readseq 1 2>&1 | tee -a /tmp/bench-fs_ss-read-$(HASH).log
+
+bench-fs_pblk-fill:
+	./scripts/run.sh ./scripts/env_shared.sh ./scripts/env_fs_pblk.sh fillseq 0 2>&1 | tee -a /tmp/bench-fs_pblk-fill-$(HASH).log
+
+bench-fs_pblk-read:
+	./scripts/run.sh ./scripts/env_shared.sh ./scripts/env_fs_pblk.sh readseq 1 2>&1 | tee -a /tmp/bench-fs_pblk-read-$(HASH).log
 
 bench-qe-fill:
 	./scripts/run.sh ./scripts/env_shared.sh ./scripts/env_qemu.sh fillseq 0 2>&1 | tee -a /tmp/bench-qe-fill-$(HASH).log
@@ -91,8 +109,3 @@ bench-qe-fill:
 bench-qe-read:
 	./scripts/run.sh ./scripts/env_shared.sh ./scripts/env_qemu.sh readseq 1 2>&1 | tee -a /tmp/bench-qe-read-$(HASH).log
 
-bench-fs-fill:
-	./scripts/run.sh ./scripts/env_shared.sh ./scripts/env_fs.sh fillseq 0 2>&1 | tee -a /tmp/bench-fs-fill-$(HASH).log
-
-bench-fs-read:
-	./scripts/run.sh ./scripts/env_shared.sh ./scripts/env_fs.sh readseq 1 2>&1 | tee -a /tmp/bench-fs-read-$(HASH).log
