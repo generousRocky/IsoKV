@@ -297,9 +297,21 @@ Status ReadBlock(RandomAccessFileReader* file, const Footer& footer,
       s = Status::Corruption("block checksum mismatch");
     }
     if (!s.ok()) {
+      file->file()->ShouldForwardRawRequest();
+      file->file()->ShouldForwardRawRequest();
+      file->file()->ShouldForwardRawRequest();
+      file->file()->ShouldForwardRawRequest();
+      file->file()->ShouldForwardRawRequest();
       return s;
     }
   }
+
+  file->file()->EnableReadAhead();
+  file->file()->EnableReadAhead();
+  file->file()->EnableReadAhead();
+  file->file()->EnableReadAhead();
+  file->file()->EnableReadAhead();
+
   return s;
 }
 
