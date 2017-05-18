@@ -84,6 +84,10 @@ LIB_SOURCES =                                                   \
   options/options_helper.cc                                     \
   options/options_parser.cc                                     \
   options/options_sanity_check.cc                               \
+  nvm/env_nvm.cc                                                \
+  nvm/env_nvm_store.cc                                          \
+  nvm/env_nvm_file.cc                                           \
+  port/stack_trace.cc                                           \
   port/port_posix.cc                                            \
   port/stack_trace.cc                                           \
   table/adaptive_table_factory.cc                               \

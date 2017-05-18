@@ -300,6 +300,7 @@ Status ReadBlock(RandomAccessFileReader* file, const Footer& footer,
       return s;
     }
   }
+
   return s;
 }
 
