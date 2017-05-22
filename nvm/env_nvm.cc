@@ -205,6 +205,8 @@ Status EnvNVM::DeleteFile(const std::string& fpath) {
     return posix_->FileExists(fpath);
   }
 
+  return Status::OK(); // TODO: DEBUG
+
   MutexLock lock(&fs_mutex_);
 
   return DeleteFileUnguarded(info);
