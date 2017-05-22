@@ -294,6 +294,11 @@ Status ReadBlock(RandomAccessFileReader* file, const Footer& footer,
         s = Status::Corruption("unknown checksum type");
     }
     if (s.ok() && actual != value) {
+      file->file()->EnableReadAhead();
+      file->file()->EnableReadAhead();
+      file->file()->EnableReadAhead();
+      file->file()->EnableReadAhead();
+      file->file()->EnableReadAhead();
       s = Status::Corruption("block checksum mismatch");
     }
     if (!s.ok()) {
