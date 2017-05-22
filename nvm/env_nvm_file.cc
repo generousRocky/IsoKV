@@ -93,6 +93,12 @@ align_nbytes_(), stripe_nbytes_(), blk_nbytes_(), blks_() {
   NVM_DBG(this, "blk_nbytes_(" << blk_nbytes_ << ")");
   NVM_DBG(this, "buf_nbytes_(" << buf_nbytes_ << ")");
   NVM_DBG(this, "buf_nbytes_max_(" << buf_nbytes_max_ << ")");
+
+  writer_.open("/tmp/"+ info.fname(), std::fstream::out | std::fstream::binary);
+
+  if (writer_.fail()) {
+    NVM_DBG(this, "writer_.open: " <<  strerror(errno));
+  }
 }
 
 NvmFile::~NvmFile(void) {
@@ -248,6 +254,11 @@ Status NvmFile::RangeSync(uint64_t offset, uint64_t nbytes) {
 Status NvmFile::Close(void) {
   NVM_DBG(this, "ignoring...");
 
+  writer_.close();
+  if (writer_.fail()) {
+    NVM_DBG(this, "writer_.close: " << strerror(errno));
+  }
+
   return Status::OK();
 }
 
@@ -293,6 +304,11 @@ Status NvmFile::Append(const Slice& slice) {
     if (nbytes_remaining && (!Flush().ok())) {
       return Status::IOError("Flushing to media failed.");
     }
+  }
+
+  writer_.write(data, data_nbytes);
+  if (writer_.fail()) {
+    NVM_DBG(this, "writer_.write: " << strerror(errno));
   }
 
   return Status::OK();
@@ -566,9 +582,41 @@ Status NvmFile::Read(
     NVM_DBG(this, "+read_offset(" << read_offset << ")");
   }
 
+  NVM_DBG(this, "checking with fs_data");
+
+  {
+    char *fs_data = new char[n];
+    size_t ndiffs = 0;
+    std::fstream reader_;
+
+    reader_.open("/tmp/" + info_.fname(), std::fstream::binary | std::fstream::in);
+    NVM_DBG(this, "reader_.open: " << strerror(errno));
+
+    reader_.seekg(offset, reader_.beg);
+    NVM_DBG(this, "reader_.seekg: " << strerror(errno));
+
+    reader_.read(fs_data, n);
+    NVM_DBG(this, "reader_.read: " << strerror(errno));
+
+    reader_.close();
+
+    // Compare buffers
+    NVM_DBG(this, "Buffer comparison n: " << n);
+    for (size_t i = 0; i < n; ++i) {
+      if (scratch[i] != fs_data[i]) {
+        ++ndiffs;
+        NVM_DBG(this, i << ": " << std::hex << (size_t)scratch[i] << " ~ " << std::hex << (size_t)fs_data[i]);
+        scratch[i] = fs_data[i];
+      }
+    }
+    NVM_DBG(this, "ndiffs: " << ndiffs);
+
+    delete[] fs_data;
+  }
+
   *result = Slice(scratch, n);
 
-  NVM_DBG(this, "exit");
+  NVM_DBG(this, "done");
 
   return Status::OK();
 }

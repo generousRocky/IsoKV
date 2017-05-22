@@ -246,6 +246,8 @@ private:
   size_t buf_nbytes_max_;
 
   std::deque<struct nvm_vblk*> blks_;
+
+  std::fstream writer_;
 };
 
 template<typename T>
