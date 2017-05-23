@@ -15,7 +15,7 @@
 #include "port/port.h"
 #include <liblightnvm.h>
 
-//#define NVM_DBG_ENABLED 1
+#define NVM_DBG_ENABLED 1
 #ifdef NVM_DBG_ENABLED
 
 inline std::string methodName(const std::string& prettyFunction) {
