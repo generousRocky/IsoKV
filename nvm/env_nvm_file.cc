@@ -534,17 +534,29 @@ Status NvmFile::Read(
     int last = !nbytes_remaining;
 
     if (first && last) {        // Single short read
-      NVM_DBG(this, "first && last");
-      memcpy(scratch, buf_ + skip_head_nbytes, n);
+      ssize_t scratch_inc = n;
+      NVM_DBG(this, "first && last, scratch_inc: " << scratch_inc);
+
+      memcpy(scratch, buf_ + skip_head_nbytes, scratch_inc);
+
     } else if (first) {
-      NVM_DBG(this, "first");
-      memcpy(scratch, buf_ + skip_head_nbytes, nbytes - skip_head_nbytes);
+      ssize_t scratch_inc = nbytes - skip_head_nbytes;
+      NVM_DBG(this, "first, scratch_inc: " << scratch_inc);
+
+      memcpy(scratch, buf_ + skip_head_nbytes, scratch_inc);
     } else if (last) {
-      NVM_DBG(this, "last");
-      memcpy(scratch + nbytes_read - ret, buf_, nbytes - skip_tail_nbytes);
+      ssize_t scratch_inc = nbytes - (skip_tail_nbytes - skip_head_nbytes);
+      ssize_t scratch_offz = nbytes_read - ret - skip_head_nbytes;
+
+      NVM_DBG(this, "last, scratch_offz: " << scratch_offz << ", scratch_inc: " << scratch_inc);
+
+      memcpy(scratch + scratch_offz, buf_, scratch_inc);
     } else {
-      NVM_DBG(this, "middle");
-      memcpy(scratch + nbytes_read - ret, buf_, nbytes);
+      ssize_t scratch_inc = nbytes;
+      ssize_t scratch_offz = nbytes_read - ret - skip_head_nbytes;
+      NVM_DBG(this, "middle, scratch_offz: " << scratch_offz << ", scratch_inc: " << scratch_inc);
+
+      memcpy(scratch + scratch_offz, buf_, scratch_inc);
     }
 
     NVM_DBG(this, "-nbytes_remaining(" << nbytes_remaining << ")");
