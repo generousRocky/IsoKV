@@ -44,7 +44,6 @@ inline std::string methodName(const std::string& prettyFunction) {
   << std::setfill(' ') << " "                                           \
   << std::setfill(' ') << std::setw(34) << std::left << __METHOD_NAME__ \
   << std::setfill(' ') << " "                                           \
-  << obj->txt()                                                         \
   << std::setfill(' ') << x                                             \
   << std::endl;                                                         \
   fprintf(stdout, "%s", ss.str().c_str()); fflush(stdout);              \
@@ -146,7 +145,11 @@ enum BlkState {
 // Stateful wrapper for provisioning of virtual blocks
 class NvmStore {
 public:
-  NvmStore(EnvNVM* env, const std::string &dev_name, const std::string& mpath, size_t rate);
+  NvmStore(EnvNVM* env,
+           const std::string &dev_name,
+           const std::vector<int> &punits,
+           const std::string& mpath,
+           size_t rate);
 
   ~NvmStore(void);
 
@@ -157,6 +160,8 @@ public:
   struct nvm_dev *GetDev(void) const { return dev_; }
   std::string GetDevName(void) const { return dev_name_; }
   std::string GetDevPath(void) const { return dev_path_; }
+
+  size_t GetPunitCount(void) const { return punits_.size(); }
 
 protected:
 
@@ -171,6 +176,7 @@ protected:
   std::string dev_path_;
   struct nvm_dev *dev_;
   const struct nvm_geo *geo_;
+  std::vector<struct nvm_addr> punits_;
   std::string mpath_;
   size_t rate_;
 

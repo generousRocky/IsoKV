@@ -49,6 +49,7 @@ static char fn[] = "/opt/rocks/test/testfile.log";
 
 int main(int argc, char *argv[]) {
 
+
   Args args(argc, argv, {"delete_existing"});
   if (argc < 2) {
     args.pr_usage();
@@ -56,8 +57,9 @@ int main(int argc, char *argv[]) {
   }
   args.pr_args();
 
+
   std::unique_ptr<Env> env_guard;
-  Env *env = NewCustomObject<Env>("nvm://nvme0n1/opt/rocks/nvm.meta", &env_guard);
+  Env *env = NewCustomObject<Env>("nvm://punits:0-127@nvme0n1/opt/rocks/nvm.meta", &env_guard);
   assert(env);
 
   EnvOptions opt_e;

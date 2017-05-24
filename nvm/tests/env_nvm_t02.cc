@@ -73,7 +73,7 @@ int main(int argc, char *argv[]) {
   args.pr_args();
 
   std::unique_ptr<Env> env_guard;
-  Env *env = NewCustomObject<Env>("nvm://nvme0n1/opt/rocks/nvm.meta", &env_guard);
+  Env *env = NewCustomObject<Env>("nvm://punits:0-127@nvme0n1/opt/rocks/nvm.meta", &env_guard);
   assert(env);
 
   Options options;

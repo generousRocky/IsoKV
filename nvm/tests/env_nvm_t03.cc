@@ -12,7 +12,7 @@ using namespace rocksdb;
 int main(int argc, char *argv[]) {
 
   std::unique_ptr<Env> env_guard;
-  Env *env = NewCustomObject<Env>("nvm://nvme0n1/opt/rtest/nvm.meta", &env_guard);
+  Env *env = NewCustomObject<Env>("nvm://punits:0-127@nvme0n1/opt/rtest/nvm.meta", &env_guard);
   assert(env);
 
   Options options;

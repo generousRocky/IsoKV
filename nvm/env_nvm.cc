@@ -1,15 +1,19 @@
+#include <exception>
 #include <iostream>
 #include <fstream>
 #include <string>
 #include <chrono>
+#include <regex>
 #include <linux/limits.h>
 #include "rocksdb/utilities/object_registry.h"
 #include "env_nvm.h"
-#include <exception>
 
 namespace rocksdb {
 
-static std::string kUriPrefix = "nvm://";
+static std::string kUriPrefix("nvm://");
+
+static std::regex kNvmUri("nvm://punits:([[:digit:],\\-]+)@([[:alnum:]]+)(/.*)");
+static std::regex kNvmUriPunits("(([[:digit:]]+)-([[:digit:]]+))|([[:digit:]]+)");
 
 static Registrar<Env> nvm_reg("nvm://.*", [](const std::string& uri,
                                            std::unique_ptr<Env>* env_guard) {
@@ -20,34 +24,49 @@ static Registrar<Env> nvm_reg("nvm://.*", [](const std::string& uri,
 EnvNVM::EnvNVM(
   const std::string& uri
 ) : Env(), posix_(Env::Default()), uri_(uri), fs_() {
+  NVM_DBG(this, "uri_(" << uri_ << ")");
 
-  if (uri_.find(kUriPrefix)) {          // Must start with prefix
-    NVM_DBG(this, "Invalid uri(1)");
-    throw std::runtime_error("Invalid uri(1)");
-  }
-                                        // Must contain "mpath"
-  size_t path_offset = uri_.find('/', kUriPrefix.size());
-  if (path_offset == std::string::npos) {
-    NVM_DBG(this, "Invalid uri(2)");
-    throw std::runtime_error("Invalid uri(2)");
+  std::smatch match;
+
+  if (!std::regex_match(uri, match, kNvmUri)) { // Parse uri for main components
+    NVM_DBG(this, "Invalid uri");
+    throw std::runtime_error("Invalid uri");
   }
 
-  FPathInfo mpath(uri_.substr(path_offset));
+  std::string punits_m(match[1].str());
+  std::string dev_name_m(match[2].str());
+  std::string path_m(match[3].str());
+
+  NVM_DBG(this, "punits_m: " << punits_m);
+  NVM_DBG(this, "dev_name_m: " << dev_name_m);
+  NVM_DBG(this, "path_m: " << path_m);
+
+  std::vector<int> punits;                      // Parse punits into vector
+
+  while (std::regex_search(punits_m, match, kNvmUriPunits)) {
+    if (match[2].length() && match[3].length()) {       // Range
+      int bgn = atoi(match[2].str().c_str());
+      int end = atoi(match[3].str().c_str());
+
+      for (int i = bgn; i <= end; ++i)
+        punits.push_back(i);
+    } else if (match[4].length()) {                     // Single
+      punits.push_back(atoi(match[4].str().c_str()));
+    }
+
+    punits_m = match.suffix().str();
+  }
+
+  FPathInfo mpath(path_m);                      // Check the path to nvm.meta
   Status s = posix_->FileExists(mpath.dpath());
   if (!s.ok()) {
-    NVM_DBG(this, "Invalid uri(3)");
-    throw std::runtime_error("Invalid uri(3)");
+    NVM_DBG(this, "Directory does not exist");
+    throw std::runtime_error("Directory does not exist");
   }
 
-  std::string dev_name = uri_.substr(
-    kUriPrefix.size(), path_offset - kUriPrefix.size()
-  );
+  NVM_DBG(this, "mpath: " << mpath.txt());
 
-  NVM_DBG(this, "uri_(" << uri_ << ")");
-  NVM_DBG(this, "mpath(" << mpath.fpath() << ")");
-  NVM_DBG(this, "dev_name_(" << dev_name << ")");
-
-  store_ = new NvmStore(this, dev_name, mpath.fpath(), 10);
+  store_ = new NvmStore(this, dev_name_m, punits, mpath.fpath(), 10);
 }
 
 EnvNVM::~EnvNVM(void) {

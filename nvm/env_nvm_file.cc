@@ -47,7 +47,7 @@ align_nbytes_(), stripe_nbytes_(), blk_nbytes_(), blks_() {
   const struct nvm_geo *geo = nvm_dev_get_geo(env_->store_->GetDev());
 
   align_nbytes_ = geo->nplanes * geo->nsectors * geo->sector_nbytes;
-  stripe_nbytes_ = align_nbytes_ * geo->nchannels * geo->nluns;
+  stripe_nbytes_ = align_nbytes_ * env_->store_->GetPunitCount();
   blk_nbytes_ = stripe_nbytes_ * geo->npages;
 
   std::deque<std::vector<struct nvm_addr>> meta_vblks;

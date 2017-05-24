@@ -15,10 +15,12 @@ namespace rocksdb {
 NvmStore::NvmStore(
   EnvNVM* env,
   const std::string& dev_name,
+  const std::vector<int>& punits,
   const std::string& mpath,
   size_t rate
 ) : env_(env), dev_name_(dev_name), dev_path_("/dev/"+dev_name), mpath_(mpath),
     rate_(rate), curs_(0) {
+  NVM_DBG(this, "Opening NvmStore");
 
   dev_ = nvm_dev_open(dev_path_.c_str());               // Open device
   if (!dev_) {
@@ -27,11 +29,23 @@ NvmStore::NvmStore(
   }
   geo_ = nvm_dev_get_geo(dev_);                         // Grab geometry
 
+  for (size_t i = 0; i < punits.size(); ++i) {          // Construct punit addrs
+    struct nvm_addr addr;
+
+    addr.ppa = 0;
+    addr.g.ch = punits[i] % geo_->nchannels;
+    addr.g.lun = (punits[i] / geo_->nchannels) % geo_->nluns;
+
+    punits_.push_back(addr);
+  }
+
+  // TODO: Check for duplicates
+
   Status s = recover(mpath);                            // Initialize blks
 
   if (!s.ok()) {
-    NVM_DBG(this, "FAILED: recover");
-    throw std::runtime_error("FAILED: recover");
+    NVM_DBG(this, "FAILED: recovering");
+    throw std::runtime_error("FAILED: recovering");
   }
 }
 
@@ -40,11 +54,15 @@ Status NvmStore::recover(const std::string& mpath)
   NVM_DBG(this, "mpath(" << mpath << ")");
   MutexLock lock(&mutex_);
 
-  // Initialize with default state (kFree)
+  // Initialize and allocate vblks with defaults (kFree)
   for (size_t blk_idx = 0; blk_idx < geo_->nblocks; ++blk_idx) {
     struct nvm_vblk *blk;
 
-    blk = nvm_vblk_alloc_line(dev_, 0, geo_->nchannels-1, 0, geo_->nluns-1, blk_idx);
+    std::vector<struct nvm_addr> addrs(punits_);
+    for (auto &addr : addrs)
+      addr.g.blk = blk_idx;
+
+    blk = nvm_vblk_alloc(dev_, addrs.data(), addrs.size());
 
     if (!blk) {
       NVM_DBG(this, "FAILED: nvm_vblk_alloc_line");
@@ -54,43 +72,115 @@ Status NvmStore::recover(const std::string& mpath)
     blks_.push_back(std::make_pair(kFree, blk));
   }
 
-  if (!env_->posix_->FileExists(mpath).ok()) {
+  if (!env_->posix_->FileExists(mpath).ok()) {          // DONE
     NVM_DBG(this, "INFO: mpath does not exist, nothing to recover.");
     return Status::OK();
   }
 
-  std::string meta, head, dev_name;             // Recover from mpath
-  Status s = ReadFileToString(env_->posix_, mpath, &meta);
+  std::string content;
+  Status s = ReadFileToString(env_->posix_, mpath, &content);
   if (!s.ok()) {
     NVM_DBG(this, "FAILED: ReadFileToString");
     return s;
   }
 
-  std::istringstream meta_ss(meta);
-  if (!(meta_ss >> curs_)) {                    // Recover curs_
-    NVM_DBG(this, "FAILED: parsing HEAD(curs_) from meta");
-    return Status::IOError("FAILED: parsing HEAD(curs_) from meta");
-  }
-  if (!(meta_ss >> dev_name)) {                 // Ignore dev_name
-    NVM_DBG(this, "FAILED: getting dev_name");
-    return Status::IOError("FAILED: parsing dev_name");
-  }
+  std::istringstream meta(content);
 
-  std::string line;                             // Recover states
-  for(size_t blk_idx = 0; meta_ss >> line; ++blk_idx) {
-    int state = strtoul(line.c_str(), NULL, 16);
-
-    switch(state) {
-      case kFree:
-      case kOpen:
-      case kReserved:
-      case kBad:
-        blks_[blk_idx].first = BlkState(state);
-        break;
-
-      default:
-        break;
+  // Recover and verify that device name in meta matches the instance
+  {
+    std::string dev_name;
+    if (!(meta >> dev_name)) {
+      NVM_DBG(this, "FAILED: getting dev_name from nvm.meta");
+      return Status::IOError("FAILED: getting dev_name from nvm.meta");
     }
+    NVM_DBG(this, "dev_name: " << dev_name);
+
+    if (dev_name != dev_name_) {
+      NVM_DBG(this, "FAILED: instance dev_name != file dev_name");
+      return Status::IOError("FAILED: instance dev_name != file dev_name");
+    }
+  }
+
+  // Recover and verify punits in nvm.meta matches the instance
+  {
+    std::string punits;
+    std::getline(meta, punits);
+    std::getline(meta, punits);
+
+    NVM_DBG(this, "punits: " << punits);
+    if (meta.fail()) {      // TODO: Verify punits
+      NVM_DBG(this, "FAILED: parsing HEAD(punits) from meta");
+      return Status::IOError("FAILED: parsing HEAD(punits) from meta");
+    }
+
+    std::istringstream punits_ss(punits);
+    std::string tok;
+    size_t punit_idx;
+
+    for (punit_idx = 0; punits_ss >> tok; ++punit_idx) {
+      size_t punit = strtoul(tok.c_str(), NULL, 16);
+
+      NVM_DBG(this, "punit_idx: " << punit_idx << ", punit: " << num_to_hex(punit, 16));
+      if ((punit_idx+1) > punits_.size()) {
+        NVM_DBG(this, "FAILED: Invalid punit count");
+        return Status::IOError("FAILED: Invalid punit count");
+      }
+
+      if (punits_[punit_idx].ppa != punit) {
+        NVM_DBG(this, "FAILED: punit address mismatch");
+        return Status::IOError("FAILED: punit address mismatch");
+      }
+    }
+
+    if (punit_idx != punits_.size()) {
+      NVM_DBG(this, "FAILED: Invalid number of punits");
+      return Status::IOError("Failed: Invalid number of punits");
+    }
+  }
+
+  // Recover the wear-leveling cursor
+  {
+    if (!(meta >> curs_)) {
+      NVM_DBG(this, "FAILED: parsing HEAD(curs_) from meta");
+      return Status::IOError("FAILED: parsing HEAD(curs_) from meta");
+    }
+    NVM_DBG(this, "curs_: " << curs_);
+  }
+
+  // Recover blk states
+  {
+    std::string line;
+    size_t blk_idx;
+
+    for (blk_idx = 0; meta >> line; ++blk_idx) {
+
+      if ((blk_idx+1) > geo_->nblocks) {
+        NVM_DBG(this, "FAILED: Block count exceeding geometry");
+        return Status::IOError("FAILED: Block count exceeding geometry");
+      }
+
+      int state = strtoul(line.c_str(), NULL, 16);
+
+      NVM_DBG(this, "blk_idx:" << blk_idx << ", line: " << line);
+
+      switch(state) {
+        case kFree:
+        case kOpen:
+        case kReserved:
+        case kBad:
+          blks_[blk_idx].first = BlkState(state);
+          break;
+
+        default:
+          break;
+      }
+    }
+
+    if (blk_idx != geo_->nblocks) {
+      NVM_DBG(this, "FAILED: Insufficient block count");
+      return Status::IOError("FAILED: Insufficient block count");
+    }
+
   }
 
   return Status::OK();
@@ -102,8 +192,14 @@ Status NvmStore::persist(const std::string &mpath) {
 
   std::stringstream meta_ss;
 
-  meta_ss << curs_ << std::endl;
-  meta_ss << dev_name_ << std::endl;
+  meta_ss << dev_name_ << std::endl;    // Store device name
+
+  for (auto &addr : punits_) {          // Store parallel units
+    meta_ss << num_to_hex(addr.ppa, 16) << " ";
+  }
+  meta_ss << std::endl;
+
+  meta_ss << curs_ << std::endl;        // Store state of blks
   for (auto &entry : blks_)
     meta_ss << num_to_hex(entry.first, 2) << std::endl;
 

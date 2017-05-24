@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-RBENCH_ENV_URI="nvm://nvme0n1/opt/rocks/nvm.meta"
+RBENCH_ENV_URI="nvm://punits:0-3@nvme0n1/opt/rocks/nvm.meta"
 RBENCH_DB="/opt/rocks/qe"
 
 # Override of env_shared
