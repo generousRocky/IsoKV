@@ -165,13 +165,13 @@ Status EnvNVM::NewWritableFile(
   }
 
   try {                                 // Construct the new file
-    file = new NvmFile(this, info, "");
+    file = new NvmFile(this, info, info.fpath() + kNvmMetaExt);
   } catch (std::runtime_error& exc) {
-    NVM_DBG(this, "Failed creating NvmFile, e(" << exc.what() << ")");
+    NVM_DBG(this, "FAILED: creating NvmFile, e(" << exc.what() << ")");
   }
 
   if (!file) {
-    return Status::IOError("Failed creating NvmFile");
+    return Status::IOError("FAILED: creating NvmFile");
   }
 
   fs_[info.dpath()].push_back(file);
@@ -203,7 +203,7 @@ Status EnvNVM::DeleteFileUnguarded(const FPathInfo& info) {
 
       Status s = posix_->DeleteFile(info.fpath() + kNvmMetaExt);
       if (!s.ok()) {
-        NVM_DBG(this, "Failed deleting meta-file.");
+        NVM_DBG(this, "FAILED: deleting meta-file.");
       }
 
       return Status::OK();

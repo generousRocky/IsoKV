@@ -243,6 +243,7 @@ private:
   int refs_;
   FPathInfo info_;
   uint64_t fsize_;
+  std::string mpath_;
 
   size_t align_nbytes_;
   size_t stripe_nbytes_;
@@ -275,80 +276,6 @@ class EnvNVM : public Env {
 public:
   EnvNVM(const std::string& uri);
   ~EnvNVM(void);
-
-  Status wmeta(const std::string& mpath,
-               size_t head,
-               const std::string& dev_name,
-               const std::deque<struct nvm_vblk*>& blks) {
-    NVM_DBG(this, "mpath(" << mpath << ")");
-
-    std::string meta("");
-    meta += std::to_string(head) + "\n";
-    meta += dev_name + "\n";
-    for (size_t idx = 0; idx < blks.size(); ++idx) {
-      NVM_DBG(this, "idx(" << idx << ")");
-      NVM_DBG(this, "blks[idx](" << blks[idx] << ")");
-
-      struct nvm_vblk* blk = blks[idx];
-
-      if (blk) {
-        int naddrs = nvm_vblk_get_naddrs(blk);
-        struct nvm_addr *addrs = nvm_vblk_get_addrs(blk);
-
-        for (int i = 0; i < naddrs; ++i) {
-          meta += num_to_hex(addrs[i].ppa, 16);
-          meta += " ";
-        }
-        meta += "\n";
-      }
-    }
-    Slice slice(meta.c_str(), meta.size());
-
-    return WriteStringToFile(posix_, slice, mpath, true);
-  }
-
-  Status rmeta(const std::string& mpath,
-               size_t &head,
-               std::string& dev_name,
-               std::deque<std::vector<struct nvm_addr>>& addrs) {
-    NVM_DBG(this, "mpath(" << mpath << ")");
-    std::string meta;
-
-    Status s = ReadFileToString(posix_, mpath, &meta);  // Read file into meta
-    if (!s.ok()) {
-      NVM_DBG(this, "FAILED: ReadFileToString");
-      return s;
-    }
-
-    std::istringstream meta_ss(meta);
-    if (!(meta_ss >> head)) {                // Read head
-      NVM_DBG(this, "FAILED: parsing head from meta");
-      return Status::IOError("FAILED: parsing head from meta");
-    }
-    if (!(meta_ss >> dev_name)) {            // Read dev_name
-      NVM_DBG(this, "FAILED: getting dev_name");
-      return Status::IOError("FAILED: parsing dev_name");
-    }
-                                            // Read blocks
-    for (std::string line; std::getline(meta_ss, line, '\n');) {
-      std::vector<struct nvm_addr> vblk_addrs;
-      std::istringstream line_ss(line);
-
-      if (line.empty())
-        continue;
-
-      for(std::string ppa; line_ss >> ppa;) {// read addresses
-        struct nvm_addr addr;
-
-        addr.ppa = strtoul(ppa.c_str(), NULL, 16);
-        vblk_addrs.push_back(addr);
-      }
-
-      addrs.push_back(vblk_addrs);
-    }
-
-    return s;
-  }
 
   // Open (an existing) file with sequential read-only access
   //

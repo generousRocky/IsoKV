@@ -37,49 +37,45 @@ namespace rocksdb {
 
 NvmFile::NvmFile(
   EnvNVM* env, const FPathInfo& info, const std::string mpath
-) : env_(env), refs_(), info_(info), fsize_(), align_nbytes_(),
+) : env_(env), refs_(), info_(info), fsize_(), mpath_(mpath), align_nbytes_(),
     stripe_nbytes_(), blk_nbytes_(), blks_() {
-  NVM_DBG(this, "");
+  NVM_DBG(this, "mpath_:" << mpath_);
 
   const struct nvm_geo *geo = nvm_dev_get_geo(env_->store_->GetDev());
+
+  if (env_->posix_->FileExists(mpath_).ok()) {          // Read meta from file
+    std::string content;
+    size_t blk_idx;
+
+    if (!ReadFileToString(env_->posix_, mpath_, &content).ok()) {
+      NVM_DBG(this, "FAILED: ReadFileToString");
+      throw std::runtime_error("FAILED: ReadFileToString");
+    }
+
+    std::istringstream meta(content);
+
+    if (!(meta >> fsize_)) {                            // Read fsize
+      NVM_DBG(this, "FAILED: parsing file size from meta");
+      throw std::runtime_error("FAILED: parsing file size from meta");
+    }
+
+    while(meta >> blk_idx) {
+      struct nvm_vblk *blk;
+
+      blk = env_->store_->get_reserved(blk_idx);
+      if (!blk) {
+        perror("nvm_vblk_alloc");
+        NVM_DBG(this, "FAILED: allocating vblk");
+        throw std::runtime_error("FAILED: allocating vblk");
+      }
+
+      blks_.push_back(blk);
+    }
+  }
 
   align_nbytes_ = geo->nplanes * geo->nsectors * geo->sector_nbytes;
   stripe_nbytes_ = align_nbytes_ * env_->store_->GetPunitCount();
   blk_nbytes_ = stripe_nbytes_ * geo->npages;
-
-  std::deque<std::vector<struct nvm_addr>> meta_vblks;
-
-  Status s = env_->posix_->FileExists(mpath);
-  if (s.ok()) {                                 // Load from meta
-    std::string dev_path;
-    s = env_->rmeta(mpath, fsize_, dev_path, meta_vblks);
-    if (!s.ok()) {
-      NVM_DBG(this, "FAILED: reading meta");
-      throw std::runtime_error("FAILED: reading meta");
-    }
-    if (dev_path.compare(env_->store_->GetDevPath())) {
-      NVM_DBG(this, "FAILED: invalid device");
-      throw std::runtime_error("FAILED: invalid device");
-    }
-  }
-
-  for (size_t i = 0; i < meta_vblks.size(); ++i) {
-    /*
-    struct nvm_vblk *blk = nvm_vblk_alloc(
-      env_->store_->GetDev(),
-      &meta_vblks[i][0],
-      meta_vblks[i].size()
-    );
-    */
-    size_t blk_idx = meta_vblks[i][0].g.blk;
-    struct nvm_vblk *blk = env_->store_->get_reserved(blk_idx);
-    if (!blk) {
-      perror("nvm_vblk_alloc");
-      NVM_DBG(this, "FAILED: allocating vblk");
-      throw std::runtime_error("FAILED: allocating vblk");
-    }
-    blks_.push_back(blk);
-  }
 
   buf_nbytes_ = 0;                              // Setup buffer
   buf_nbytes_max_ = 4 * stripe_nbytes_;
@@ -98,13 +94,6 @@ NvmFile::NvmFile(
 
 NvmFile::~NvmFile(void) {
   NVM_DBG(this, "");
-
-  /*
-  for (auto &blk : blks_) {
-    if (blk) {
-      nvm_vblk_free(blk);
-    }
-  }*/
 
   free(buf_);
 }
@@ -301,11 +290,23 @@ Status NvmFile::Append(const Slice& slice) {
 }
 
 Status NvmFile::wmeta(void) {
-  NVM_DBG(this, "");
+  std::stringstream meta;
 
-  std::string mpath = info_.fpath() + kNvmMetaExt;
+  meta << std::to_string(fsize_) << std::endl;;
 
-  return env_->wmeta(mpath, fsize_, env_->store_->GetDevPath(), blks_);
+  for (auto &blk : blks_) {
+    if (!blk)
+      continue;
+
+    meta << nvm_vblk_get_addrs(blk)[0].g.blk << std::endl;
+  }
+
+  std::string content = meta.str();
+  Slice slice(content.c_str(), content.size());
+
+  NVM_DBG(this, "meta: " << content);
+
+  return WriteStringToFile(env_->posix_, slice, mpath_, true);
 }
 
 // Used by WritableFile
@@ -406,14 +407,14 @@ Status NvmFile::Truncate(uint64_t size) {
 
   if (fsize_ == size) {
     NVM_DBG(this, "Nothing to do");
-    return Status::OK();
+    return wmeta();
   }
 
   size_t blks_nreq = (size + blk_nbytes_ -1) / blk_nbytes_;
 
   // Release blocks that are no longer required
-  for(size_t blk_idx = blks_nreq; blk_idx < blks_.size(); ++blk_idx) {
-    NVM_DBG(this, "blk_idx(" << blk_idx << ")");
+  for (size_t blk_idx = blks_nreq; blk_idx < blks_.size(); ++blk_idx) {
+    NVM_DBG(this, "releasing: blk_idx: " << blk_idx);
 
     if (!blks_[blk_idx]) {
       NVM_DBG(this, "nothing here... skipping...");
