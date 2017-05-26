@@ -154,6 +154,7 @@ public:
   ~NvmStore(void);
 
   struct nvm_vblk* get(void);
+  struct nvm_vblk* get_reserved(size_t blk_idx);
 
   void put(struct nvm_vblk* blk);
 

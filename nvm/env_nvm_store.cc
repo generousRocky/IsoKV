@@ -261,6 +261,22 @@ struct nvm_vblk* NvmStore::get(void) {
   return NULL;
 }
 
+struct nvm_vblk* NvmStore::get_reserved(size_t blk_idx) {
+  NVM_DBG(this, "");
+  MutexLock lock(&mutex_);
+
+  std::pair<BlkState, struct nvm_vblk*> &entry = blks_[blk_idx];
+
+  switch(entry.first) {
+  case kReserved:
+    return entry.second;
+
+  default:
+    NVM_DBG(this, "FAILED: block is not reserved");
+    return NULL;
+  }
+}
+
 void NvmStore::put(struct nvm_vblk* blk) {
   NVM_DBG(this, "");
   MutexLock lock(&mutex_);

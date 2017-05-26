@@ -37,11 +37,8 @@ namespace rocksdb {
 
 NvmFile::NvmFile(
   EnvNVM* env, const FPathInfo& info, const std::string mpath
-) :
-  env_(env), refs_(), info_(info), fsize_(),
- 
-
-align_nbytes_(), stripe_nbytes_(), blk_nbytes_(), blks_() {
+) : env_(env), refs_(), info_(info), fsize_(), align_nbytes_(),
+    stripe_nbytes_(), blk_nbytes_(), blks_() {
   NVM_DBG(this, "");
 
   const struct nvm_geo *geo = nvm_dev_get_geo(env_->store_->GetDev());
@@ -67,11 +64,15 @@ align_nbytes_(), stripe_nbytes_(), blk_nbytes_(), blks_() {
   }
 
   for (size_t i = 0; i < meta_vblks.size(); ++i) {
+    /*
     struct nvm_vblk *blk = nvm_vblk_alloc(
       env_->store_->GetDev(),
       &meta_vblks[i][0],
       meta_vblks[i].size()
     );
+    */
+    size_t blk_idx = meta_vblks[i][0].g.blk;
+    struct nvm_vblk *blk = env_->store_->get_reserved(blk_idx);
     if (!blk) {
       perror("nvm_vblk_alloc");
       NVM_DBG(this, "FAILED: allocating vblk");
@@ -98,11 +99,12 @@ align_nbytes_(), stripe_nbytes_(), blk_nbytes_(), blks_() {
 NvmFile::~NvmFile(void) {
   NVM_DBG(this, "");
 
+  /*
   for (auto &blk : blks_) {
     if (blk) {
       nvm_vblk_free(blk);
     }
-  }
+  }*/
 
   free(buf_);
 }
@@ -404,7 +406,7 @@ Status NvmFile::Truncate(uint64_t size) {
 
   if (fsize_ == size) {
     NVM_DBG(this, "Nothing to do");
-    return wmeta();
+    return Status::OK();
   }
 
   size_t blks_nreq = (size + blk_nbytes_ -1) / blk_nbytes_;
