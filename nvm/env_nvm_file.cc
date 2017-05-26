@@ -38,7 +38,7 @@ namespace rocksdb {
 NvmFile::NvmFile(
   EnvNVM* env, const FPathInfo& info, const std::string mpath
 ) : env_(env), refs_(), info_(info), fsize_(), mpath_(mpath), align_nbytes_(),
-    stripe_nbytes_(), blk_nbytes_(), blks_() {
+    stripe_nbytes_(), blk_nbytes_(), blks_(), lu_bound_(8) {
   NVM_DBG(this, "mpath_:" << mpath_);
 
   const struct nvm_geo *geo = nvm_dev_get_geo(env_->store_->GetDev());
@@ -78,7 +78,7 @@ NvmFile::NvmFile(
   blk_nbytes_ = stripe_nbytes_ * geo->npages;
 
   buf_nbytes_ = 0;                              // Setup buffer
-  buf_nbytes_max_ = 4 * stripe_nbytes_;
+  buf_nbytes_max_ = lu_bound_ * stripe_nbytes_;
   buf_ = (char*)nvm_buf_alloc(geo, buf_nbytes_max_);
   if (!buf_) {
     NVM_DBG(this, "FAILED: allocating buffer");
@@ -324,14 +324,21 @@ Status NvmFile::Flush(bool padded) {
   }
 
   if (padded) {
-    size_t pad_nbytes = align_nbytes_ - (buf_nbytes_ % align_nbytes_);
+    //size_t pad_nbytes = align_nbytes_ - (buf_nbytes_ % align_nbytes_);
+    size_t pad_nbytes = stripe_nbytes_ - buf_nbytes_;
 
     memset(buf_ + buf_nbytes_, 'P', pad_nbytes);
     buf_nbytes_ += pad_nbytes;
   }
 
+  /*
   if (buf_nbytes_ < align_nbytes_) {
     NVM_DBG(this, "Nothing to flush (buffer less than align_nbytes_)");
+    return Status::OK();
+  }*/
+
+  if (buf_nbytes_ < stripe_nbytes_) {
+    NVM_DBG(this, "Nothing to flush (buffer less than striped_nbytes_)");
     return Status::OK();
   }
 
@@ -451,11 +458,20 @@ Status NvmFile::pad_last_block(void) {
     return Status::IOError("FAILED: No vblk to pad!?");
   }
 
-  ssize_t err = nvm_vblk_pad(blks_[blk_idx]);
-  if (err < 0) {
-    perror("nvm_vblk_pad");
-    NVM_DBG(this, "FAILED: nvm_vblk_pad(...)");
-    return Status::IOError("FAILED: nvm_vblk_pad(...)");
+  {
+    ssize_t err;
+    struct nvm_vblk *blk = blks_[blk_idx];
+    size_t nbytes_left = nvm_vblk_get_nbytes(blk) - nvm_vblk_get_pos_write(blk);
+    ssize_t nbytes_pad = std::min(nbytes_left, buf_nbytes_max_);
+
+    nvm_buf_fill(buf_, nbytes_pad);
+
+    err = nvm_vblk_write(blks_[blk_idx], buf_, nbytes_pad);
+    if (err < 0) {
+      perror("nvm_vblk_pad");
+      NVM_DBG(this, "FAILED: nvm_vblk_pad(...)");
+      return Status::IOError("FAILED: nvm_vblk_pad(...)");
+    }
   }
 
   return Status::OK();
