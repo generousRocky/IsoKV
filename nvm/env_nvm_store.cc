@@ -55,7 +55,6 @@ NvmStore::NvmStore(
 Status NvmStore::recover(const std::string& mpath)
 {
   NVM_DBG(this, "mpath(" << mpath << ")");
-  MutexLock lock(&mutex_);
 
   // Initialize and allocate vblks with defaults (kFree)
   for (size_t blk_idx = 0; blk_idx < geo_->nblocks; ++blk_idx) {
@@ -191,7 +190,6 @@ Status NvmStore::recover(const std::string& mpath)
 
 Status NvmStore::persist(const std::string &mpath) {
   NVM_DBG(this, "mpath(" << mpath << ")");
-  MutexLock lock(&mutex_);
 
   std::stringstream meta_ss;
 
@@ -242,7 +240,12 @@ struct nvm_vblk* NvmStore::get(void) {
     case kFree:
       if (nvm_vblk_erase(entry.second) < 0) {
         entry.first = kBad;
+
         NVM_DBG(this, "WARN: Erase failed blk_idx(" << blk_idx << ")");
+
+        if (!persist(mpath_).ok()) {
+          NVM_DBG(this, "FAILED: writing meta");
+        }
         break;
       }
 
