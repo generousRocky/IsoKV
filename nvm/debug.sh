@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 if [ $UID != 0 ]; then
 	pushd ../
+	git stash clear
 	git stash
 	git pull --rebase
 	git stash apply
@@ -11,5 +12,5 @@ if [ $UID != 0 ]; then
 	exit 0
 fi
 
-sudo RBENCH_DEV_NAME="nvme0n1" RBENCH_DEV_MODE="nvm"    ./run.sh 2>&1 | tee -a /tmp/rdb_${RBENCH_DEV_NAME}_${RBENCH_DEV_MODE}.log
-sudo RBENCH_DEV_NAME="nvme1n1" RBENCH_DEV_MODE="legacy" ./run.sh 2>&1 | tee -a /tmp/rdb_${RBENCH_DEV_NAME}_${RBENCH_DEV_MODE}.log
+sudo RBENCH_DEV_NAME="nvme0n1" RBENCH_DEV_MODE="nvm"    ./run.sh 2>&1 | tee -a /tmp/rdb_nvme0n1_nvm.log
+sudo RBENCH_DEV_NAME="nvme1n1" RBENCH_DEV_MODE="legacy" ./run.sh 2>&1 | tee -a /tmp/rdb_nvme1n1_legacy.log

@@ -17,7 +17,9 @@ if [ -z "$RBENCH_USE_EXISTING_DB" ]; then
 	RBENCH_USE_EXISTING_DB="0"
 fi
 
-RBENCH_DB="/opt/rocks/${RBENCH_DEV_NAME}_${RBENCH_DEV_MODE}"
+DB_ROOT="/opt/rocks"
+
+RBENCH_DB="$DB_ROOT/${RBENCH_DEV_NAME}_${RBENCH_DEV_MODE}"
 mkdir -p $RBENCH_DB
 
 case "$RBENCH_DEV_MODE" in
@@ -43,7 +45,7 @@ pblk)
 nvm)
 	NVM_BGN=0
 	NVM_END=127
-	RBENCH_ENV_URI="nvm://punits:${NVM_BGN}-${NVM_END}@${RBENCH_DEV_NAME}/tmp/${RBENCH_DEV_NAME}_${NVM_BGN}_${NVM_END}.meta"
+	RBENCH_ENV_URI="nvm://punits:${NVM_BGN}-${NVM_END}@${RBENCH_DEV_NAME}${DB_ROOT}/${RBENCH_DEV_NAME}_${NVM_BGN}_${NVM_END}.meta"
 	if [ "$RBENCH_USE_EXISTING_DB" == "0" ]; then
 		rm $RBENCH_DB/*
 	fi

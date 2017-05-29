@@ -329,8 +329,8 @@ Status NvmFile::Flush(bool padded) {
     size_t pad_nbytes = stripe_nbytes_ - (buf_nbytes_ % stripe_nbytes_);
 
     NVM_DBG(this, "pad_nbytes: " << pad_nbytes);
-    NVM_DBG(this, "buf_nbytes: " << buf_nbytes);
-    NVM_DBG(this, "stripe_nbytes: " << stripe_nbytes);
+    NVM_DBG(this, "buf_nbytes_: " << buf_nbytes_);
+    NVM_DBG(this, "stripe_nbytes_: " << stripe_nbytes_);
 
     memset(buf_ + buf_nbytes_, 'P', pad_nbytes);
     buf_nbytes_ += pad_nbytes;
