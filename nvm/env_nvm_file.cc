@@ -130,7 +130,9 @@ size_t NvmFile::GetRequiredBufferAlignment(void) const {
 }
 
 void NvmFile::Ref(void) {
+  NVM_DBG(this, "LOCK ?");
   MutexLock lock(&refs_mutex_);
+  NVM_DBG(this, "LOCK !");
 
   NVM_DBG(this, "refs_(" << refs_ << ")");
 
@@ -145,7 +147,10 @@ void NvmFile::Unref(void) {
   bool do_delete = false;
 
   {
+    NVM_DBG(this, "LOCK ?");
     MutexLock lock(&refs_mutex_);
+    NVM_DBG(this, "LOCK !");
+
     --refs_;
     if (refs_ < 0) {
       do_delete = true;
@@ -492,7 +497,9 @@ Status NvmFile::Read(
   NVM_DBG(this, "offset(" << offset << ")-aligned(" << !(offset % align_nbytes_) << ")");
   NVM_DBG(this, "n(" << n << ")-aligned(" << !(n % align_nbytes_) << ")");
 
+  NVM_DBG(this, "LOCK ?");
   std::lock_guard<std::mutex> lock(wtf_mutex);
+  NVM_DBG(this, "LOCK !");
 
   // n is the MAX number of bytes to read, since it is the size of the scratch
   // memory. However, there might be n, less than n, or more than n bytes in the

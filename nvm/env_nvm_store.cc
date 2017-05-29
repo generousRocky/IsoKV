@@ -230,7 +230,9 @@ NvmStore::~NvmStore(void) {
 
 struct nvm_vblk* NvmStore::get(void) {
   NVM_DBG(this, "");
+  NVM_DBG(this, "LOCK ?");
   MutexLock lock(&mutex_);
+  NVM_DBG(this, "LOCK !");
 
   for (size_t i = 0; i < geo_->nblocks; ++i) {
     const size_t blk_idx = curs_++ % geo_->nblocks;
@@ -270,7 +272,9 @@ struct nvm_vblk* NvmStore::get(void) {
 
 struct nvm_vblk* NvmStore::get_reserved(size_t blk_idx) {
   NVM_DBG(this, "");
+  NVM_DBG(this, "LOCK ?");
   MutexLock lock(&mutex_);
+  NVM_DBG(this, "LOCK !");
 
   std::pair<BlkState, struct nvm_vblk*> &entry = blks_[blk_idx];
 
@@ -286,7 +290,9 @@ struct nvm_vblk* NvmStore::get_reserved(size_t blk_idx) {
 
 void NvmStore::put(struct nvm_vblk* blk) {
   NVM_DBG(this, "");
+  NVM_DBG(this, "LOCK ?");
   MutexLock lock(&mutex_);
+  NVM_DBG(this, "LOCK !");
 
   size_t blk_idx = nvm_vblk_get_addrs(blk)[0].g.blk;
   NVM_DBG(this, "blk_idx(" << blk_idx << ")");
