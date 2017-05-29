@@ -41,9 +41,7 @@ NvmStore::NvmStore(
 
   // TODO: Check for duplicates
 
-  Status s = recover(mpath);                            // Initialize blks
-
-  if (!s.ok()) {
+  if (!recover(mpath_).ok()) {
     NVM_DBG(this, "FAILED: recovering");
     throw std::runtime_error("FAILED: recovering");
   }
@@ -217,10 +215,8 @@ Status NvmStore::persist(const std::string &mpath) {
 
 NvmStore::~NvmStore(void) {
   NVM_DBG(this, "");
-  Status s;
 
-  s = persist(mpath_);
-  if (!s.ok()) {
+  if (!persist(mpath_).ok()) {
     NVM_DBG(this, "FAILED: writing meta");
   }
 
@@ -253,6 +249,9 @@ struct nvm_vblk* NvmStore::get(void) {
     case kOpen:
       entry.first = kReserved;
 
+      if (!persist(mpath_).ok()) {
+        NVM_DBG(this, "FAILED: writing meta");
+      }
       return entry.second;
 
     case kReserved:
