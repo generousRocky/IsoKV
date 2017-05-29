@@ -325,7 +325,7 @@ Status NvmFile::Flush(bool padded) {
 
   if (padded) {
     //size_t pad_nbytes = align_nbytes_ - (buf_nbytes_ % align_nbytes_);
-    size_t pad_nbytes = stripe_nbytes_ - buf_nbytes_;
+    size_t pad_nbytes = stripe_nbytes_ - (buf_nbytes_ % stripe_nbytes_);
 
     memset(buf_ + buf_nbytes_, 'P', pad_nbytes);
     buf_nbytes_ += pad_nbytes;
