@@ -86,6 +86,7 @@ NvmFile::NvmFile(
   }
 
   NVM_DBG(this, "align_nbytes_(" << align_nbytes_ << ")");
+  NVM_DBG(this, "lu_bound_(" << lu_bound_ << ")");
   NVM_DBG(this, "stripe_nbytes_(" << stripe_nbytes_ << ")");
   NVM_DBG(this, "blk_nbytes_(" << blk_nbytes_ << ")");
   NVM_DBG(this, "buf_nbytes_(" << buf_nbytes_ << ")");
