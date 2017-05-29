@@ -230,7 +230,6 @@ public:
   void Unref(void);
 
   Status wmeta(void);
-  Status pad_last_block(void);
   std::string txt(void) const;
 
 private:
@@ -238,6 +237,8 @@ private:
 
   NvmFile(const NvmFile&);      // No copying allowed.
   void operator=(const NvmFile&);
+
+  Status pad_last_block(void);
 
   EnvNVM* env_;
   port::Mutex refs_mutex_;
@@ -867,8 +868,6 @@ public:
   // writes. The behavior is undefined if called with other writes to follow.
   virtual Status Truncate(uint64_t size) override {
     NVM_DBG(file_, "forwarding");
-
-    file_->pad_last_block();
 
     return file_->Truncate(size);
   }

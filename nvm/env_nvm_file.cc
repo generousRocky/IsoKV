@@ -324,6 +324,8 @@ Status NvmFile::Flush(void) {
 Status NvmFile::Flush(bool padded) {
   NVM_DBG(this, "padded(" << padded << ")");
 
+  size_t pad_nbytes = 0;
+
   if (!buf_nbytes_) {
     NVM_DBG(this, "Nothing to flush (buffer is empty)");
     return Status::OK();
@@ -331,7 +333,7 @@ Status NvmFile::Flush(bool padded) {
 
   if (padded) {
     //size_t pad_nbytes = align_nbytes_ - (buf_nbytes_ % align_nbytes_);
-    size_t pad_nbytes = stripe_nbytes_ - (buf_nbytes_ % stripe_nbytes_);
+    pad_nbytes = stripe_nbytes_ - (buf_nbytes_ % stripe_nbytes_);
 
     NVM_DBG(this, "stripe_nbytes_: " << stripe_nbytes_);
     NVM_DBG(this, "pad_nbytes: " << pad_nbytes);
@@ -381,7 +383,7 @@ Status NvmFile::Flush(bool padded) {
     NVM_DBG(this, "avail: " << blk_nbytes_ - nvm_vblk_get_pos_write(blk));
   }
 
-  size_t offset = fsize_ - buf_nbytes_;
+  size_t offset = fsize_ - (buf_nbytes_ - pad_nbytes);
   size_t nbytes_remaining = flush_tbytes;
   size_t nbytes_written = 0;
 
@@ -392,12 +394,12 @@ Status NvmFile::Flush(bool padded) {
     size_t nbytes = std::min(nbytes_remaining, avail);
     ssize_t ret;
 
+    NVM_DBG(this, "blk_idx: " << blk_idx);
+    NVM_DBG(this, "pos:" << nvm_vblk_get_pos_write(blk));
+    NVM_DBG(this, "avail: " << avail);
     NVM_DBG(this, "nbytes_remaining: " << nbytes_remaining);
     NVM_DBG(this, "nbytes_written: " << nbytes_written);
     NVM_DBG(this, "nbytes: " << nbytes);
-    NVM_DBG(this, "blk_idx: " << blk_idx);
-    NVM_DBG(this, "avail: " << avail);
-    NVM_DBG(this, "pos:" << nvm_vblk_get_pos_write(blk));
 
     ret = nvm_vblk_write(blk, buf_ + nbytes_written, nbytes);
     if (ret < 0) {
@@ -425,6 +427,9 @@ Status NvmFile::Flush(bool padded) {
 // Used by WritableFile
 Status NvmFile::Truncate(uint64_t size) {
   NVM_DBG(this, "fsize_(" << fsize_ << ")" << ", size(" << size << ")" << ", nvblocks(" << blks_.size() << ")");
+
+  Status s = Flush(true);      // Flush out...
+  pad_last_block();
 
   if (fsize_ < size) {
     NVM_DBG(this, "FAILED: Truncating will grow the file.");
@@ -458,12 +463,6 @@ Status NvmFile::Truncate(uint64_t size) {
 
 Status NvmFile::pad_last_block(void) {
   NVM_DBG(this, "...");
-
-  Status s = Flush(true);      // Flush out...
-  if (!s.ok()) {
-    NVM_DBG(this, "FAILED: flushing failed");
-    return s;
-  }
 
   if (!fsize_) {
     NVM_DBG(this, "empty file, skipping...");
