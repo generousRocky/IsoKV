@@ -377,6 +377,8 @@ Status NvmFile::Flush(bool padded) {
     }
 
     blks_.push_back(blk);
+
+    NVM_DBG(this, "avail: " << blk_nbytes_ - nvm_vblk_get_pos_write(blk));
   }
 
   size_t offset = fsize_ - buf_nbytes_;
@@ -390,7 +392,12 @@ Status NvmFile::Flush(bool padded) {
     size_t nbytes = std::min(nbytes_remaining, avail);
     ssize_t ret;
 
-    NVM_DBG(this, "pos(" << nvm_vblk_get_pos_write(blk) << ", nbytes(" << nbytes << ")");
+    NVM_DBG(this, "nbytes_remaining: " << nbytes_remaining);
+    NVM_DBG(this, "nbytes_written: " << nbytes_remaining);
+    NVM_DBG(this, "nbytes: " << nbytes);
+    NVM_DBG(this, "blk_idx: " << blk_idx);
+    NVM_DBG(this, "avail: " << avail);
+    NVM_DBG(this, "pos:" << nvm_vblk_get_pos_write(blk));
 
     ret = nvm_vblk_write(blk, buf_ + nbytes_written, nbytes);
     if (ret < 0) {
