@@ -393,7 +393,7 @@ Status NvmFile::Flush(bool padded) {
     ssize_t ret;
 
     NVM_DBG(this, "nbytes_remaining: " << nbytes_remaining);
-    NVM_DBG(this, "nbytes_written: " << nbytes_remaining);
+    NVM_DBG(this, "nbytes_written: " << nbytes_written);
     NVM_DBG(this, "nbytes: " << nbytes);
     NVM_DBG(this, "blk_idx: " << blk_idx);
     NVM_DBG(this, "avail: " << avail);

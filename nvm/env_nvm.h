@@ -41,6 +41,7 @@ inline std::string methodName(const std::string& prettyFunction) {
   std::stringstream ss; ss                                              \
   << std::setfill('-') << std::setw(15) << std::left << __FNAME__       \
   << std::setfill('-') << std::setw(5)  << std::right << __LINE__       \
+  << std::setfill(' ') << std::setw(20)  << std::right << obj->txt()    \
   << std::setfill(' ') << " "                                           \
   << std::setfill(' ') << std::setw(34) << std::left << __METHOD_NAME__ \
   << std::setfill(' ') << " "                                           \
