@@ -47,6 +47,11 @@ NvmStore::NvmStore(
     NVM_DBG(this, "FAILED: recovering");
     throw std::runtime_error("FAILED: recovering");
   }
+
+  if (!persist(mpath).ok()) {
+    NVM_DBG(this, "FAILED: persisting store meta");
+    throw std::runtime_error("FAILED: persisting store meta");
+  }
 }
 
 Status NvmStore::recover(const std::string& mpath)
