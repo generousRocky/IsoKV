@@ -45,7 +45,7 @@ nvm)
 	NVM_END=127
 	RBENCH_ENV_URI="nvm://punits:${NVM_BGN}-${NVM_END}@${RBENCH_DEV_NAME}/tmp/${RBENCH_DEV_NAME}_${NVM_BGN}_${NVM_END}.meta"
 	if [ "$RBENCH_USE_EXISTING_DB" == "0" ]; then
-		rm "$RBENCH_DB/*"
+		rm $RBENCH_DB/*
 	fi
 ;;
 *)
