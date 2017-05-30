@@ -232,6 +232,8 @@ public:
   Status wmeta(void);
   std::string txt(void) const;
 
+  port::Mutex read_mutex_;
+
 private:
   ~NvmFile(void);               // Unref eventually deletes the object
 
@@ -689,6 +691,7 @@ public:
   }
 
   virtual Status Read(size_t n, Slice* result, char* scratch) override {
+
     NVM_DBG(file_, "pos_(" << pos_ << ")");
 
     if (pos_ >= file_->GetFileSize()) {
@@ -765,7 +768,9 @@ public:
     Slice* result,
     char* scratch
   ) const override {
-    NVM_DBG(file_, "forwarding (fill buffers + read buffers)");
+    NVM_DBG(file_, "forwarding");
+
+    MutexLock lock(&file_->read_mutex_);
 
     Status s;
 
