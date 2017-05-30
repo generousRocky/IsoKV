@@ -40,7 +40,7 @@ pblk)
 	if [ "$RBENCH_USE_EXISTING_DB" -eq "0" ]; then
 		PBLK_BGN=0
 		PBLK_END=127
-		PBLK_NAME="pblk_${PBLK_BGN}_{$PBLK_END}"
+		PBLK_NAME="pblk_${PBLK_BGN}_${PBLK_END}"
 		umount $RBENCH_DB
 		nvme lnvm remove $PBLK_NAME
 		nvme lnvm create -d $RBENCH_DEV_NAME -n $PBLK_NAME -t pblk -b $PBLK_BGN -e $PBLK_END -f
@@ -69,7 +69,7 @@ GB=$((1024 * MB))
 #RBENCH_CMD_PREFIX="taskset -c 0-$(nproc)"
 #RBENCH_CMD_PREFIX="valgrind"
 RBENCH_BIN="../db_bench"
-RBENCH_NUM=12000
+RBENCH_NUM=20000
 RBENCH_VALUE_SIZE=$((1 * MB))
 RBENCH_BLOCK_SIZE=$((64 * KB))
 RBENCH_BLOOM_BITS=10
