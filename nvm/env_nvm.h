@@ -486,7 +486,7 @@ public:
   // However, it is often used as system time such as in GenericRateLimiter
   // and other places so a port needs to return system time in order to work.
   virtual uint64_t NowMicros(void) override {
-    NVM_DBG(this, "");
+    /*NVM_DBG(this, "");*/
     return posix_->NowMicros();
   }
 
@@ -494,7 +494,7 @@ public:
   // useful for computing deltas of time in one run.
   // Default implementation simply relies on NowMicros
   virtual uint64_t NowNanos(void) override {
-    NVM_DBG(this, "");
+    /*NVM_DBG(this, "");*/
     return posix_->NowNanos();
   }
 
@@ -960,7 +960,7 @@ public:
   // without waiting for completion.
   // Default implementation does nothing.
   virtual Status RangeSync(uint64_t offset, uint64_t nbytes) override {
-    NVM_DBG(file_, "forwarding");
+    /*NVM_DBG(file_, "forwarding");*/
 
     return file_->RangeSync(offset, nbytes);;
   }
@@ -971,7 +971,7 @@ public:
   // fragmentation and/or less waste from over-zealous filesystem
   // pre-allocation.
   virtual void PrepareWrite(size_t offset, size_t len) override {
-    NVM_DBG(file_, "forwarding");
+    /*NVM_DBG(file_, "forwarding");*/
 
     file_->PrepareWrite(offset, len);
   }

@@ -210,12 +210,12 @@ uint64_t NvmFile::GetFileSize(void) const {
 
 // Used by WritableFile
 void NvmFile::PrepareWrite(size_t offset, size_t len) {
-  NVM_DBG(this, "offset(" << offset << "), len(" << len << ") ignoring...");
+  /*NVM_DBG(this, "offset(" << offset << "), len(" << len << ") ignoring...");*/
 }
 
 // Used by WritableFile
 Status NvmFile::Allocate(uint64_t offset, uint64_t len) {
-  NVM_DBG(this, "offset(" << offset << "), len(" << len << ") ignoring");
+  /*NVM_DBG(this, "offset(" << offset << "), len(" << len << ") ignoring");*/
 
   return Status::OK();
 }
