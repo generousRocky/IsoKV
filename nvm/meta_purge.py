@@ -8,13 +8,19 @@ import time
 import yaml
 import os
 
-def erase_cmd(dev, blk):
+def erase_cmd(dev, blk, dry=None):
 	"""Erase the given blk index of line 0-15 0-7"""
 
 	cmd  = ["nvm_vblk", "line_erase", str(dev), "0", "15", "0", "7", str(blk)]
 
+	print(" ".join(cmd))
+
+	if dry:
+		return 0, "", ""
+
 	process = Popen(cmd, stdout=PIPE, stderr=PIPE)
 	out, err = process.communicate()
+	rcode = process.returncode
 
 	return process.returncode, out, err
 
@@ -48,10 +54,13 @@ def main(args):
 			continue
 
 		print("Erasing: {blk: %04d, dev: %s}" % (blk, dev))
-		rcode, out, err = erase_cmd(dev, blk)
+		rcode, out, err = erase_cmd(dev, blk, args.dry)
+		print("Result: {\n  rcode: %d,\n  out: %s,\n  err: %s\n}" % (
+			rcode, out[:70], err[:70]
+		))
 
-		if rcode:
-			print(out, err)
+		if not args.dry:
+			continue
 
 		meta[blk+3] = "0x08" if rcode else "0x02"
 
@@ -62,6 +71,9 @@ def main(args):
 if __name__ == "__main__":
 	PRSR = argparse.ArgumentParser(description='vblk purging')
 	PRSR.add_argument('--mpath', type=str, required=True)
+	PRSR.add_argument('--dry', action='store_true')
+
+	PRSR.set_defaults(dry=False)
 
 	ARGS = PRSR.parse_args()
 
