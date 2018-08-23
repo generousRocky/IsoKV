@@ -520,7 +520,7 @@ Status NvmFile::Read(
 
   uint64_t aligned_offset = offset - offset % align_nbytes_;
   uint64_t aligned_n = ((((n + align_nbytes_ - 1) / align_nbytes_)) + 1) * align_nbytes_;
-	uint64_t skip_head_nbytes = offset - aligned_offset;
+  uint64_t skip_head_nbytes = offset - aligned_offset;
   uint64_t skip_tail_nbytes = aligned_n - n;
 
   NVM_DBG(this, "aligned_n(" << aligned_n << ")");
