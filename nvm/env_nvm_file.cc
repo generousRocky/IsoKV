@@ -70,24 +70,16 @@ NvmFile::NvmFile(
     }
   }
 
+  // rocky: nvm file 설정 바꿔주기
+	align_nbytes_ = geo->nplanes * geo->nsectors * geo->sector_nbytes; // 32k = 2 * 4 * 4096
 
-  // 32k = 2 * 4 * 4096
-	align_nbytes_ = geo->nplanes * geo->nsectors * geo->sector_nbytes;
-
-  // rocky: stripe_nbytes_ 바꿔주기
-  // 4m = 32k * 128
-  // stripe_nbytes_ = align_nbytes_ * env_->store_->GetPunitCount();
-  // 128k = 32k * 4
-  stripe_nbytes_ = align_nbytes_ * 4;
+  // stripe_nbytes_ = align_nbytes_ * env_->store_->GetPunitCount(); // 4m = 32k * 128
+  stripe_nbytes_ = align_nbytes_ * 4; // 128k = 32k * 4
  
-  // stripte_nbytes_ * 512
-  blk_nbytes_ = stripe_nbytes_ * geo->npages;
+  blk_nbytes_ = stripe_nbytes_ * geo->npages; // stripte_nbytes_ * 512
 
   buf_nbytes_ = 0;                              // Setup buffer
-  
-	// 8 * stripte_nbytes_
-  buf_nbytes_max_ = lu_bound_ * stripe_nbytes_;
-  
+  buf_nbytes_max_ = lu_bound_ * stripe_nbytes_; // 8 * stripte_nbytes_
   
   buf_ = (char*)nvm_buf_alloc(geo, buf_nbytes_max_);
   if (!buf_) {
@@ -310,16 +302,11 @@ Status NvmFile::wmeta(void) {
 
   meta << std::to_string(fsize_) << std::endl;;
 
-  NVM_DBG(this, "[rocky] fsize_(" << fsize_ << ")");
-  NVM_DBG(this, "[rocky] blks_.size()(" << blks_.size() << ")");
-  
 	for (auto &blk : blks_) {
     if (!blk)
       continue;
 
     meta << nvm_vblk_get_addrs(blk)[0].g.blk << std::endl;
-    NVM_DBG(this, "[rocky] nvm_vblk_get_addrs(blk)[0].g.blk(" << nvm_vblk_get_addrs(blk)[0].g.blk << ")");
-  
   }
 
   std::string content = meta.str();
@@ -390,14 +377,11 @@ Status NvmFile::Flush(bool padded) {
   NVM_DBG(this, "[rocky]fsize_: " << fsize_ );
   NVM_DBG(this, "[rocky](fsize_ / blk_nbytes_): " << (fsize_ / blk_nbytes_) );
 	
-  
   while (blks_.size() <= (fsize_ / blk_nbytes_)) {
     struct nvm_vblk *blk;
 		
 		// rocky
-		NVM_DBG(this, "bf_vblk");
     blk = env_->store_->get();
-		NVM_DBG(this, "af_vblk");
 		
 		if (!blk) {
       NVM_DBG(this, "FAILED: reserving NVM");

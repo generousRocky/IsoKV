@@ -52,17 +52,16 @@ NvmStore::NvmStore(
   }
 }
 
+// rocky: meta를 읽어오는 방식 바꿔줌
 Status NvmStore::recover(const std::string& mpath)
 {
   NVM_DBG(this, "mpath(" << mpath << ")");
 
   // Initialize and allocate vblks with defaults (kFree)
-  //for (size_t blk_idx = 0; blk_idx < geo_->nblocks; ++blk_idx) {
   for (size_t blk_idx = 0; blk_idx < geo_->nblocks; ++blk_idx) {
     struct nvm_vblk *blk;
     std::vector<struct nvm_addr> addrs(punits_);
     
-    // 여기까지는 punit 주소만 정해져 있음. 이제 각 blk을 지정 해 주어야 함g
     for (auto &addr : addrs)
       addr.g.blk = blk_idx;
     
@@ -71,11 +70,6 @@ Status NvmStore::recover(const std::string& mpath)
         
         for(int j=0; j<4; j++){
             resized_addrs.push_back(addrs[ 4 * i + j ]);
-            //NVM_DBG(this, "i<(" << i<< "), j(" << j << ")");
-            //NVM_DBG(this, "" << addrs[4*i + j].g.ch << ", "
-            //        << addrs[4*i + j].g.lun << ", "
-            //        << addrs[4*i + j].g.blk);
-            
         }
 
 				blk = nvm_vblk_alloc(dev_, resized_addrs.data(), resized_addrs.size());
@@ -173,13 +167,11 @@ Status NvmStore::recover(const std::string& mpath)
 
     for (blk_idx = 0; meta >> line; ++blk_idx) {
 
-// rocky
-#if 0
-      if ((blk_idx+1) > geo_->nblocks) {
+		  // rocky: exceeding 한 경우를 위해
+		  if ((blk_idx+1) > (geo_->nblocks) * 32) {
         NVM_DBG(this, "FAILED: Block count exceeding geometry");
         return Status::IOError("FAILED: Block count exceeding geometry");
       }
-#endif
 
       int state = strtoul(line.c_str(), NULL, 16);
 
@@ -198,12 +190,11 @@ Status NvmStore::recover(const std::string& mpath)
       }
     }
 
-#if 0
-    if (blk_idx != geo_->nblocks) {
+		// rocky: blk_idx 수 맞는지 확인
+    if (blk_idx != (geo_->nblocks) * 32 ) {
       NVM_DBG(this, "FAILED: Insufficient block count");
       return Status::IOError("FAILED: Insufficient block count");
     }
-#endif
   }
   
 	NVM_DBG(this, "[rocky] blks_.size(): " << blks_.size() );
@@ -211,8 +202,6 @@ Status NvmStore::recover(const std::string& mpath)
   return Status::OK();
 }
 
-// rocky: 음.. persist에서는 고쳐줄 부분이 없는 것 같당...
-// 맨 처음에는 어떻게 persit하게 해 주지?
 Status NvmStore::persist(const std::string &mpath) {
   NVM_DBG(this, "mpath(" << mpath << ")");
 
@@ -259,47 +248,31 @@ struct nvm_vblk* NvmStore::get(void) {
   MutexLock lock(&mutex_);
   NVM_DBG(this, "LOCK !");
 
-  // rocky
+  // rocky: iteration 수 변경
   for (size_t i = 0; i < 32 * geo_->nblocks; ++i) {
     //const size_t blk_idx = curs_++ % geo_->nblocks;
     const size_t blk_idx = curs_++ % ( 32 * (geo_->nblocks) );
-		
 
 		std::pair<BlkState, struct nvm_vblk*> &entry = blks_[blk_idx];
 
-		NVM_DBG(this, "[rocky] blks_.size(): " << blks_.size() );
-		
-
     switch (entry.first) {
     case kFree:
-		  NVM_DBG(this, "[rocky] i(" << i << ") - kFree");
-		  
       if (nvm_vblk_erase(entry.second) < 0) {
         entry.first = kBad;
-
         NVM_DBG(this, "WARN: Erase failed blk_idx(" << blk_idx << ")");
-
         if (!persist(mpath_).ok()) {
           NVM_DBG(this, "FAILED: writing meta");
         }
         break;
       }
-
     case kOpen:
-		  NVM_DBG(this, "[rocky] i(" << i << ") - kOpen");
       entry.first = kReserved;
-
       if (!persist(mpath_).ok()) {
         NVM_DBG(this, "FAILED: writing meta");
       }
-      
-      NVM_DBG(this, "[rocky] target blk_idx(" << blk_idx << ")");
 			return entry.second;
-
-    case kReserved:
-		  NVM_DBG(this, "[rocky] i(" << i << ") - kReserved");
+		case kReserved:
     case kBad:
-		  NVM_DBG(this, "[rocky] i(" << i << ") - kBad");
       break;
     }
   }
