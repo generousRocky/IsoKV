@@ -4,7 +4,6 @@ RBENCH_DEV_NAME=nvme0n1
 RBENCH_BENCHMARKS=filluniquerandom
 RBENCH_DEV_MODE=nvm
 
-
 if [ $UID != 0 ]; then
 	echo "You don't have sufficient privileges to run this script."
 	exit 1
