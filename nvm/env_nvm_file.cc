@@ -296,12 +296,15 @@ Status NvmFile::wmeta(void) {
   std::stringstream meta;
 
   meta << std::to_string(fsize_) << std::endl;;
+  NVM_DBG(this, "[rocky] fsize_(" << fsize_ << ")");
 
   for (auto &blk : blks_) {
     if (!blk)
       continue;
 
     meta << nvm_vblk_get_addrs(blk)[0].g.blk << std::endl;
+    NVM_DBG(this, "[rocky] nvm_vblk_get_addrs(blk)[0].g.blk(" << nvm_vblk_get_addrs(blk)[0].g.blk << ")");
+  
   }
 
   std::string content = meta.str();
@@ -366,7 +369,10 @@ Status NvmFile::Flush(bool padded) {
                 "unaligned_nbytes(" << unaligned_nbytes << ")");
 
   // Ensure that enough blocks are reserved for flushing buffer
-  while (blks_.size() <= (fsize_ / blk_nbytes_)) {
+  
+  NVM_DBG(this, "[rocky]blks_.size(): " << blks_.size());
+
+	while (blks_.size() <= (fsize_ / blk_nbytes_)) {
     struct nvm_vblk *blk;
 
     blk = env_->store_->get();

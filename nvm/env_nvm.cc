@@ -47,6 +47,10 @@ EnvNVM::EnvNVM(
     if (match[2].length() && match[3].length()) {       // Range
       int bgn = atoi(match[2].str().c_str());
       int end = atoi(match[3].str().c_str());
+  
+    
+      NVM_DBG(this, "[rocky] bgn: " << bgn);
+      NVM_DBG(this, "[rocky] end: " << end);
 
       for (int i = bgn; i <= end; ++i)
         punits.push_back(i);
