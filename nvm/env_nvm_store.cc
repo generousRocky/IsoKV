@@ -57,23 +57,40 @@ Status NvmStore::recover(const std::string& mpath)
   NVM_DBG(this, "mpath(" << mpath << ")");
 
   // Initialize and allocate vblks with defaults (kFree)
+  //for (size_t blk_idx = 0; blk_idx < geo_->nblocks; ++blk_idx) {
   for (size_t blk_idx = 0; blk_idx < geo_->nblocks; ++blk_idx) {
     struct nvm_vblk *blk;
-
     std::vector<struct nvm_addr> addrs(punits_);
+    
+    // 여기까지는 punit 주소만 정해져 있음. 이제 각 blk을 지정 해 주어야 함g
     for (auto &addr : addrs)
       addr.g.blk = blk_idx;
+    
+    for(int i = 0; i < 32; i++){
+        std::vector<struct nvm_addr> resized_addrs;
+        
+        for(int j=0; j<4; j++){
+            resized_addrs.push_back(addrs[ 4 * i + j ]);
+            //NVM_DBG(this, "i<(" << i<< "), j(" << j << ")");
+            //NVM_DBG(this, "" << addrs[4*i + j].g.ch << ", "
+            //        << addrs[4*i + j].g.lun << ", "
+            //        << addrs[4*i + j].g.blk);
+            
+        }
 
-    blk = nvm_vblk_alloc(dev_, addrs.data(), addrs.size());
+				blk = nvm_vblk_alloc(dev_, resized_addrs.data(), resized_addrs.size());
+        
+        if (!blk) {
+						NVM_DBG(this, "FAILED: nvm_vblk_alloc_line");
+            return Status::IOError("FAILED: nvm_vblk_alloc_line");
+        }
 
-    if (!blk) {
-      NVM_DBG(this, "FAILED: nvm_vblk_alloc_line");
-      return Status::IOError("FAILED: nvm_vblk_alloc_line");
+        blks_.push_back(std::make_pair(kFree, blk));
     }
-
-    blks_.push_back(std::make_pair(kFree, blk));
   }
 
+  NVM_DBG(this, "blks_.size(" << blks_.size() << ")");
+  
   if (!env_->posix_->FileExists(mpath).ok()) {          // DONE
     NVM_DBG(this, "INFO: mpath does not exist, nothing to recover.");
     return Status::OK();
@@ -156,10 +173,12 @@ Status NvmStore::recover(const std::string& mpath)
 
     for (blk_idx = 0; meta >> line; ++blk_idx) {
 
+#if 0
       if ((blk_idx+1) > geo_->nblocks) {
         NVM_DBG(this, "FAILED: Block count exceeding geometry");
         return Status::IOError("FAILED: Block count exceeding geometry");
       }
+#endif
 
       int state = strtoul(line.c_str(), NULL, 16);
 
@@ -178,16 +197,19 @@ Status NvmStore::recover(const std::string& mpath)
       }
     }
 
+#if 0
     if (blk_idx != geo_->nblocks) {
       NVM_DBG(this, "FAILED: Insufficient block count");
       return Status::IOError("FAILED: Insufficient block count");
     }
-
+#endif
   }
 
   return Status::OK();
 }
 
+// rocky: 음.. persist에서는 고쳐줄 부분이 없는 것 같당...
+// 맨 처음에는 어떻게 persit하게 해 주지?
 Status NvmStore::persist(const std::string &mpath) {
   NVM_DBG(this, "mpath(" << mpath << ")");
 
