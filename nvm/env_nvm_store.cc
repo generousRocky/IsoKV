@@ -173,6 +173,7 @@ Status NvmStore::recover(const std::string& mpath)
 
     for (blk_idx = 0; meta >> line; ++blk_idx) {
 
+// rocky
 #if 0
       if ((blk_idx+1) > geo_->nblocks) {
         NVM_DBG(this, "FAILED: Block count exceeding geometry");
@@ -204,6 +205,8 @@ Status NvmStore::recover(const std::string& mpath)
     }
 #endif
   }
+  
+	NVM_DBG(this, "[rocky] blks_.size(): " << blks_.size() );
 
   return Status::OK();
 }
@@ -256,12 +259,21 @@ struct nvm_vblk* NvmStore::get(void) {
   MutexLock lock(&mutex_);
   NVM_DBG(this, "LOCK !");
 
-  for (size_t i = 0; i < geo_->nblocks; ++i) {
-    const size_t blk_idx = curs_++ % geo_->nblocks;
-    std::pair<BlkState, struct nvm_vblk*> &entry = blks_[blk_idx];
+  // rocky
+  for (size_t i = 0; i < 32 * geo_->nblocks; ++i) {
+    //const size_t blk_idx = curs_++ % geo_->nblocks;
+    const size_t blk_idx = curs_++ % ( 32 * (geo_->nblocks) );
+		
+
+		std::pair<BlkState, struct nvm_vblk*> &entry = blks_[blk_idx];
+
+		NVM_DBG(this, "[rocky] blks_.size(): " << blks_.size() );
+		
 
     switch (entry.first) {
     case kFree:
+		  NVM_DBG(this, "[rocky] i(" << i << ") - kFree");
+		  
       if (nvm_vblk_erase(entry.second) < 0) {
         entry.first = kBad;
 
@@ -274,15 +286,20 @@ struct nvm_vblk* NvmStore::get(void) {
       }
 
     case kOpen:
+		  NVM_DBG(this, "[rocky] i(" << i << ") - kOpen");
       entry.first = kReserved;
 
       if (!persist(mpath_).ok()) {
         NVM_DBG(this, "FAILED: writing meta");
       }
-      return entry.second;
+      
+      NVM_DBG(this, "[rocky] target blk_idx(" << blk_idx << ")");
+			return entry.second;
 
     case kReserved:
+		  NVM_DBG(this, "[rocky] i(" << i << ") - kReserved");
     case kBad:
+		  NVM_DBG(this, "[rocky] i(" << i << ") - kBad");
       break;
     }
   }

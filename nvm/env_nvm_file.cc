@@ -70,12 +70,25 @@ NvmFile::NvmFile(
     }
   }
 
-  align_nbytes_ = geo->nplanes * geo->nsectors * geo->sector_nbytes;
-  stripe_nbytes_ = align_nbytes_ * env_->store_->GetPunitCount();
+
+  // 32k = 2 * 4 * 4096
+	align_nbytes_ = geo->nplanes * geo->nsectors * geo->sector_nbytes;
+
+  // rocky: stripe_nbytes_ 바꿔주기
+  // 4m = 32k * 128
+  // stripe_nbytes_ = align_nbytes_ * env_->store_->GetPunitCount();
+  // 128k = 32k * 4
+  stripe_nbytes_ = align_nbytes_ * 4;
+ 
+  // stripte_nbytes_ * 512
   blk_nbytes_ = stripe_nbytes_ * geo->npages;
 
   buf_nbytes_ = 0;                              // Setup buffer
+  
+	// 8 * stripte_nbytes_
   buf_nbytes_max_ = lu_bound_ * stripe_nbytes_;
+  
+  
   buf_ = (char*)nvm_buf_alloc(geo, buf_nbytes_max_);
   if (!buf_) {
     NVM_DBG(this, "FAILED: allocating buffer");
@@ -296,9 +309,11 @@ Status NvmFile::wmeta(void) {
   std::stringstream meta;
 
   meta << std::to_string(fsize_) << std::endl;;
-  NVM_DBG(this, "[rocky] fsize_(" << fsize_ << ")");
 
-  for (auto &blk : blks_) {
+  NVM_DBG(this, "[rocky] fsize_(" << fsize_ << ")");
+  NVM_DBG(this, "[rocky] blks_.size()(" << blks_.size() << ")");
+  
+	for (auto &blk : blks_) {
     if (!blk)
       continue;
 
@@ -370,13 +385,21 @@ Status NvmFile::Flush(bool padded) {
 
   // Ensure that enough blocks are reserved for flushing buffer
   
-  NVM_DBG(this, "[rocky]blks_.size(): " << blks_.size());
-
-	while (blks_.size() <= (fsize_ / blk_nbytes_)) {
+  NVM_DBG(this, "[rocky]blks_.size(): " << blks_.size() );
+  NVM_DBG(this, "[rocky]blk_nbytes_: " << blk_nbytes_ );
+  NVM_DBG(this, "[rocky]fsize_: " << fsize_ );
+  NVM_DBG(this, "[rocky](fsize_ / blk_nbytes_): " << (fsize_ / blk_nbytes_) );
+	
+  
+  while (blks_.size() <= (fsize_ / blk_nbytes_)) {
     struct nvm_vblk *blk;
-
+		
+		// rocky
+		NVM_DBG(this, "bf_vblk");
     blk = env_->store_->get();
-    if (!blk) {
+		NVM_DBG(this, "af_vblk");
+		
+		if (!blk) {
       NVM_DBG(this, "FAILED: reserving NVM");
       return Status::IOError("FAILED: reserving NVM");
     }
@@ -407,7 +430,6 @@ Status NvmFile::Flush(bool padded) {
     ret = nvm_vblk_write(blk, buf_ + nbytes_written, nbytes);
     if (ret < 0) {
       perror("nvm_vblk_write");
-      nvm_vblk_pr(blk);
       NVM_DBG(this, "FAILED: nvm_vblk_write(...)");
       return Status::IOError("FAILED: nvm_vblk_write(...)");
     }
