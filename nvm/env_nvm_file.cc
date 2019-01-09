@@ -284,6 +284,10 @@ Status NvmFile::Append(const Slice& slice) {
     NVM_DBG(this, "buf_nbytes_(" << buf_nbytes_ << ")");
     NVM_DBG(this, "fsize_(" << fsize_ << ")");
 
+		if(slice.size() > 1048613){ // rocky - tmp
+    	NVM_DBG(this, "maybe for sst");
+		}
+
     // Have bytes remaining but no more room in buffer -> flush to media
     if (nbytes_remaining && (!Flush().ok())) {
       return Status::IOError("Flushing to media failed.");

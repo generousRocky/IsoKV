@@ -143,6 +143,10 @@ function rbench {
 	if [ -n "$RBENCH_MAX_BACKGROUND_COMPACTIONS" ]; then
 		ARGS="$ARGS --max_background_compactions=$RBENCH_MAX_BACKGROUND_COMPACTIONS"
 	fi
+	
+	if [ -n "$RBENCH_MAX_BACKGROUND_FLUSHES" ]; then
+		ARGS="$ARGS --max_background_flushes=$RBENCH_MAX_BACKGROUND_FLUSHES"
+	fi
 
 	if [ -n "$RBENCH_MAX_GRANDPARENT_OVERLAP_FACTOR" ]; then
 		ARGS="$ARGS --max_grandparent_overlap_factor=$RBENCH_MAX_GRANDPARENT_OVERLAP_FACTOR"

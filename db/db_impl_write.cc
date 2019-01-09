@@ -16,6 +16,10 @@
 #include "options/options_helper.h"
 #include "util/sync_point.h"
 
+#include "profile/profile.h"
+unsigned long long total_time_WriteToWAL, total_count_WriteToWAL;
+unsigned long long total_time_WriteImpl, total_count_WriteImpl;
+
 namespace rocksdb {
 // Convenience methods
 Status DBImpl::Put(const WriteOptions& o, ColumnFamilyHandle* column_family,
@@ -57,6 +61,22 @@ Status DBImpl::WriteWithCallback(const WriteOptions& write_options,
 #endif  // ROCKSDB_LITE
 
 Status DBImpl::WriteImpl(const WriteOptions& write_options,
+                         WriteBatch* my_batch, WriteCallback* callback,
+                         uint64_t* log_used, uint64_t log_ref,
+                         bool disable_memtable) {
+
+	Status status;
+
+	struct timespec local_time[2];
+	clock_gettime(CLOCK_MONOTONIC, &local_time[0]);
+	status = WriteImpl_internal(write_options, my_batch, callback, log_used, log_ref, disable_memtable);
+	clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
+	calclock(local_time, &total_time_WriteImpl, &total_count_WriteImpl);
+
+	return status;
+
+}
+Status DBImpl::WriteImpl_internal(const WriteOptions& write_options,
                          WriteBatch* my_batch, WriteCallback* callback,
                          uint64_t* log_used, uint64_t log_ref,
                          bool disable_memtable) {
@@ -372,6 +392,19 @@ Status DBImpl::PreprocessWrite(const WriteOptions& write_options,
 Status DBImpl::WriteToWAL(const autovector<WriteThread::Writer*>& write_group,
                           log::Writer* log_writer, bool need_log_sync,
                           bool need_log_dir_sync, SequenceNumber sequence) {
+
+	Status status;
+	struct timespec local_time[2];
+	clock_gettime(CLOCK_MONOTONIC, &local_time[0]);
+	status = WriteToWAL_internal(write_group, log_writer, need_log_sync, need_log_dir_sync, sequence);
+	clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
+	calclock(local_time, &total_time_WriteToWAL, &total_count_WriteToWAL);
+
+	return status;
+}
+Status DBImpl::WriteToWAL_internal(const autovector<WriteThread::Writer*>& write_group,
+                          log::Writer* log_writer, bool need_log_sync,
+                          bool need_log_dir_sync, SequenceNumber sequence) {
   Status status;
 
   WriteBatch* merged_batch = nullptr;
@@ -401,7 +434,7 @@ Status DBImpl::WriteToWAL(const autovector<WriteThread::Writer*>& write_group,
 
   WriteBatchInternal::SetSequence(merged_batch, sequence);
 
-  Slice log_entry = WriteBatchInternal::Contents(merged_batch);
+  Slice log_entry = WriteBatchInternal::Contents(merged_batch); // log_entry.size_ = 1048609
   status = log_writer->AddRecord(log_entry);
   total_log_size_ += log_entry.size();
   alive_log_files_.back().AddSize(log_entry.size());

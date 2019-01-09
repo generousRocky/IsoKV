@@ -70,6 +70,9 @@
 #include "utilities/merge_operators.h"
 #include "utilities/persistent_cache/block_cache_tier.h"
 
+#include "profile/profile.h"
+unsigned long long total_time_tb, total_count_tb;
+
 #ifdef OS_WIN
 #include <io.h>  // open/close
 #endif
@@ -1577,7 +1580,11 @@ class Stats {
   }
 
   void Report(const Slice& name) {
-    // Pretend at least one op was done in case we are running a benchmark
+		printf("%s, total_time_WriteImpl: %llu, total_count_WriteImpl: %llu\n", __func__, total_time_WriteImpl, total_count_WriteImpl);
+		printf("%s, total_time_WriteToWAL: %llu, total_count_WriteToWAL: %llu\n", __func__, total_time_WriteToWAL, total_count_WriteToWAL);
+		printf("%s, total_time_tb: %llu, total_count_tb: %llu\n", __func__, total_time_tb, total_count_tb);
+		
+		// Pretend at least one op was done in case we are running a benchmark
     // that does not call FinishedOps().
     if (done_ < 1) done_ = 1;
 
@@ -2531,6 +2538,15 @@ void VerifyDBFromDB(std::string& truth_db_name) {
   };
 
   static void ThreadBody(void* v) {
+
+		Status status;
+		struct timespec local_time[2];
+		clock_gettime(CLOCK_MONOTONIC, &local_time[0]);
+		ThreadBody_internal(v);
+		clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
+		calclock(local_time, &total_time_tb, &total_count_tb);
+	}
+  static void ThreadBody_internal(void* v) {
     ThreadArg* arg = reinterpret_cast<ThreadArg*>(v);
     SharedState* shared = arg->shared;
     ThreadState* thread = arg->thread;

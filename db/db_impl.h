@@ -600,6 +600,10 @@ class DBImpl : public DB {
 
   void EraseThreadStatusDbInfo() const;
 
+  Status WriteImpl_internal(const WriteOptions& options, WriteBatch* updates,
+                   WriteCallback* callback = nullptr,
+                   uint64_t* log_used = nullptr, uint64_t log_ref = 0,
+                   bool disable_memtable = false);
   Status WriteImpl(const WriteOptions& options, WriteBatch* updates,
                    WriteCallback* callback = nullptr,
                    uint64_t* log_used = nullptr, uint64_t log_ref = 0,
@@ -728,6 +732,10 @@ class DBImpl : public DB {
                          bool* logs_getting_syned, WriteContext* write_context);
 
   Status WriteToWAL(const autovector<WriteThread::Writer*>& write_group,
+                    log::Writer* log_writer, bool need_log_sync,
+                    bool need_log_dir_sync, SequenceNumber sequence);
+
+  Status WriteToWAL_internal(const autovector<WriteThread::Writer*>& write_group,
                     log::Writer* log_writer, bool need_log_sync,
                     bool need_log_dir_sync, SequenceNumber sequence);
 
