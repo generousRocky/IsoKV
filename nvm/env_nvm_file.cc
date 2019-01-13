@@ -8,6 +8,16 @@
 #include "env_nvm.h"
 #include <liblightnvm.h>
 
+#include <profile/profile.h>
+unsigned long long total_time_AppendforSST, total_count_AppendforSST;
+unsigned long long total_time_AppendforWAL, total_count_AppendforWAL;
+
+unsigned long long total_time_FlushforSST, total_count_FlushforSST;
+unsigned long long total_time_FlushforWAL, total_count_FlushforWAL;
+
+unsigned long long total_time_vblk_w_SST, total_count_vblk_w_SST;
+unsigned long long total_time_vblk_w_WAL, total_count_vblk_w_WAL;
+
 #include <execinfo.h>
 #ifndef NVM_TRACE
 #define NVM_TRACE 1
@@ -71,9 +81,10 @@ NvmFile::NvmFile(
     }
   }
 
-  align_nbytes_ = geo->nplanes * geo->nsectors * geo->sector_nbytes;
+  // rocky
+  align_nbytes_ = geo->nplanes * geo->nsectors * geo->sector_nbytes * 8;
   stripe_nbytes_ = align_nbytes_ * env_->store_->GetPunitCount();
-  blk_nbytes_ = stripe_nbytes_ * geo->npages;
+	blk_nbytes_ = stripe_nbytes_ * geo->npages / 8;
 
   buf_nbytes_ = 0;                              // Setup buffer
   buf_nbytes_max_ = lu_bound_ * stripe_nbytes_;
@@ -167,6 +178,10 @@ std::string NvmFile::txt(void) const {
   return ss.str();
 }
 
+std::string NvmFile::getfname(void) const {
+  return info_.fname();
+}
+
 // Used by WritableFile
 bool NvmFile::IsSyncThreadSafe(void) const {
   NVM_DBG(this, "hard-coded return");
@@ -256,7 +271,40 @@ Status NvmFile::InvalidateCache(size_t offset, size_t length) {
 }
 
 // Used by WritableFile
+
+
+bool ends_with_rocky(const std::string& subj, const std::string& suffix) {
+	return subj.size() >= suffix.size() && std::equal(
+			suffix.rbegin(), suffix.rend(), subj.rbegin()
+			);
+}
+
 Status NvmFile::Append(const Slice& slice) {
+
+	Status status;
+	struct timespec local_time[2];
+	
+	if(ends_with_rocky(this->GetFname(), "sst")){
+		clock_gettime(CLOCK_MONOTONIC, &local_time[0]);
+		status = NvmFile::Append_internal(slice);
+		clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
+		calclock(local_time, &total_time_AppendforSST, &total_count_AppendforSST);
+	}
+	else if(ends_with_rocky(this->GetFname(), "log")){
+		clock_gettime(CLOCK_MONOTONIC, &local_time[0]);
+		status = NvmFile::Append_internal(slice);
+		clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
+		calclock(local_time, &total_time_AppendforWAL, &total_count_AppendforWAL);
+	}
+	else{
+  	NVM_DBG(this, "[rocky] unkown file named :" << this->GetFname() );
+		status = NvmFile::Append_internal(slice);
+	}
+	
+	return status;
+}
+
+Status NvmFile::Append_internal(const Slice& slice) {
   NVM_DBG(this, "fsize_(" << fsize_ << ")-aligned(" << !(fsize_ % align_nbytes_) << ")");
   NVM_DBG(this, "buf_nbytes_(" << buf_nbytes_ << ")-aligned(" << !(buf_nbytes_ % align_nbytes_) << ")");
   NVM_DBG(this, "slice-size(" << slice.size() << ")-aligned(" << !(slice.size() % align_nbytes_) << ")");
@@ -324,6 +372,31 @@ Status NvmFile::Flush(void) {
 }
 
 Status NvmFile::Flush(bool padded) {
+  
+  Status status;
+  struct timespec local_time[2];
+
+  if(ends_with_rocky(this->GetFname(), "sst")){
+    clock_gettime(CLOCK_MONOTONIC, &local_time[0]);
+    status = NvmFile::Flush_internal(padded);
+    clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
+    calclock(local_time, &total_time_FlushforSST, &total_count_FlushforSST);
+  }
+  else if(ends_with_rocky(this->GetFname(), "log")){
+    clock_gettime(CLOCK_MONOTONIC, &local_time[0]);
+    status = NvmFile::Flush_internal(padded);
+    clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
+    calclock(local_time, &total_time_FlushforWAL, &total_count_FlushforWAL);
+  }
+  else{
+    NVM_DBG(this, "[rocky] unkown file named :" << this->GetFname() );
+    status = NvmFile::Flush_internal(padded);
+  }
+
+  return status;
+
+}
+Status NvmFile::Flush_internal(bool padded) {
   NVM_DBG(this, "padded(" << padded << ")");
 
   size_t pad_nbytes = 0;
@@ -403,7 +476,28 @@ Status NvmFile::Flush(bool padded) {
     NVM_DBG(this, "nbytes_written: " << nbytes_written);
     NVM_DBG(this, "nbytes: " << nbytes);
 
-    ret = nvm_vblk_write(blk, buf_ + nbytes_written, nbytes);
+    //ret = nvm_vblk_write(blk, buf_ + nbytes_written, nbytes);
+    
+    struct timespec local_time[2];
+
+    if(ends_with_rocky(this->GetFname(), "sst")){
+      clock_gettime(CLOCK_MONOTONIC, &local_time[0]);
+      ret = nvm_vblk_write(blk, buf_ + nbytes_written, nbytes);
+      clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
+      calclock(local_time, &total_time_vblk_w_SST, &total_count_vblk_w_SST);
+    }
+    else if(ends_with_rocky(this->GetFname(), "log")){
+      clock_gettime(CLOCK_MONOTONIC, &local_time[0]);
+      ret = nvm_vblk_write(blk, buf_ + nbytes_written, nbytes);
+      clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
+      calclock(local_time, &total_time_vblk_w_WAL, &total_count_vblk_w_WAL);
+    }
+    else{
+      NVM_DBG(this, "[rocky] unkown file named :" << this->GetFname() );
+      ret = nvm_vblk_write(blk, buf_ + nbytes_written, nbytes);
+    }
+
+    
     if (ret < 0) {
       perror("nvm_vblk_write");
       nvm_vblk_pr(blk);

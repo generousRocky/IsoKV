@@ -715,7 +715,7 @@ class WritableFile {
   virtual Status Allocate(uint64_t offset, uint64_t len) {
     return Status::OK();
   }
-
+  
  protected:
   size_t preallocation_block_size() { return preallocation_block_size_; }
 

@@ -14,7 +14,11 @@
 #include "util/coding.h"
 #include "util/crc32c.h"
 #include "util/file_reader_writer.h"
+
 #include <iostream>
+#include <profile/profile.h>
+unsigned long long total_time_EmitPhysicalRecord, total_count_EmitPhysicalRecord;
+
 
 namespace rocksdb {
 namespace log {
@@ -95,7 +99,19 @@ Status Writer::AddRecord(const Slice& slice) {
   return s;
 }
 
+
 Status Writer::EmitPhysicalRecord(RecordType t, const char* ptr, size_t n) {
+	
+	Status status;
+	struct timespec local_time[2];
+	clock_gettime(CLOCK_MONOTONIC, &local_time[0]);
+	status = EmitPhysicalRecord_internal(t, ptr, n);
+	clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
+	calclock(local_time, &total_time_EmitPhysicalRecord, &total_count_EmitPhysicalRecord);
+
+	return status;
+}
+Status Writer::EmitPhysicalRecord_internal(RecordType t, const char* ptr, size_t n) {
   assert(n <= 0xffff);  // Must fit in two bytes
 
   size_t header_size;

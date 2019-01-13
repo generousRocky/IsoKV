@@ -112,3 +112,11 @@ RBENCH_VERIFY_CHECKSUM=1
 
 source rbench.sh
 rbench				# Run them
+
+
+rm $RBENCH_DB/*
+RBENCH_THREADS=2
+source rbench.sh
+rbench				# Run them
+
+

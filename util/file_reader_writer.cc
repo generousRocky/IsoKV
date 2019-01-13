@@ -19,6 +19,19 @@
 #include "util/rate_limiter.h"
 #include "util/sync_point.h"
 
+#include <iostream>
+using namespace std;
+#include <profile/profile.h>
+unsigned long long total_time_WFW_Append, total_count_WFW_Append;
+unsigned long long total_time_WFW_Flush, total_count_WFW_Flush;
+
+unsigned long long total_time_WB, total_count_WB;
+
+unsigned long long total_time_WB_from_Flush, total_count_WB_from_Flush;
+unsigned long long total_time_wdio_from_Flush, total_count_wdio_from_Flush;
+
+unsigned long long total_time_WB_from_Append, total_count_WB_from_Append;
+
 namespace rocksdb {
 
 #ifndef NDEBUG
@@ -110,6 +123,18 @@ Status RandomAccessFileReader::Read(uint64_t offset, size_t n, Slice* result,
 }
 
 Status WritableFileWriter::Append(const Slice& data) {
+
+	Status status;
+	struct timespec local_time[2];
+	clock_gettime(CLOCK_MONOTONIC, &local_time[0]);
+	status = Append_internal(data);
+	clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
+	calclock(local_time, &total_time_WFW_Append, &total_count_WFW_Append);
+
+	return status;
+  
+}
+Status WritableFileWriter::Append_internal(const Slice& data) {
   const char* src = data.data();
   size_t left = data.size();
   Status s;
@@ -169,8 +194,9 @@ Status WritableFileWriter::Append(const Slice& data) {
   } else {
     // Writing directly to file bypassing the buffer
     assert(buf_.CurrentSize() == 0);
-    s = WriteBuffered(src, left);
-  }
+		
+		s = WriteBuffered(src, left);
+	}
 
   TEST_KILL_RANDOM("WritableFileWriter::Append:1", rocksdb_kill_odds);
   if (s.ok()) {
@@ -219,6 +245,19 @@ Status WritableFileWriter::Close() {
 // write out the cached data to the OS cache or storage if direct I/O
 // enabled
 Status WritableFileWriter::Flush() {
+
+	Status status;
+	struct timespec local_time[2];
+	clock_gettime(CLOCK_MONOTONIC, &local_time[0]);
+	status = Flush_internal();
+	clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
+	calclock(local_time, &total_time_WFW_Flush , &total_count_WFW_Flush);
+
+	return status;
+}
+
+// 전체 99 얼마 중에 저놈은 25
+Status WritableFileWriter::Flush_internal() {
   Status s;
   TEST_KILL_RANDOM("WritableFileWriter::Flush:0",
                    rocksdb_kill_odds * REDUCE_ODDS2);
@@ -226,17 +265,30 @@ Status WritableFileWriter::Flush() {
   if (buf_.CurrentSize() > 0) {
     if (use_direct_io()) {
 #ifndef ROCKSDB_LITE
-      s = WriteDirect();
+			s = WriteDirect();
 #endif  // !ROCKSDB_LITE
     } else {
-      s = WriteBuffered(buf_.BufferStart(), buf_.CurrentSize());
-    }
+      
+			struct timespec local_time[2];
+			clock_gettime(CLOCK_MONOTONIC, &local_time[0]);
+			
+			s = WriteBuffered(buf_.BufferStart(), buf_.CurrentSize());
+			
+			clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
+			calclock(local_time, &total_time_WB_from_Flush, &total_count_WB_from_Flush);
+		}
     if (!s.ok()) {
       return s;
     }
   }
 
+	struct timespec local_time[2];
+	clock_gettime(CLOCK_MONOTONIC, &local_time[0]);
+  
   s = writable_file_->Flush();
+	
+	clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
+	calclock(local_time, &total_time_wdio_from_Flush, &total_count_wdio_from_Flush);
 
   if (!s.ok()) {
     return s;
@@ -340,6 +392,41 @@ size_t WritableFileWriter::RequestToken(size_t bytes, bool align) {
 // This method writes to disk the specified data and makes use of the rate
 // limiter if available
 Status WritableFileWriter::WriteBuffered(const char* data, size_t size) {
+  
+	Status status;
+	struct timespec local_time[2];
+  clock_gettime(CLOCK_MONOTONIC, &local_time[0]);
+
+#if 0
+	struct timespec local_time[2];
+	
+	if(writable_file_>ends_with_rocky2("sst")){
+    clock_gettime(CLOCK_MONOTONIC, &local_time[0]);
+    status = WriteBuffered_internal(data, size);
+    clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
+    calclock(local_time, &total_time_WriteBuffered_for_SST, &total_count_WriteBuffered_for_SST);
+  }
+  else if(this->writable_file()->ends_with_rocky2("WAL")){
+    clock_gettime(CLOCK_MONOTONIC, &local_time[0]);
+    status = WriteBuffered_internal(data, size);
+    clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
+    calclock(local_time, &total_time_WriteBuffered_for_WAL, &total_count_WriteBuffered_for_WAL);
+  }
+  else{
+    clock_gettime(CLOCK_MONOTONIC, &local_time[0]);
+    status = WriteBuffered_internal(data, size);
+    clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
+    calclock(local_time, &total_time_WriteBuffered_for_unkown, &total_count_WriteBuffered_for_unkown);
+	}
+#endif
+
+
+  status = WriteBuffered_internal(data, size);
+  clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
+  calclock(local_time, &total_time_WB, &total_count_WB);
+	return status;
+}
+Status WritableFileWriter::WriteBuffered_internal(const char* data, size_t size) {
   Status s;
   assert(!use_direct_io());
   const char* src = data;

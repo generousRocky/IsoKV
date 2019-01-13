@@ -73,6 +73,7 @@
 #include "profile/profile.h"
 unsigned long long total_time_tb, total_count_tb;
 
+
 #ifdef OS_WIN
 #include <io.h>  // open/close
 #endif
@@ -1580,10 +1581,28 @@ class Stats {
   }
 
   void Report(const Slice& name) {
+		printf("%s, total_time_tb: %llu, total_count_tb: %llu\n", __func__, total_time_tb, total_count_tb);
 		printf("%s, total_time_WriteImpl: %llu, total_count_WriteImpl: %llu\n", __func__, total_time_WriteImpl, total_count_WriteImpl);
 		printf("%s, total_time_WriteToWAL: %llu, total_count_WriteToWAL: %llu\n", __func__, total_time_WriteToWAL, total_count_WriteToWAL);
-		printf("%s, total_time_tb: %llu, total_count_tb: %llu\n", __func__, total_time_tb, total_count_tb);
-		
+		printf("%s, total_time_EmitPhysicalRecord: %llu, total_count_EmitPhysicalRecord: %llu\n", __func__, total_time_EmitPhysicalRecord, total_count_EmitPhysicalRecord);
+
+
+		printf("%s, total_time_AppendforWAL: %llu, total_count_AppendforWAL: %llu\n", __func__, total_time_AppendforWAL, total_count_AppendforWAL);
+		printf("%s, total_time_AppendforSST: %llu, total_count_AppendforSST: %llu\n", __func__, total_time_AppendforSST, total_count_AppendforSST);
+
+		printf("%s, total_time_FlushforWAL: %llu, total_count_FlushforWAL: %llu\n", __func__, total_time_FlushforWAL, total_count_FlushforWAL);
+		printf("%s, total_time_FlushforSST: %llu, total_count_FlushforSST: %llu\n", __func__, total_time_FlushforSST, total_count_FlushforSST);
+  
+		printf("%s, total_time_vblk_w_WAL: %llu, total_count_vblk_w_WAL: %llu\n", __func__, total_time_vblk_w_WAL, total_count_vblk_w_WAL);
+		printf("%s, total_time_vblk_wSST: %llu, total_count_vblk_w_SST: %llu\n", __func__, total_time_vblk_w_SST, total_count_vblk_w_SST);
+
+    printf("%s, total_time_wdio_from_Flush: %llu, total_count_wdio_from_Flush: %llu\n", __func__, total_time_wdio_from_Flush, total_count_wdio_from_Flush);
+    printf("%s, total_time_WB_from_Flush: %llu, total_count_WB_from_Flush: %llu\n", __func__, total_time_WB_from_Flush, total_count_WB_from_Flush);
+    printf("%s, total_time_WFW_Append: %llu, total_count_WFW_Append: %llu\n", __func__, total_time_WFW_Append, total_count_WFW_Append);
+    printf("%s, total_time_WFW_Flush: %llu, total_count_WFW_Flush: %llu\n", __func__, total_time_WFW_Flush, total_count_WFW_Flush);
+    printf("%s, total_time_WB: %llu, total_count_WB: %llu\n", __func__, total_time_WB, total_count_WB);
+
+
 		// Pretend at least one op was done in case we are running a benchmark
     // that does not call FinishedOps().
     if (done_ < 1) done_ = 1;

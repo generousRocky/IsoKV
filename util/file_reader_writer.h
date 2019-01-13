@@ -127,6 +127,7 @@ class WritableFileWriter {
   Statistics* stats_;
 
  public:
+
   WritableFileWriter(std::unique_ptr<WritableFile>&& file,
                      const EnvOptions& options, Statistics* stats = nullptr)
       : writable_file_(std::move(file)),
@@ -152,8 +153,10 @@ class WritableFileWriter {
   ~WritableFileWriter() { Close(); }
 
   Status Append(const Slice& data);
+  Status Append_internal(const Slice& data);
 
   Status Flush();
+  Status Flush_internal();
 
   Status Close();
 
@@ -182,6 +185,7 @@ class WritableFileWriter {
 #endif  // !ROCKSDB_LITE
   // Normal write
   Status WriteBuffered(const char* data, size_t size);
+  Status WriteBuffered_internal(const char* data, size_t size);
   Status RangeSync(uint64_t offset, uint64_t nbytes);
   size_t RequestToken(size_t bytes, bool align);
   Status SyncInternal(bool use_fsync);

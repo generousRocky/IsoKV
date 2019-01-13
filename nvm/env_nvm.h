@@ -15,7 +15,9 @@
 #include "port/port.h"
 #include <liblightnvm.h>
 
-#define NVM_DBG_ENABLED 1
+#include "profile/profile.h"
+
+//define NVM_DBG_ENABLED 1
 #ifdef NVM_DBG_ENABLED
 
 inline std::string methodName(const std::string& prettyFunction) {
@@ -200,7 +202,8 @@ public:
   Status Allocate(uint64_t offset, uint64_t len);
 
   Status Read(uint64_t offset, size_t n, Slice* result, char* scratch) const;
-  Status Append(const Slice& data);
+  Status Append(const Slice& slice);
+  Status Append_internal(const Slice& slice);
   Status PositionedAppend(const Slice& data, uint64_t offset);
   Status Truncate(uint64_t size);
   Status Close(void);
@@ -208,6 +211,7 @@ public:
   Status RangeSync(uint64_t offset, uint64_t nbytes);
   Status Fsync(void);
   Status Flush(bool padded);
+  Status Flush_internal(bool padded);
   Status Flush(void);
 
   void Rename(const std::string& fname);
@@ -233,8 +237,10 @@ public:
 
   Status wmeta(void);
   std::string txt(void) const;
+  std::string getfname(void) const;
 
   port::Mutex read_mutex_;
+  
 
 private:
   ~NvmFile(void);               // Unref eventually deletes the object
@@ -833,6 +839,9 @@ protected:
 // NOTE: Single-threaded access is assumed for access to instances of this
 // class.
 //
+
+
+
 class NvmWritableFile : public WritableFile {
 public:
   NvmWritableFile(void) : WritableFile(), truncated_(false) {
@@ -861,7 +870,7 @@ public:
 
   virtual Status Append(const Slice& slice) override {
     NVM_DBG(this, "forwarding...");
-
+    
     return file_->Append(slice);
   }
 
@@ -999,6 +1008,10 @@ public:
     std::stringstream ss;
     ss << "fname(" << file_->info_.fname() << ")";
     return ss.str();
+  }
+
+  std::string getfname(void) const {
+    return file_->info_.fname();
   }
 
 protected:
