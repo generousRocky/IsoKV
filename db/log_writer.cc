@@ -66,13 +66,6 @@ Status Writer::AddRecord(const Slice& slice) {
       block_offset_ = 0;
     }
 
-    #if 0
-    std::cout << "[rocky]" << std::endl;
-    std::cout << kBlockSize << std::endl;
-    std::cout << block_offset_ << std::endl;
-    std::cout << header_size << std::endl;
-    #endif
-
     // Invariant: we never leave < header_size bytes in a block.
     assert(static_cast<int64_t>(kBlockSize - block_offset_) >= header_size);
 

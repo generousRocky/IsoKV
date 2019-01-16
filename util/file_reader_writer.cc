@@ -396,33 +396,10 @@ Status WritableFileWriter::WriteBuffered(const char* data, size_t size) {
 	Status status;
 	struct timespec local_time[2];
   clock_gettime(CLOCK_MONOTONIC, &local_time[0]);
-
-#if 0
-	struct timespec local_time[2];
-	
-	if(writable_file_>ends_with_rocky2("sst")){
-    clock_gettime(CLOCK_MONOTONIC, &local_time[0]);
-    status = WriteBuffered_internal(data, size);
-    clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
-    calclock(local_time, &total_time_WriteBuffered_for_SST, &total_count_WriteBuffered_for_SST);
-  }
-  else if(this->writable_file()->ends_with_rocky2("WAL")){
-    clock_gettime(CLOCK_MONOTONIC, &local_time[0]);
-    status = WriteBuffered_internal(data, size);
-    clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
-    calclock(local_time, &total_time_WriteBuffered_for_WAL, &total_count_WriteBuffered_for_WAL);
-  }
-  else{
-    clock_gettime(CLOCK_MONOTONIC, &local_time[0]);
-    status = WriteBuffered_internal(data, size);
-    clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
-    calclock(local_time, &total_time_WriteBuffered_for_unkown, &total_count_WriteBuffered_for_unkown);
-	}
-#endif
-
-
-  status = WriteBuffered_internal(data, size);
-  clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
+  
+	status = WriteBuffered_internal(data, size);
+  
+	clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
   calclock(local_time, &total_time_WB, &total_count_WB);
 	return status;
 }

@@ -10,7 +10,7 @@ BASH_EXISTS := $(shell which bash)
 SHELL := $(shell which bash)
 
 CLEAN_FILES = # deliberately empty, so we can append below.
-CFLAGS += ${EXTRA_CFLAGS}
+CFLAGS += -g -ggdb${EXTRA_CFLAGS}
 CXXFLAGS += ${EXTRA_CXXFLAGS}
 LDFLAGS += -fopenmp -llightnvm $(EXTRA_LDFLAGS)
 MACHINE ?= $(shell uname -m)

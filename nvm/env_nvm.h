@@ -17,7 +17,7 @@
 
 #include "profile/profile.h"
 
-//define NVM_DBG_ENABLED 1
+//#define NVM_DBG_ENABLED 1
 #ifdef NVM_DBG_ENABLED
 
 inline std::string methodName(const std::string& prettyFunction) {
@@ -160,6 +160,7 @@ public:
   struct nvm_vblk* get_reserved(size_t blk_idx);
 
   void put(struct nvm_vblk* blk);
+  void discard(struct nvm_vblk* blk); // rocky: discard
 
   struct nvm_dev *GetDev(void) const { return dev_; }
   std::string GetDevName(void) const { return dev_name_; }

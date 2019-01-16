@@ -8,7 +8,7 @@
 #include "env_nvm.h"
 #include <liblightnvm.h>
 
-#include <profile/profile.h>
+#include "profile/profile.h"
 unsigned long long total_time_AppendforSST, total_count_AppendforSST;
 unsigned long long total_time_AppendforWAL, total_count_AppendforWAL;
 
@@ -18,9 +18,15 @@ unsigned long long total_time_FlushforWAL, total_count_FlushforWAL;
 unsigned long long total_time_vblk_w_SST, total_count_vblk_w_SST;
 unsigned long long total_time_vblk_w_WAL, total_count_vblk_w_WAL;
 
+#define _NR_LUN_FOR_VBLK 128
+#define SPLIT_FACTOR 1
+
+#define LOG_UNIT_AMP 4
+
 #include <execinfo.h>
 #ifndef NVM_TRACE
 #define NVM_TRACE 1
+
 void nvm_trace_pr(void) {
   void *array[1024];
   size_t size;
@@ -82,9 +88,9 @@ NvmFile::NvmFile(
   }
 
   // rocky
-  align_nbytes_ = geo->nplanes * geo->nsectors * geo->sector_nbytes * 8;
+  align_nbytes_ = geo->nplanes * geo->nsectors * geo->sector_nbytes * LOG_UNIT_AMP;
   stripe_nbytes_ = align_nbytes_ * env_->store_->GetPunitCount();
-	blk_nbytes_ = stripe_nbytes_ * geo->npages / 8;
+	blk_nbytes_ = (stripe_nbytes_ * geo->npages / LOG_UNIT_AMP ) / SPLIT_FACTOR;
 
   buf_nbytes_ = 0;                              // Setup buffer
   buf_nbytes_max_ = lu_bound_ * stripe_nbytes_;
@@ -273,7 +279,7 @@ Status NvmFile::InvalidateCache(size_t offset, size_t length) {
 // Used by WritableFile
 
 
-bool ends_with_rocky(const std::string& subj, const std::string& suffix) {
+bool ends_with_suffix(const std::string& subj, const std::string& suffix) {
 	return subj.size() >= suffix.size() && std::equal(
 			suffix.rbegin(), suffix.rend(), subj.rbegin()
 			);
@@ -284,13 +290,13 @@ Status NvmFile::Append(const Slice& slice) {
 	Status status;
 	struct timespec local_time[2];
 	
-	if(ends_with_rocky(this->GetFname(), "sst")){
+	if(ends_with_suffix(this->GetFname(), "sst")){
 		clock_gettime(CLOCK_MONOTONIC, &local_time[0]);
 		status = NvmFile::Append_internal(slice);
 		clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
 		calclock(local_time, &total_time_AppendforSST, &total_count_AppendforSST);
 	}
-	else if(ends_with_rocky(this->GetFname(), "log")){
+	else if(ends_with_suffix(this->GetFname(), "log")){
 		clock_gettime(CLOCK_MONOTONIC, &local_time[0]);
 		status = NvmFile::Append_internal(slice);
 		clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
@@ -319,7 +325,7 @@ Status NvmFile::Append_internal(const Slice& slice) {
     size_t avail = buf_nbytes_max_ - buf_nbytes_;
     size_t nbytes = std::min(nbytes_remaining, avail);
 
-    NVM_DBG(this, "avail(" << avail << ", nbytes(" << nbytes << ")");
+    NVM_DBG(this, "avail(" << avail << "), nbytes(" << nbytes << ")");
 
     memcpy(buf_ + buf_nbytes_, data + nbytes_written, nbytes);
 
@@ -331,10 +337,6 @@ Status NvmFile::Append_internal(const Slice& slice) {
 
     NVM_DBG(this, "buf_nbytes_(" << buf_nbytes_ << ")");
     NVM_DBG(this, "fsize_(" << fsize_ << ")");
-
-		if(slice.size() > 1048613){ // rocky - tmp
-    	NVM_DBG(this, "maybe for sst");
-		}
 
     // Have bytes remaining but no more room in buffer -> flush to media
     if (nbytes_remaining && (!Flush().ok())) {
@@ -354,7 +356,16 @@ Status NvmFile::wmeta(void) {
     if (!blk)
       continue;
 
-    meta << nvm_vblk_get_addrs(blk)[0].g.blk << std::endl;
+    size_t vblk_ch = nvm_vblk_get_addrs(blk)[0].g.ch;
+    size_t vblk_lun = nvm_vblk_get_addrs(blk)[0].g.lun;
+    size_t vblk_st_blk = nvm_vblk_get_addrs(blk)[0].g.blk;
+    
+    size_t st_lun_no = 16 * vblk_lun + vblk_ch;
+    size_t no_vblk = vblk_st_blk * (128 / _NR_LUN_FOR_VBLK) + (st_lun_no / _NR_LUN_FOR_VBLK);
+
+    meta << no_vblk << std::endl; 
+
+    //meta << nvm_vblk_get_addrs(blk)[0].g.blk << std::endl;
   }
 
   std::string content = meta.str();
@@ -376,13 +387,13 @@ Status NvmFile::Flush(bool padded) {
   Status status;
   struct timespec local_time[2];
 
-  if(ends_with_rocky(this->GetFname(), "sst")){
+  if(ends_with_suffix(this->GetFname(), "sst")){
     clock_gettime(CLOCK_MONOTONIC, &local_time[0]);
     status = NvmFile::Flush_internal(padded);
     clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
     calclock(local_time, &total_time_FlushforSST, &total_count_FlushforSST);
   }
-  else if(ends_with_rocky(this->GetFname(), "log")){
+  else if(ends_with_suffix(this->GetFname(), "log")){
     clock_gettime(CLOCK_MONOTONIC, &local_time[0]);
     status = NvmFile::Flush_internal(padded);
     clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
@@ -420,12 +431,6 @@ Status NvmFile::Flush_internal(bool padded) {
     NVM_DBG(this, "buf_nbytes_: " << buf_nbytes_);
   }
 
-  /*
-  if (buf_nbytes_ < align_nbytes_) {
-    NVM_DBG(this, "Nothing to flush (buffer less than align_nbytes_)");
-    return Status::OK();
-  }*/
-
   if (buf_nbytes_ < stripe_nbytes_) {
     NVM_DBG(this, "Nothing to flush (buffer less than striped_nbytes_)");
     return Status::OK();
@@ -454,8 +459,8 @@ Status NvmFile::Flush_internal(bool padded) {
     }
 
     blks_.push_back(blk);
-
-    NVM_DBG(this, "avail: " << blk_nbytes_ - nvm_vblk_get_pos_write(blk));
+    
+		NVM_DBG(this, "avail: " << blk_nbytes_ - nvm_vblk_get_pos_write(blk));
   }
 
   size_t offset = fsize_ - (buf_nbytes_ - pad_nbytes);
@@ -465,8 +470,9 @@ Status NvmFile::Flush_internal(bool padded) {
   while (nbytes_remaining > 0) {
     size_t blk_idx = (offset + nbytes_written) / blk_nbytes_;
     struct nvm_vblk *blk = blks_[blk_idx];
-    size_t avail = blk_nbytes_ - nvm_vblk_get_pos_write(blk);
-    size_t nbytes = std::min(nbytes_remaining, avail);
+		
+		size_t avail = blk_nbytes_ - nvm_vblk_get_pos_write(blk);
+		size_t nbytes = std::min(nbytes_remaining, avail);
     ssize_t ret;
 
     NVM_DBG(this, "blk_idx: " << blk_idx);
@@ -480,13 +486,13 @@ Status NvmFile::Flush_internal(bool padded) {
     
     struct timespec local_time[2];
 
-    if(ends_with_rocky(this->GetFname(), "sst")){
+    if(ends_with_suffix(this->GetFname(), "sst")){
       clock_gettime(CLOCK_MONOTONIC, &local_time[0]);
       ret = nvm_vblk_write(blk, buf_ + nbytes_written, nbytes);
       clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
       calclock(local_time, &total_time_vblk_w_SST, &total_count_vblk_w_SST);
     }
-    else if(ends_with_rocky(this->GetFname(), "log")){
+    else if(ends_with_suffix(this->GetFname(), "log")){
       clock_gettime(CLOCK_MONOTONIC, &local_time[0]);
       ret = nvm_vblk_write(blk, buf_ + nbytes_written, nbytes);
       clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
@@ -500,6 +506,17 @@ Status NvmFile::Flush_internal(bool padded) {
     
     if (ret < 0) {
       perror("nvm_vblk_write");
+			
+			std::cout << "blks_.size(): " << blks_.size() << std::endl;
+			std::cout << "blk_idx: " << blk_idx << std::endl;
+			std::cout << "flush_tbytes: " << flush_tbytes << std::endl;
+			std::cout << "nbytes_remaining: " << nbytes_remaining << std::endl;
+			std::cout << "nbytes: " << nbytes<< std::endl;
+			std::cout << "avail: " << avail << std::endl;
+			std::cout << "pos:" << nvm_vblk_get_pos_write(blk) << std::endl;
+			std::cout << "nbytes_written: " << nbytes_written << std::endl;
+			std::cout << "unaligned_nbytes: " << unaligned_nbytes << std::endl;
+
       nvm_vblk_pr(blk);
       NVM_DBG(this, "FAILED: nvm_vblk_write(...)");
       return Status::IOError("FAILED: nvm_vblk_write(...)");
@@ -571,8 +588,7 @@ Status NvmFile::pad_last_block(void) {
     NVM_DBG(this, "FAILED: No vblk to pad!?");
     return Status::IOError("FAILED: No vblk to pad!?");
   }
-
-  {
+  else{
     ssize_t err;
     struct nvm_vblk *blk = blks_[blk_idx];
     size_t nbytes_left = nvm_vblk_get_nbytes(blk) - nvm_vblk_get_pos_write(blk);
@@ -648,6 +664,15 @@ Status NvmFile::Read(
     NVM_DBG(this, "=nbytes_remaining(" << nbytes_remaining << ")");
     NVM_DBG(this, "=nbytes_read(" << nbytes_read << ")");
     NVM_DBG(this, "=read_offset(" << read_offset << ")");
+
+
+		if(!blk){
+			std::cout << "[rocky][" << __LINE__<< "] find!" <<std::endl;
+			std::cout << "[rocky] blk_idx: " << blk_idx << std::endl;
+			std::cout << "[rocky] fsize_: " << fsize_ << std::endl;
+			std::cout << "[rocky] blk_nbytes_: " << blk_nbytes_ << std::endl;
+			std::cout << "[rocky] blk_.size(): " << blks_.size() << std::endl;
+		}
 
     ssize_t ret = nvm_vblk_pread(blk, buf_, nbytes, blk_offset);
     if (ret < 0) {
