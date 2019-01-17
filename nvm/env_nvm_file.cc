@@ -18,10 +18,10 @@ unsigned long long total_time_FlushforWAL, total_count_FlushforWAL;
 unsigned long long total_time_vblk_w_SST, total_count_vblk_w_SST;
 unsigned long long total_time_vblk_w_WAL, total_count_vblk_w_WAL;
 
-#define _NR_LUN_FOR_VBLK 128
-#define SPLIT_FACTOR 1
+//#define _NR_LUN_FOR_VBLK 64
+//#define SPLIT_FACTOR 2
 
-#define LOG_UNIT_AMP 4
+#define LOG_UNIT_AMP 1
 
 #include <execinfo.h>
 #ifndef NVM_TRACE
@@ -360,12 +360,11 @@ Status NvmFile::wmeta(void) {
     size_t vblk_lun = nvm_vblk_get_addrs(blk)[0].g.lun;
     size_t vblk_st_blk = nvm_vblk_get_addrs(blk)[0].g.blk;
     
-    size_t st_lun_no = 16 * vblk_lun + vblk_ch;
+    size_t st_lun_no = 16 * vblk_lun + vblk_ch; // 0-127
     size_t no_vblk = vblk_st_blk * (128 / _NR_LUN_FOR_VBLK) + (st_lun_no / _NR_LUN_FOR_VBLK);
 
-    meta << no_vblk << std::endl; 
-
     //meta << nvm_vblk_get_addrs(blk)[0].g.blk << std::endl;
+    meta << no_vblk << std::endl; 
   }
 
   std::string content = meta.str();

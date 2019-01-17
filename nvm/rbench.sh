@@ -17,7 +17,7 @@ function rbench {
 
 	ARGS=""
 	if [ -n "$RBENCH_BENCHMARKS" ]; then
-		ARGS="$ARGS --benchmarks=$RBENCH_BENCHMARKS"
+		ARGS="$ARGS --benchmarks=$RBENCH_BENCHMARKS --statistics"
 	fi
 
 	if [ -n "$RBENCH_USE_EXISTING_DB" ]; then
@@ -191,7 +191,7 @@ function rbench {
 	if [ -n "$RBENCH_WRITABLE_FILE_MAX_BUFFER_SIZE" ]; then
 		ARGS="$ARGS --writable_file_max_buffer_size=$RBENCH_WRITABLE_FILE_MAX_BUFFER_SIZE"
 	fi
-
+	
 	RBENCH_CMD="$RBENCH_BIN $ARGS"
 
 	if [ -n "$RBENCH_CMD_PREFIX" ]; then

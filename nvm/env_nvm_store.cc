@@ -1,7 +1,7 @@
 #include "env_nvm.h"
 #include <exception>
 
-#define NR_LUN_FOR_VBLK 128
+//#define NR_LUN_FOR_VBLK 128
 
 namespace rocksdb {
 
@@ -78,7 +78,7 @@ Status NvmStore::recover(const std::string& mpath)
   }
 #endif
 
-#if 1
+#if 0
   for(size_t vblk_idx = 0; vblk_idx < (geo_->nblocks); ++vblk_idx){
     for(size_t vpunit_idx = 0; vpunit_idx < punits_.size()/NR_LUN_FOR_VBLK; vpunit_idx++){
 
@@ -105,6 +105,42 @@ Status NvmStore::recover(const std::string& mpath)
   }
 #endif
 
+#if 1
+	// Initialize and allocate vblks with defaults (kFree)
+	for (size_t blk_idx = 0; blk_idx < geo_->nblocks; ++blk_idx) {
+
+		std::vector<struct nvm_addr> addrs(punits_);
+		std::vector<struct nvm_addr> resized_addrs;
+		
+		for(size_t vpunit_idx = ALPHA_PUNIT_BEGIN; vpunit_idx <= ALPHA_PUNIT_END; vpunit_idx++){
+			addrs[vpunit_idx].g.blk = blk_idx;   
+			resized_addrs.push_back(addrs[vpunit_idx]);
+		}
+		struct nvm_vblk *blk = nvm_vblk_alloc(dev_, resized_addrs.data(), resized_addrs.size());
+		if (!blk) {
+			NVM_DBG(this, "FAILED: [rocky] ALPHA_VBLK - nvm_vblk_alloc_line");
+			return Status::IOError("FAILED: nvm_vblk_alloc_line");
+		}
+		alpha_blks_.push_back(std::make_pair(kFree, blk));
+	}
+	
+	for (size_t blk_idx = 0; blk_idx < geo_->nblocks; ++blk_idx) {
+
+		std::vector<struct nvm_addr> addrs(punits_);
+		std::vector<struct nvm_addr> resized_addrs;
+		
+		for(size_t vpunit_idx = BETA_PUNIT_BEGIN; vpunit_idx <= BETA_PUNIT_END; vpunit_idx++){
+			addrs[vpunit_idx].g.blk = blk_idx;   
+			resized_addrs.push_back(addrs[vpunit_idx]);
+		}
+		struct nvm_vblk *blk = nvm_vblk_alloc(dev_, resized_addrs.data(), resized_addrs.size());
+		if (!blk) {
+			NVM_DBG(this, "FAILED: [rocky] BETA_VBLK - nvm_vblk_alloc_line");
+			return Status::IOError("FAILED: nvm_vblk_alloc_line");
+		}
+		beta_blks_.push_back(std::make_pair(kFree, blk));
+	}
+#endif
 
   if (!env_->posix_->FileExists(mpath).ok()) {          // DONE
     NVM_DBG(this, "INFO: mpath does not exist, nothing to recover.");
@@ -186,35 +222,60 @@ Status NvmStore::recover(const std::string& mpath)
     std::string line;
     //size_t blk_idx;
     size_t vblk_idx;
-    size_t NR_VBLK = ( geo_->nblocks * punits_.size() ) / NR_LUN_FOR_VBLK ;
-
+		
+		// for alpha vblk
     for (vblk_idx = 0; meta >> line; ++vblk_idx) {
-      if ( vblk_idx+1 > NR_VBLK ){
+      if ( vblk_idx+1 > geo_->nblocks ){
         return Status::IOError("FAILED: Block count exceeding geometry");
       }
 
       int state = strtoul(line.c_str(), NULL, 16);
 
-      NVM_DBG(this, "vblk_idx:" << vblk_idx << ", line: " << line);
+      NVM_DBG(this, "alpha vblk_idx:" << vblk_idx << ", line: " << line);
 
       switch(state) {
         case kFree:
         case kOpen:
         case kReserved:
         case kBad:
-          blks_[vblk_idx].first = BlkState(state);
+          alpha_blks_[vblk_idx].first = BlkState(state);
           break;
 
         default:
           break;
       }
     }
-
-    if (vblk_idx != NR_VBLK) {
-      NVM_DBG(this, "FAILED: Insufficient block count");
-      return Status::IOError("FAILED: Insufficient block count");
+    if (vblk_idx != geo_->nblocks) {
+      NVM_DBG(this, "FAILED: Insufficient alpha block count");
+      return Status::IOError("FAILED: Insufficient alpha block count");
     }
 
+		// for beta vblk
+    for (vblk_idx = 0; meta >> line; ++vblk_idx) {
+      if ( vblk_idx+1 > geo_->nblocks ){
+        return Status::IOError("FAILED: Block count exceeding geometry");
+      }
+
+      int state = strtoul(line.c_str(), NULL, 16);
+
+      NVM_DBG(this, "beta vblk_idx:" << vblk_idx << ", line: " << line);
+
+      switch(state) {
+        case kFree:
+        case kOpen:
+        case kReserved:
+        case kBad:
+          beta_blks_[vblk_idx].first = BlkState(state);
+          break;
+
+        default:
+          break;
+      }
+    }
+    if (vblk_idx != geo_->nblocks) {
+      NVM_DBG(this, "FAILED: Insufficient beta block count");
+      return Status::IOError("FAILED: Insufficient beta block count");
+    }
   }
 
   return Status::OK();
@@ -233,7 +294,10 @@ Status NvmStore::persist(const std::string &mpath) {
   meta_ss << std::endl;
 
   meta_ss << curs_ << std::endl;        // Store state of blks
-  for (auto &entry : blks_)
+  for (auto &entry : alpha_blks_)
+    meta_ss << num_to_hex(entry.first, 2) << std::endl;
+  
+	for (auto &entry : beta_blks_)
     meta_ss << num_to_hex(entry.first, 2) << std::endl;
 
   const std::string meta = meta_ss.str();
@@ -250,7 +314,14 @@ NvmStore::~NvmStore(void) {
     NVM_DBG(this, "FAILED: writing meta");
   }
 
-  for (auto &entry : blks_) {   // De-allocate blks
+  for (auto &entry : alpha_blks_) {   // De-allocate blks
+    if (!entry.second)
+      continue;
+
+    nvm_vblk_free(entry.second);
+  }
+  
+	for (auto &entry : beta_blks_) {   // De-allocate blks
     if (!entry.second)
       continue;
 
@@ -260,6 +331,34 @@ NvmStore::~NvmStore(void) {
   nvm_dev_close(dev_);          // Release device
 }
 
+struct nvm_vblk* NvmStore::get(VblkType type) {
+
+  NVM_DBG(this, "");
+  NVM_DBG(this, "LOCK ?");
+  MutexLock lock(&mutex_);
+  NVM_DBG(this, "LOCK !");
+	
+  std::deque<std::pair<BlkState, struct nvm_vblk*>> tmp_blks_;
+	uint16_t tmp_curs_;
+	switch(type){
+		case alpha:
+			tmp_blks_ = alpha_blks_;
+			tmp_curs_ = alpha_curs_;
+			break;
+		case beta;
+			tmp_blks_ = beta_blks_;
+			tmp_curs_ = beta_curs_;
+			break;
+	}
+
+	for(size_t i=0; i < geo_->nblocks; i++){
+    const size_t vblk_idx = tmp_curs_++ % geo_->nblocks;
+		std::pair<BlkState, struct nvm_vblk*> &entry = blks_[vblk_idx];
+		
+	
+	}
+	
+}
 struct nvm_vblk* NvmStore::get(void) {
 
   NVM_DBG(this, "");

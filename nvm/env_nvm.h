@@ -144,6 +144,14 @@ enum BlkState {
   kBad = 0x8,
 };
 
+enum VblkType {
+
+  alpha, // for WAL
+  beta, // level 0 and more 
+  theta, // not yet
+  delat, // not yet
+};
+
 //
 // Stateful wrapper for provisioning of virtual blocks
 class NvmStore {
@@ -157,6 +165,8 @@ public:
   ~NvmStore(void);
 
   struct nvm_vblk* get(void);
+  struct nvm_vblk* get_dynamic(VblkType type);
+
   struct nvm_vblk* get_reserved(size_t blk_idx);
 
   void put(struct nvm_vblk* blk);
@@ -186,10 +196,12 @@ protected:
   size_t rate_;
 
   port::Mutex mutex_;
-  uint16_t curs_;
+  uint16_t alpha_curs_;
+  uint16_t beta_curs_;
   std::deque<struct nvm_vblk*> reserved_;
 
-  std::deque<std::pair<BlkState, struct nvm_vblk*>> blks_;
+  std::deque<std::pair<BlkState, struct nvm_vblk*>> alpha_blks_;
+  std::deque<std::pair<BlkState, struct nvm_vblk*>> beta_blks_;
 };
 
 class NvmFile {
