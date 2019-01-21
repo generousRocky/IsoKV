@@ -151,6 +151,21 @@ enum VblkType {
   //delat, // not yet
 };
 
+struct Curs_ {
+  Curs_() : alpha_blks_(0), beta_vblk_curs_(0), theta_vblk_curs_() {
+    NVM_DBG(this, "create Curs_ for vblks");
+  }
+  size_t alpha_vblk_curs_;
+  size_t beta_vblk_curs_;
+  size_t theta_vblk_curs_;
+};
+
+struct Vblks_ {
+  std::deque<std::pair<BlkState, struct nvm_vblk*>> alpha_blks_;
+  std::deque<std::pair<BlkState, struct nvm_vblk*>> beta_blks_;
+  std::deque<std::pair<BlkState, struct nvm_vblk*>> theta_blks_;
+};
+
 // Stateful wrapper for provisioning of virtual blocks
 class NvmStore {
 public:
@@ -179,6 +194,23 @@ public:
 
   size_t GetPunitCount(void) const { return punits_.size(); }
 
+  
+  size_t get_and_inc_Curs(VblkType type){
+    switch(type){
+      return alpha: curs_.alpha_vblk_curs_++;
+      return beta: curs_.beta_vblk_curs_++;
+      return theta: curs_.theta_vblk_curs_++;
+    }
+  }
+  
+  std::pair<BlkState, struct nvm_vblk*> get_Vblk(size_t vblk_idx, VblkType type){
+    switch(type){
+      return alpha: vblks_.alpha_blks_[vblk_idx];
+      return beta: vblks_.beta_blks_[vblk_idx];
+      return theta: vblks_.theta_blks_[vblk_idx];
+    }
+  }
+
 protected:
 
   Status recover(const std::string& mpath);
@@ -196,16 +228,12 @@ protected:
   size_t rate_;
 
   port::Mutex mutex_;
- 
-  //uint16_t curs_;
-  uint16_t alpha_curs_;
-  uint16_t beta_curs_;
 
- std::deque<struct nvm_vblk*> reserved_;
+  struct Curs_ curs_
+  
+  std::deque<struct nvm_vblk*> reserved_;
 
-  //std::deque<std::pair<BlkState, struct nvm_vblk*>> blks_;
-  std::deque<std::pair<BlkState, struct nvm_vblk*>> alpha_blks_;
-  std::deque<std::pair<BlkState, struct nvm_vblk*>> beta_blks_;
+  struct Vblks_ vblks_
 };
 
 class NvmFile {

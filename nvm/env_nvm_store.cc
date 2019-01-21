@@ -3,10 +3,13 @@
 
 //#define NR_LUN_FOR_VBLK 128
 #define ALPHA_PUNIT_BEGIN 0
-#define ALPHA_PUNIT_END 15
+#define ALPHA_PUNIT_END 31
 
-#define BETA_PUNIT_BEGIN 16
-#define BETA_PUNIT_END 127
+#define BETA_PUNIT_BEGIN 32
+#define BETA_PUNIT_END 63
+
+#define THETA_PUNIT_BEGIN 64
+#define THETA_PUNIT_END 127
 
 namespace rocksdb {
 
@@ -26,7 +29,7 @@ NvmStore::NvmStore(
   const std::string& mpath,
   size_t rate
 ) : env_(env), dev_name_(dev_name), dev_path_("/dev/"+dev_name), mpath_(mpath),
-    rate_(rate), alpha_curs_(0), beta_curs_(0) {
+    rate_(rate) {
   NVM_DBG(this, "Opening NvmStore");
 
   dev_ = nvm_dev_open(dev_path_.c_str());               // Open device
@@ -126,7 +129,7 @@ Status NvmStore::recover(const std::string& mpath)
 			NVM_DBG(this, "FAILED: [rocky] ALPHA_VBLK - nvm_vblk_alloc_line");
 			return Status::IOError("FAILED: nvm_vblk_alloc_line");
 		}
-		alpha_blks_.push_back(std::make_pair(kFree, blk));
+		vblks_.alpha_blks_.push_back(std::make_pair(kFree, blk));
 	}
 	
 	for (size_t blk_idx = 0; blk_idx < geo_->nblocks; ++blk_idx) {
@@ -143,12 +146,31 @@ Status NvmStore::recover(const std::string& mpath)
 			NVM_DBG(this, "FAILED: [rocky] BETA_VBLK - nvm_vblk_alloc_line");
 			return Status::IOError("FAILED: nvm_vblk_alloc_line");
 		}
-		beta_blks_.push_back(std::make_pair(kFree, blk));
+		vblks_.beta_blks_.push_back(std::make_pair(kFree, blk));
 	}
+	
+	for (size_t blk_idx = 0; blk_idx < geo_->nblocks; ++blk_idx) {
+
+		std::vector<struct nvm_addr> addrs(punits_);
+		std::vector<struct nvm_addr> resized_addrs;
+		
+		for(size_t vpunit_idx = THETA_PUNIT_BEGIN; vpunit_idx <= THETA_PUNIT_END; vpunit_idx++){
+			addrs[vpunit_idx].g.blk = blk_idx;   
+			resized_addrs.push_back(addrs[vpunit_idx]);
+		}
+		struct nvm_vblk *blk = nvm_vblk_alloc(dev_, resized_addrs.data(), resized_addrs.size());
+		if (!blk) {
+			NVM_DBG(this, "FAILED: [rocky] THETA_VBLK - nvm_vblk_alloc_line");
+			return Status::IOError("FAILED: nvm_vblk_alloc_line");
+		}
+		vblks_.theta_blks_.push_back(std::make_pair(kFree, blk));
+	}
+	
 #endif
 	
-	NVM_DBG(this, "alpha_blks_.size(): " << alpha_blks_.size());
-	NVM_DBG(this, "beta_blks_.size(): " << beta_blks_.size());
+	NVM_DBG(this, "vblks_.alpha_blks_.size(): " << vblks_.alpha_blks_.size());
+	NVM_DBG(this, "vblks_.beta_blks_.size(): " << vblks_.beta_blks_.size());
+	NVM_DBG(this, "vblks_.theta_blks_.size(): " << vblks_.theta_blks_.size());
 
   if (!env_->posix_->FileExists(mpath).ok()) {          // DONE
     NVM_DBG(this, "INFO: mpath does not exist, nothing to recover.");
@@ -218,18 +240,26 @@ Status NvmStore::recover(const std::string& mpath)
 
   // Recover the wear-leveling cursor
   {
-    if (!(meta >> alpha_curs_)) {
+    if (!(meta >> curs_.alpha_vblk_curs_)) {
       NVM_DBG(this, "FAILED: parsing HEAD(alpha_curs_) from meta");
       return Status::IOError("FAILED: parsing HEAD(alpha_curs_) from meta");
     }
   
-    if (!(meta >> beta_curs_)) {
+    if (!(meta >> curs_.beta_vblk_curs_)) {
       NVM_DBG(this, "FAILED: parsing HEAD(beta_curs_) from meta");
       return Status::IOError("FAILED: parsing HEAD(beta_curs_) from meta");
     }
     
-		NVM_DBG(this, "alpha_curs_: " << alpha_curs_);
-    NVM_DBG(this, "beta_curs_: " << beta_curs_);
+		if (!(meta >> curs_.theta_vblk_curs_)) {
+      NVM_DBG(this, "FAILED: parsing HEAD(theta_curs_) from meta");
+      return Status::IOError("FAILED: parsing HEAD(theta_curs_) from meta");
+    }
+
+
+    
+		NVM_DBG(this, "alpha_curs_: " << curs_.alpha_vblk_curs_);
+    NVM_DBG(this, "beta_curs_: " << curs_.beta_vblk_curs_);
+    NVM_DBG(this, "theta_curs_: " << curs_.theta_vblk_curs_);
 	}
 
   // Recover blk states
@@ -237,12 +267,13 @@ Status NvmStore::recover(const std::string& mpath)
     std::string line;
 		size_t vblk_idx;
 
-		// for alpha vblk
-		for(vblk_idx = 0; vblk_idx < geo_->nblocks; vblk_idx++){
+		// for 3 vblk types
+		for(vblk_idx = 0; vblk_idx < geo_->nblocks * 3; vblk_idx++){
 			meta >> line;	
 			int state = strtoul(line.c_str(), NULL, 16);
-		
-			NVM_DBG(this, "alpha vblk_idx:" << vblk_idx << ", line: " << line);
+			size_t vblk_idx_ = vblk_idx % geo_->nblocks;
+
+			NVM_DBG(this, "vblk_idx_:" << vblk_idx_ << ", line: " << line);
 
 			switch(state) {
 				case kFree:
@@ -250,7 +281,13 @@ Status NvmStore::recover(const std::string& mpath)
 				case kReserved:
 				case kBad:
 					// TODO: need to be scalable
-					alpha_blks_[vblk_idx].first = BlkState(state);
+					if(vblk_idx < geo_->nblocks)
+						vblks_.alpha_blks_[vblk_idx].first = BlkState(state);
+					else if(vblk_idx >= geo_->nblocks && vblk_idx < geo_->nblocks * 2)
+						vblks_.beta_blks_[vblk_idx].first = BlkState(state);
+					else if(vblk_idx >= geo_->nblocks * 2 && vblk_idx < geo_->nblocks * 3)
+						vblks_.theta_blks_[vblk_idx].first = BlkState(state);
+						
 					break;
 
 				default:
@@ -263,34 +300,8 @@ Status NvmStore::recover(const std::string& mpath)
       NVM_DBG(this, "FAILED: Insufficient alpha block count");
       return Status::IOError("FAILED: Insufficient alpha block count");
     }
-		
-		// for beta vblk
-		for(vblk_idx = 0; vblk_idx < geo_->nblocks; vblk_idx++){
-			meta >> line;	
-			int state = strtoul(line.c_str(), NULL, 16);
-		
-			NVM_DBG(this, "beta vblk_idx:" << vblk_idx << ", line: " << line);
-
-			switch(state) {
-				case kFree:
-				case kOpen:
-				case kReserved:
-				case kBad:
-					// TODO: need to be scalable
-					beta_blks_[vblk_idx].first = BlkState(state);
-					break;
-
-				default:
-					break;
-			}
-		}
-
-		NVM_DBG(this, "[rocky] beta vblk_idx:" << vblk_idx );
-		if (vblk_idx != (geo_->nblocks)) {
-      NVM_DBG(this, "FAILED: Insufficient beta block count");
-      return Status::IOError("FAILED: Insufficient beta block count");
-    }
-  }
+  
+	}
 
   return Status::OK();
 }
@@ -307,12 +318,17 @@ Status NvmStore::persist(const std::string &mpath) {
   }
   meta_ss << std::endl;
 
-  meta_ss << alpha_curs_ << std::endl;        // Store state of blks
-  meta_ss << beta_curs_ << std::endl;        // Store state of blks
-  for (auto &entry : alpha_blks_)
+  meta_ss << curs_.alpha_vblk_curs_ << std::endl;        // Store state of blks
+  meta_ss << curs_.beta_vblk_curs_ << std::endl;        // Store state of blks
+  meta_ss << curs_.theta_vblk_curs_ << std::endl;        // Store state of blks
+  
+	for (auto &entry : vblks_.alpha_blks_)
     meta_ss << num_to_hex(entry.first, 2) << std::endl;
   
-	for (auto &entry : beta_blks_)
+	for (auto &entry : vblks_.beta_blks_)
+    meta_ss << num_to_hex(entry.first, 2) << std::endl;
+	
+	for (auto &entry : vblks_.theta_blks_)
     meta_ss << num_to_hex(entry.first, 2) << std::endl;
 
   const std::string meta = meta_ss.str();
@@ -329,14 +345,21 @@ NvmStore::~NvmStore(void) {
     NVM_DBG(this, "FAILED: writing meta");
   }
 
-  for (auto &entry : alpha_blks_) {   // De-allocate blks
+  for (auto &entry : vblks_.alpha_blks_) {   // De-allocate blks
     if (!entry.second)
       continue;
 
     nvm_vblk_free(entry.second);
   }
   
-	for (auto &entry : beta_blks_) {   // De-allocate blks
+	for (auto &entry : vblks_.beta_blks_) {   // De-allocate blks
+    if (!entry.second)
+      continue;
+
+    nvm_vblk_free(entry.second);
+  }
+	
+	for (auto &entry : vblks_.theta_blks_) {   // De-allocate blks
     if (!entry.second)
       continue;
 
@@ -354,28 +377,11 @@ struct nvm_vblk* NvmStore::get_dynamic(VblkType type) {
   NVM_DBG(this, "LOCK !");
 	
 	NVM_DBG(this, "[rocky] type (" << type << ")");
-  
-	std::deque<std::pair<BlkState, struct nvm_vblk*>> tmp_blks_;
-	uint16_t *tmp_curs_;
-	
-	switch(type){
-		case alpha:
-			tmp_blks_ = alpha_blks_;
-			tmp_curs_ = &alpha_curs_;
-			break;
-		case beta:
-			tmp_blks_ = beta_blks_;
-			tmp_curs_ = &beta_curs_;
-			break;
-		default:
-			return NULL;
-	}
 
 	for(size_t i=0; i < geo_->nblocks; i++){
-    *tmp_curs_ = *tmp_curs_ + 1;
-    const size_t vblk_idx = *tmp_curs_ % geo_->nblocks;
+    const size_t vblk_idx = get_and_inc_Curs(type) % geo_->nblocks;
 
-		std::pair<BlkState, struct nvm_vblk*> &entry = tmp_blks_[vblk_idx];
+		std::pair<BlkState, struct nvm_vblk*> &entry = get_Vblk(vblk_idx, type);
 
 		switch (entry.first) {
 			case kFree:
