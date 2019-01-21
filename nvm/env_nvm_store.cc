@@ -2,6 +2,11 @@
 #include <exception>
 
 //#define NR_LUN_FOR_VBLK 128
+#define ALPHA_PUNIT_BEGIN 0
+#define ALPHA_PUNIT_END 15
+
+#define BETA_PUNIT_BEGIN 16
+#define BETA_PUNIT_END 127
 
 namespace rocksdb {
 
@@ -21,7 +26,7 @@ NvmStore::NvmStore(
   const std::string& mpath,
   size_t rate
 ) : env_(env), dev_name_(dev_name), dev_path_("/dev/"+dev_name), mpath_(mpath),
-    rate_(rate), curs_(0) {
+    rate_(rate), alpha_curs_(0), beta_curs_(0) {
   NVM_DBG(this, "Opening NvmStore");
 
   dev_ = nvm_dev_open(dev_path_.c_str());               // Open device
@@ -141,6 +146,9 @@ Status NvmStore::recover(const std::string& mpath)
 		beta_blks_.push_back(std::make_pair(kFree, blk));
 	}
 #endif
+	
+	NVM_DBG(this, "alpha_blks_.size(): " << alpha_blks_.size());
+	NVM_DBG(this, "beta_blks_.size(): " << beta_blks_.size());
 
   if (!env_->posix_->FileExists(mpath).ok()) {          // DONE
     NVM_DBG(this, "INFO: mpath does not exist, nothing to recover.");
@@ -210,69 +218,75 @@ Status NvmStore::recover(const std::string& mpath)
 
   // Recover the wear-leveling cursor
   {
-    if (!(meta >> curs_)) {
-      NVM_DBG(this, "FAILED: parsing HEAD(curs_) from meta");
-      return Status::IOError("FAILED: parsing HEAD(curs_) from meta");
+    if (!(meta >> alpha_curs_)) {
+      NVM_DBG(this, "FAILED: parsing HEAD(alpha_curs_) from meta");
+      return Status::IOError("FAILED: parsing HEAD(alpha_curs_) from meta");
     }
-    NVM_DBG(this, "curs_: " << curs_);
-  }
+  
+    if (!(meta >> beta_curs_)) {
+      NVM_DBG(this, "FAILED: parsing HEAD(beta_curs_) from meta");
+      return Status::IOError("FAILED: parsing HEAD(beta_curs_) from meta");
+    }
+    
+		NVM_DBG(this, "alpha_curs_: " << alpha_curs_);
+    NVM_DBG(this, "beta_curs_: " << beta_curs_);
+	}
 
   // Recover blk states
   {
     std::string line;
-    //size_t blk_idx;
-    size_t vblk_idx;
-		
+		size_t vblk_idx;
+
 		// for alpha vblk
-    for (vblk_idx = 0; meta >> line; ++vblk_idx) {
-      if ( vblk_idx+1 > geo_->nblocks ){
-        return Status::IOError("FAILED: Block count exceeding geometry");
-      }
+		for(vblk_idx = 0; vblk_idx < geo_->nblocks; vblk_idx++){
+			meta >> line;	
+			int state = strtoul(line.c_str(), NULL, 16);
+		
+			NVM_DBG(this, "alpha vblk_idx:" << vblk_idx << ", line: " << line);
 
-      int state = strtoul(line.c_str(), NULL, 16);
+			switch(state) {
+				case kFree:
+				case kOpen:
+				case kReserved:
+				case kBad:
+					// TODO: need to be scalable
+					alpha_blks_[vblk_idx].first = BlkState(state);
+					break;
 
-      NVM_DBG(this, "alpha vblk_idx:" << vblk_idx << ", line: " << line);
+				default:
+					break;
+			}
+		}
 
-      switch(state) {
-        case kFree:
-        case kOpen:
-        case kReserved:
-        case kBad:
-          alpha_blks_[vblk_idx].first = BlkState(state);
-          break;
-
-        default:
-          break;
-      }
-    }
-    if (vblk_idx != geo_->nblocks) {
+		NVM_DBG(this, "[rocky] alpha vblk_idx:" << vblk_idx );
+		if (vblk_idx != (geo_->nblocks)) {
       NVM_DBG(this, "FAILED: Insufficient alpha block count");
       return Status::IOError("FAILED: Insufficient alpha block count");
     }
-
+		
 		// for beta vblk
-    for (vblk_idx = 0; meta >> line; ++vblk_idx) {
-      if ( vblk_idx+1 > geo_->nblocks ){
-        return Status::IOError("FAILED: Block count exceeding geometry");
-      }
+		for(vblk_idx = 0; vblk_idx < geo_->nblocks; vblk_idx++){
+			meta >> line;	
+			int state = strtoul(line.c_str(), NULL, 16);
+		
+			NVM_DBG(this, "beta vblk_idx:" << vblk_idx << ", line: " << line);
 
-      int state = strtoul(line.c_str(), NULL, 16);
+			switch(state) {
+				case kFree:
+				case kOpen:
+				case kReserved:
+				case kBad:
+					// TODO: need to be scalable
+					beta_blks_[vblk_idx].first = BlkState(state);
+					break;
 
-      NVM_DBG(this, "beta vblk_idx:" << vblk_idx << ", line: " << line);
+				default:
+					break;
+			}
+		}
 
-      switch(state) {
-        case kFree:
-        case kOpen:
-        case kReserved:
-        case kBad:
-          beta_blks_[vblk_idx].first = BlkState(state);
-          break;
-
-        default:
-          break;
-      }
-    }
-    if (vblk_idx != geo_->nblocks) {
+		NVM_DBG(this, "[rocky] beta vblk_idx:" << vblk_idx );
+		if (vblk_idx != (geo_->nblocks)) {
       NVM_DBG(this, "FAILED: Insufficient beta block count");
       return Status::IOError("FAILED: Insufficient beta block count");
     }
@@ -293,7 +307,8 @@ Status NvmStore::persist(const std::string &mpath) {
   }
   meta_ss << std::endl;
 
-  meta_ss << curs_ << std::endl;        // Store state of blks
+  meta_ss << alpha_curs_ << std::endl;        // Store state of blks
+  meta_ss << beta_curs_ << std::endl;        // Store state of blks
   for (auto &entry : alpha_blks_)
     meta_ss << num_to_hex(entry.first, 2) << std::endl;
   
@@ -331,34 +346,69 @@ NvmStore::~NvmStore(void) {
   nvm_dev_close(dev_);          // Release device
 }
 
-struct nvm_vblk* NvmStore::get(VblkType type) {
+struct nvm_vblk* NvmStore::get_dynamic(VblkType type) {
 
   NVM_DBG(this, "");
   NVM_DBG(this, "LOCK ?");
   MutexLock lock(&mutex_);
   NVM_DBG(this, "LOCK !");
 	
-  std::deque<std::pair<BlkState, struct nvm_vblk*>> tmp_blks_;
-	uint16_t tmp_curs_;
+	NVM_DBG(this, "[rocky] type (" << type << ")");
+  
+	std::deque<std::pair<BlkState, struct nvm_vblk*>> tmp_blks_;
+	uint16_t *tmp_curs_;
+	
 	switch(type){
 		case alpha:
 			tmp_blks_ = alpha_blks_;
-			tmp_curs_ = alpha_curs_;
+			tmp_curs_ = &alpha_curs_;
 			break;
-		case beta;
+		case beta:
 			tmp_blks_ = beta_blks_;
-			tmp_curs_ = beta_curs_;
+			tmp_curs_ = &beta_curs_;
 			break;
+		default:
+			return NULL;
 	}
 
 	for(size_t i=0; i < geo_->nblocks; i++){
-    const size_t vblk_idx = tmp_curs_++ % geo_->nblocks;
-		std::pair<BlkState, struct nvm_vblk*> &entry = blks_[vblk_idx];
-		
-	
+    *tmp_curs_ = *tmp_curs_ + 1;
+    const size_t vblk_idx = *tmp_curs_ % geo_->nblocks;
+
+		std::pair<BlkState, struct nvm_vblk*> &entry = tmp_blks_[vblk_idx];
+
+		switch (entry.first) {
+			case kFree:
+				if (nvm_vblk_erase(entry.second) < 0) {
+					entry.first = kBad;
+					NVM_DBG(this, "WARN: Erase failed tmp_blk_idx(" << vblk_idx << ")");
+
+					if (!persist(mpath_).ok()) {
+						NVM_DBG(this, "FAILED: writing meta");
+					}
+					break;
+				}
+
+			case kOpen:
+				entry.first = kReserved;
+
+				if (!persist(mpath_).ok()) {
+					NVM_DBG(this, "FAILED: writing meta");
+				}
+
+				NVM_DBG(this, "[rocky]: return vblk idx: " << vblk_idx  );
+				return entry.second;
+
+			case kReserved:
+			case kBad:
+				break;
+		}
 	}
 	
+  NVM_DBG(this, "FAILED: OUT OF BLOCKS!");
+  return NULL;
 }
+#if 0
 struct nvm_vblk* NvmStore::get(void) {
 
   NVM_DBG(this, "");
@@ -402,11 +452,12 @@ struct nvm_vblk* NvmStore::get(void) {
     }
   }
 
-  NVM_DBG(this, "FAILED: OUT OF BLOCKS!");
 
   return NULL;
 }
+#endif
 
+#if 0
 struct nvm_vblk* NvmStore::get_reserved(size_t blk_idx) {
   NVM_DBG(this, "");
   NVM_DBG(this, "LOCK ?");
@@ -424,7 +475,39 @@ struct nvm_vblk* NvmStore::get_reserved(size_t blk_idx) {
     return NULL;
   }
 }
+#endif
 
+struct nvm_vblk* NvmStore::get_reserved_dynamic(size_t blk_idx, VblkType type) {
+  NVM_DBG(this, "");
+  NVM_DBG(this, "LOCK ?");
+  MutexLock lock(&mutex_);
+  NVM_DBG(this, "LOCK !");
+	
+	NVM_DBG(this, "[rocky] type (" << type << ")");
+	std::deque<std::pair<BlkState, struct nvm_vblk*>> tmp_blks_;
+	
+	switch(type){
+		case alpha:
+			tmp_blks_ = alpha_blks_;
+			break;
+		case beta:
+			tmp_blks_ = beta_blks_;
+			break;
+	}
+
+  std::pair<BlkState, struct nvm_vblk*> &entry = tmp_blks_[blk_idx];
+
+  switch(entry.first) {
+  case kReserved:
+    return entry.second;
+
+  default:
+    NVM_DBG(this, "FAILED: block is not reserved");
+    return NULL;
+  }
+}
+
+#if 0
 void NvmStore::put(struct nvm_vblk* blk) {
   NVM_DBG(this, "");
   NVM_DBG(this, "LOCK ?");
@@ -435,7 +518,33 @@ void NvmStore::put(struct nvm_vblk* blk) {
   NVM_DBG(this, "blk_idx(" << blk_idx << ")");
   blks_[blk_idx].first = kFree;
 }
+#endif
 
+void NvmStore::put_dynamic(struct nvm_vblk* blk, VblkType type) {
+  NVM_DBG(this, "");
+  NVM_DBG(this, "LOCK ?");
+  MutexLock lock(&mutex_);
+  NVM_DBG(this, "LOCK !");
+
+	NVM_DBG(this, "[rocky] type (" << type << ")");
+	
+	std::deque<std::pair<BlkState, struct nvm_vblk*>> tmp_blks_;
+	
+	switch(type){
+		case alpha:
+			tmp_blks_ = alpha_blks_;
+			break;
+		case beta:
+			tmp_blks_ = beta_blks_;
+			break;
+	}
+  
+	size_t blk_idx = nvm_vblk_get_addrs(blk)[0].g.blk;
+  NVM_DBG(this, "blk_idx(" << blk_idx << ")");
+  tmp_blks_[blk_idx].first = kFree;
+}
+
+#if 0
 // rocky: discard
 void NvmStore::discard(struct nvm_vblk* blk) {
   NVM_DBG(this, "");
@@ -446,7 +555,8 @@ void NvmStore::discard(struct nvm_vblk* blk) {
   size_t blk_idx = nvm_vblk_get_addrs(blk)[0].g.blk;
   NVM_DBG(this, "blk_idx(" << blk_idx << ")");
   blks_[blk_idx].first = kBad;
-}
+}a
+#endif 
 
 std::string NvmStore::txt(void) {
   return "";

@@ -18,14 +18,23 @@ unsigned long long total_time_FlushforWAL, total_count_FlushforWAL;
 unsigned long long total_time_vblk_w_SST, total_count_vblk_w_SST;
 unsigned long long total_time_vblk_w_WAL, total_count_vblk_w_WAL;
 
-//#define _NR_LUN_FOR_VBLK 64
-//#define SPLIT_FACTOR 2
-
 #define LOG_UNIT_AMP 1
+
+#define ALPHA_PUNIT_BEGIN 0
+#define ALPHA_PUNIT_END 15
+
+#define BETA_PUNIT_BEGIN 16
+#define BETA_PUNIT_END 127
 
 #include <execinfo.h>
 #ifndef NVM_TRACE
 #define NVM_TRACE 1
+
+bool ends_with_suffix(const std::string& subj, const std::string& suffix) {
+	return subj.size() >= suffix.size() && std::equal(
+			suffix.rbegin(), suffix.rend(), subj.rbegin()
+			);
+}
 
 void nvm_trace_pr(void) {
   void *array[1024];
@@ -51,13 +60,25 @@ namespace rocksdb {
 NvmFile::NvmFile(
   EnvNVM* env, const FPathInfo& info, const std::string mpath
 ) : env_(env), refs_(), info_(info), fsize_(), mpath_(mpath), align_nbytes_(),
-    stripe_nbytes_(), blk_nbytes_(), blks_(), lu_bound_(8) {
+    stripe_nbytes_(), blk_nbytes_(), blks_(), vblk_type_(), lu_bound_(8) {
   NVM_DBG(this, "mpath_:" << mpath_);
 
   struct nvm_dev *dev = env_->store_->GetDev();
   const struct nvm_geo *geo = nvm_dev_get_geo(env_->store_->GetDev());
 
-  if (env_->posix_->FileExists(mpath_).ok()) {          // Read meta from file
+	// 나중엔 레벨별로 vblk종류를 다르게 해야할 수 있어야함.
+	// 그때는 meta 에 vblk type을 적어주어야함.
+	if(ends_with_suffix(this->GetFname(), "log")){
+		vblk_type_ = alpha;
+	}
+	else if(ends_with_suffix(this->GetFname(), "sst")){
+		vblk_type_ = beta;
+	}
+	else{
+		NVM_DBG(this, "[rocky] unkown file named :" << this->GetFname() );
+	}
+  
+	if (env_->posix_->FileExists(mpath_).ok()) {          // Read meta from file
     std::string content;
     size_t blk_idx;
 
@@ -75,22 +96,27 @@ NvmFile::NvmFile(
 
     while(meta >> blk_idx) {
       struct nvm_vblk *blk;
-
-      blk = env_->store_->get_reserved(blk_idx);
-      if (!blk) {
-        perror("nvm_vblk_alloc");
-        NVM_DBG(this, "FAILED: allocating vblk");
-        throw std::runtime_error("FAILED: allocating vblk");
-      }
-
-      blks_.push_back(blk);
+      //blk = env_->store_->get_reserved(blk_idx);
+			blk = env_->store_->get_reserved_dynamic(blk_idx, vblk_type_);
+			
+			if (!blk) {
+				perror("nvm_vblk_alloc");
+				NVM_DBG(this, "FAILED: allocating alpha_vblk");
+				throw std::runtime_error("FAILED: allocating alpha_vblk");
+			}
+     
+		 	blks_.push_back(blk);
     }
   }
 
   // rocky
   align_nbytes_ = geo->nplanes * geo->nsectors * geo->sector_nbytes * LOG_UNIT_AMP;
-  stripe_nbytes_ = align_nbytes_ * env_->store_->GetPunitCount();
-	blk_nbytes_ = (stripe_nbytes_ * geo->npages / LOG_UNIT_AMP ) / SPLIT_FACTOR;
+  if(vblk_type_ == alpha)
+		stripe_nbytes_ = align_nbytes_ * (ALPHA_PUNIT_END - ALPHA_PUNIT_BEGIN + 1);
+	if(vblk_type_ == beta)
+		stripe_nbytes_ = align_nbytes_ * (BETA_PUNIT_END - BETA_PUNIT_BEGIN + 1);
+	//stripe_nbytes_ = align_nbytes_ * env_->store_->GetPunitCount();
+	blk_nbytes_ = (stripe_nbytes_ * geo->npages) / LOG_UNIT_AMP;
 
   buf_nbytes_ = 0;                              // Setup buffer
   buf_nbytes_max_ = lu_bound_ * stripe_nbytes_;
@@ -130,6 +156,10 @@ const std::string& NvmFile::GetDpath(void) const {
   NVM_DBG(this, "return(" << info_.dpath() << ")");
 
   return info_.dpath();
+}
+
+const VblkType NvmFile::getType(void) {
+  return vblk_type_;
 }
 
 void NvmFile::Rename(const std::string& fname) {
@@ -279,28 +309,22 @@ Status NvmFile::InvalidateCache(size_t offset, size_t length) {
 // Used by WritableFile
 
 
-bool ends_with_suffix(const std::string& subj, const std::string& suffix) {
-	return subj.size() >= suffix.size() && std::equal(
-			suffix.rbegin(), suffix.rend(), subj.rbegin()
-			);
-}
-
 Status NvmFile::Append(const Slice& slice) {
 
 	Status status;
 	struct timespec local_time[2];
 	
-	if(ends_with_suffix(this->GetFname(), "sst")){
-		clock_gettime(CLOCK_MONOTONIC, &local_time[0]);
-		status = NvmFile::Append_internal(slice);
-		clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
-		calclock(local_time, &total_time_AppendforSST, &total_count_AppendforSST);
-	}
-	else if(ends_with_suffix(this->GetFname(), "log")){
+	if(ends_with_suffix(this->GetFname(), "log")){
 		clock_gettime(CLOCK_MONOTONIC, &local_time[0]);
 		status = NvmFile::Append_internal(slice);
 		clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
 		calclock(local_time, &total_time_AppendforWAL, &total_count_AppendforWAL);
+	}
+	else if(ends_with_suffix(this->GetFname(), "sst")){
+		clock_gettime(CLOCK_MONOTONIC, &local_time[0]);
+		status = NvmFile::Append_internal(slice);
+		clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
+		calclock(local_time, &total_time_AppendforSST, &total_count_AppendforSST);
 	}
 	else{
   	NVM_DBG(this, "[rocky] unkown file named :" << this->GetFname() );
@@ -352,20 +376,11 @@ Status NvmFile::wmeta(void) {
 
   meta << std::to_string(fsize_) << std::endl;;
 
-  for (auto &blk : blks_) {
-    if (!blk)
-      continue;
-
-    size_t vblk_ch = nvm_vblk_get_addrs(blk)[0].g.ch;
-    size_t vblk_lun = nvm_vblk_get_addrs(blk)[0].g.lun;
-    size_t vblk_st_blk = nvm_vblk_get_addrs(blk)[0].g.blk;
-    
-    size_t st_lun_no = 16 * vblk_lun + vblk_ch; // 0-127
-    size_t no_vblk = vblk_st_blk * (128 / _NR_LUN_FOR_VBLK) + (st_lun_no / _NR_LUN_FOR_VBLK);
-
-    //meta << nvm_vblk_get_addrs(blk)[0].g.blk << std::endl;
-    meta << no_vblk << std::endl; 
-  }
+	for (auto &blk : blks_) {
+		if (!blk)
+			continue;
+		meta << nvm_vblk_get_addrs(blk)[0].g.blk << std::endl;
+	}
 
   std::string content = meta.str();
   Slice slice(content.c_str(), content.size());
@@ -451,7 +466,8 @@ Status NvmFile::Flush_internal(bool padded) {
   while (blks_.size() <= (fsize_ / blk_nbytes_)) {
     struct nvm_vblk *blk;
 
-    blk = env_->store_->get();
+		// rocky
+		blk = env_->store_->get_dynamic(this->getType());
     if (!blk) {
       NVM_DBG(this, "FAILED: reserving NVM");
       return Status::IOError("FAILED: reserving NVM");
@@ -564,7 +580,8 @@ Status NvmFile::Truncate(uint64_t size) {
       continue;
     }
 
-    env_->store_->put(blks_[blk_idx]);
+		// rocky
+    env_->store_->put_dynamic(blks_[blk_idx], this->getType());
     blks_[blk_idx] = NULL;
   }
 

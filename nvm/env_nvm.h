@@ -145,14 +145,12 @@ enum BlkState {
 };
 
 enum VblkType {
-
-  alpha, // for WAL
-  beta, // level 0 and more 
-  theta, // not yet
-  delat, // not yet
+  alpha = 0x01, // for WAL
+  beta = 0x02, // level 0 and more 
+  //theta, // not yet
+  //delat, // not yet
 };
 
-//
 // Stateful wrapper for provisioning of virtual blocks
 class NvmStore {
 public:
@@ -168,8 +166,11 @@ public:
   struct nvm_vblk* get_dynamic(VblkType type);
 
   struct nvm_vblk* get_reserved(size_t blk_idx);
+  struct nvm_vblk* get_reserved_dynamic(size_t blk_idx, VblkType type);
 
   void put(struct nvm_vblk* blk);
+  void put_dynamic(struct nvm_vblk* blk, VblkType type);
+  
   void discard(struct nvm_vblk* blk); // rocky: discard
 
   struct nvm_dev *GetDev(void) const { return dev_; }
@@ -181,7 +182,6 @@ public:
 protected:
 
   Status recover(const std::string& mpath);
-
   Status persist(const std::string& mpath);
 
   std::string txt(void);
@@ -196,10 +196,14 @@ protected:
   size_t rate_;
 
   port::Mutex mutex_;
+ 
+  //uint16_t curs_;
   uint16_t alpha_curs_;
   uint16_t beta_curs_;
-  std::deque<struct nvm_vblk*> reserved_;
 
+ std::deque<struct nvm_vblk*> reserved_;
+
+  //std::deque<std::pair<BlkState, struct nvm_vblk*>> blks_;
   std::deque<std::pair<BlkState, struct nvm_vblk*>> alpha_blks_;
   std::deque<std::pair<BlkState, struct nvm_vblk*>> beta_blks_;
 };
@@ -245,6 +249,8 @@ public:
   const std::string& GetFname(void) const;
   const std::string& GetDpath(void) const;
 
+  const VblkType getType(void); // rocky
+
   void Ref(void);
   void Unref(void);
 
@@ -279,6 +285,7 @@ private:
   size_t buf_nbytes_max_;
 
   std::deque<struct nvm_vblk*> blks_;
+  VblkType vblk_type_;
 
   size_t lu_bound_;
 };
