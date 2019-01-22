@@ -21,10 +21,13 @@ unsigned long long total_time_vblk_w_WAL, total_count_vblk_w_WAL;
 #define LOG_UNIT_AMP 1
 
 #define ALPHA_PUNIT_BEGIN 0
-#define ALPHA_PUNIT_END 15
+#define ALPHA_PUNIT_END 63
 
-#define BETA_PUNIT_BEGIN 16
+#define BETA_PUNIT_BEGIN 64
 #define BETA_PUNIT_END 127
+
+#define THETA_PUNIT_BEGIN 127
+#define THETA_PUNIT_END 127
 
 #include <execinfo.h>
 #ifndef NVM_TRACE
@@ -111,10 +114,14 @@ NvmFile::NvmFile(
 
   // rocky
   align_nbytes_ = geo->nplanes * geo->nsectors * geo->sector_nbytes * LOG_UNIT_AMP;
-  if(vblk_type_ == alpha)
+  
+	if(vblk_type_ == alpha)
 		stripe_nbytes_ = align_nbytes_ * (ALPHA_PUNIT_END - ALPHA_PUNIT_BEGIN + 1);
 	if(vblk_type_ == beta)
 		stripe_nbytes_ = align_nbytes_ * (BETA_PUNIT_END - BETA_PUNIT_BEGIN + 1);
+	if(vblk_type_ == theta)
+		stripe_nbytes_ = align_nbytes_ * (THETA_PUNIT_END - THETA_PUNIT_BEGIN + 1);
+	
 	//stripe_nbytes_ = align_nbytes_ * env_->store_->GetPunitCount();
 	blk_nbytes_ = (stripe_nbytes_ * geo->npages) / LOG_UNIT_AMP;
 

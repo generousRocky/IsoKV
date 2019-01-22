@@ -147,12 +147,12 @@ enum BlkState {
 enum VblkType {
   alpha = 0x01, // for WAL
   beta = 0x02, // level 0 and more 
-  //theta, // not yet
+  theta = 0x04, // not yet
   //delat, // not yet
 };
 
 struct Curs_ {
-  Curs_() : alpha_blks_(0), beta_vblk_curs_(0), theta_vblk_curs_() {
+  Curs_() : alpha_vblk_curs_(0), beta_vblk_curs_(0), theta_vblk_curs_() {
     NVM_DBG(this, "create Curs_ for vblks");
   }
   size_t alpha_vblk_curs_;
@@ -195,22 +195,16 @@ public:
   size_t GetPunitCount(void) const { return punits_.size(); }
 
   
-  size_t get_and_inc_Curs(VblkType type){
+  size_t get_and_inc_curs_(VblkType type){
     switch(type){
-      return alpha: curs_.alpha_vblk_curs_++;
-      return beta: curs_.beta_vblk_curs_++;
-      return theta: curs_.theta_vblk_curs_++;
+      case alpha: return curs_.alpha_vblk_curs_++;
+      case beta: return curs_.beta_vblk_curs_++;
+      case theta: return curs_.theta_vblk_curs_++;
+      default:
+        return -1;
     }
   }
   
-  std::pair<BlkState, struct nvm_vblk*> get_Vblk(size_t vblk_idx, VblkType type){
-    switch(type){
-      return alpha: vblks_.alpha_blks_[vblk_idx];
-      return beta: vblks_.beta_blks_[vblk_idx];
-      return theta: vblks_.theta_blks_[vblk_idx];
-    }
-  }
-
 protected:
 
   Status recover(const std::string& mpath);
@@ -229,11 +223,11 @@ protected:
 
   port::Mutex mutex_;
 
-  struct Curs_ curs_
+  struct Curs_ curs_;
   
   std::deque<struct nvm_vblk*> reserved_;
 
-  struct Vblks_ vblks_
+  struct Vblks_ vblks_;
 };
 
 class NvmFile {
