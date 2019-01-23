@@ -9,6 +9,9 @@
 #include <liblightnvm.h>
 
 #include "profile/profile.h"
+#include "file_map/filemap.h"
+std::map<size_t , FileType> FileMap; // rocky
+
 unsigned long long total_time_AppendforSST, total_count_AppendforSST;
 unsigned long long total_time_AppendforWAL, total_count_AppendforWAL;
 
@@ -63,14 +66,27 @@ namespace rocksdb {
 NvmFile::NvmFile(
   EnvNVM* env, const FPathInfo& info, const std::string mpath
 ) : env_(env), refs_(), info_(info), fsize_(), mpath_(mpath), align_nbytes_(),
-    stripe_nbytes_(), blk_nbytes_(), blks_(), vblk_type_(), lu_bound_(8) {
+    stripe_nbytes_(), blk_nbytes_(), blks_(), vblk_type_(), nvm_file_number_(0), lu_bound_(8) {
   NVM_DBG(this, "mpath_:" << mpath_);
 
   struct nvm_dev *dev = env_->store_->GetDev();
   const struct nvm_geo *geo = nvm_dev_get_geo(env_->store_->GetDev());
 
-	// 나중엔 레벨별로 vblk종류를 다르게 해야할 수 있어야함.
-	// 그때는 meta 에 vblk type을 적어주어야함.
+	//std::cout << "[rocky] filename: " << this->GetFname() << ", filenumber: " << this->GetFileNumber() << std::endl;
+
+	nvm_file_number_ = this->GetFileNumber();
+	nvm_file_type_ = FileMap[nvm_file_number_];
+
+	switch(nvm_file_type_){
+		case walFile:
+			vblk_type_ = alpha; break;
+		case level0SSTFile:
+			vblk_type_ = beta; break;
+		case normalSSTFile:
+			vblk_type_ = beta; break;
+	}
+
+	/*
 	if(ends_with_suffix(this->GetFname(), "log")){
 		vblk_type_ = alpha;
 	}
@@ -80,7 +96,8 @@ NvmFile::NvmFile(
 	else{
 		NVM_DBG(this, "[rocky] unkown file named :" << this->GetFname() );
 	}
-  
+  */
+
 	if (env_->posix_->FileExists(mpath_).ok()) {          // Read meta from file
     std::string content;
     size_t blk_idx;
@@ -112,8 +129,7 @@ NvmFile::NvmFile(
     }
   }
 
-  // rocky
-  align_nbytes_ = geo->nplanes * geo->nsectors * geo->sector_nbytes * LOG_UNIT_AMP;
+  align_nbytes_ = geo->nplanes * geo->nsectors * geo->sector_nbytes * LOG_UNIT_AMP; // rocky
   
 	if(vblk_type_ == alpha)
 		stripe_nbytes_ = align_nbytes_ * (ALPHA_PUNIT_END - ALPHA_PUNIT_BEGIN + 1);
@@ -165,7 +181,7 @@ const std::string& NvmFile::GetDpath(void) const {
   return info_.dpath();
 }
 
-const VblkType NvmFile::getType(void) {
+VblkType NvmFile::getType(void) { // rocky
   return vblk_type_;
 }
 
@@ -473,7 +489,6 @@ Status NvmFile::Flush_internal(bool padded) {
   while (blks_.size() <= (fsize_ / blk_nbytes_)) {
     struct nvm_vblk *blk;
 
-		// rocky
 		blk = env_->store_->get_dynamic(this->getType());
     if (!blk) {
       NVM_DBG(this, "FAILED: reserving NVM");

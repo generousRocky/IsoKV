@@ -256,7 +256,6 @@ Status WritableFileWriter::Flush() {
 	return status;
 }
 
-// 전체 99 얼마 중에 저놈은 25
 Status WritableFileWriter::Flush_internal() {
   Status s;
   TEST_KILL_RANDOM("WritableFileWriter::Flush:0",

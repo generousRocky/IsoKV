@@ -32,7 +32,7 @@ enum RecordType {
 };
 static const int kMaxRecordType = kRecyclableLastType;
 
-// rocky: change kBlockSize
+// rocky: can i change kBlockSize? 
 static const unsigned int kBlockSize = 32768;
 
 // Header is checksum (4 bytes), length (2 bytes), type (1 byte)

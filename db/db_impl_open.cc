@@ -19,6 +19,8 @@
 #include "util/sst_file_manager_impl.h"
 #include "util/sync_point.h"
 
+#include "file_map/filemap.h" // rocky
+
 namespace rocksdb {
 Options SanitizeOptions(const std::string& dbname,
                         const Options& src) {
@@ -938,7 +940,10 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
   s = impl->Recover(column_families);
   if (s.ok()) {
     uint64_t new_log_number = impl->versions_->NewFileNumber();
-    unique_ptr<WritableFile> lfile;
+		
+		FileMap.insert(std::make_pair(new_log_number, walFile)); // rocky: no for first wal file
+		
+		unique_ptr<WritableFile> lfile;
     EnvOptions soptions(db_options);
     EnvOptions opt_env_options =
         impl->immutable_db_options_.env->OptimizeForLogWrite(

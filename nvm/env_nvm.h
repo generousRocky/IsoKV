@@ -16,6 +16,7 @@
 #include <liblightnvm.h>
 
 #include "profile/profile.h"
+#include <cstdlib>
 
 //#define NVM_DBG_ENABLED 1
 #ifdef NVM_DBG_ENABLED
@@ -99,6 +100,17 @@ public:
     nvm_managed_ = ends_with(fname_, "log") || \
                    ends_with(fname_, "sst") || \
                    ends_with(fname_, "ldb");
+  
+    file_number_ = -1; // rocky
+    if(nvm_managed_){
+      std::string tmp_fname_ = fname_;
+      tmp_fname_.pop_back();
+      tmp_fname_.pop_back();
+      tmp_fname_.pop_back();
+      tmp_fname_.pop_back();
+
+      file_number_ = std::atoi(tmp_fname_.c_str());
+    }
   }
 
   const std::string& fpath(void) const { return fpath_; }
@@ -110,6 +122,7 @@ public:
   void fname(const std::string& fname) { fpath(dpath_ + std::string(1, sep) + fname); }
 
   const std::string& fname(void) const { return fname_; }
+  size_t filenumber(void) { return file_number_; } // rocky
 
   bool nvm_managed(void) const { return nvm_managed_; }
 
@@ -128,6 +141,8 @@ private:
   std::string dpath_;
   std::string fname_;
   bool nvm_managed_;
+  
+  size_t file_number_; // rocky
 };
 
 class EnvNVM;                   // Declared here, defined here and in envnvm.cc
@@ -269,16 +284,21 @@ public:
 
   bool IsNamed(const std::string &fname) const;
   const std::string& GetFname(void) const;
+  size_t GetFileNumber(void){ // rocky
+    return info_.filenumber();   
+  }
+  
   const std::string& GetDpath(void) const;
 
-  const VblkType getType(void); // rocky
+  VblkType getType(void); // rocky
 
   void Ref(void);
   void Unref(void);
 
   Status wmeta(void);
   std::string txt(void) const;
-  std::string getfname(void) const;
+  
+  std::string getfname(void) const; //rocky
 
   port::Mutex read_mutex_;
   
@@ -308,6 +328,9 @@ private:
 
   std::deque<struct nvm_vblk*> blks_;
   VblkType vblk_type_;
+
+  size_t nvm_file_number_;
+  int nvm_file_type_;
 
   size_t lu_bound_;
 };
@@ -881,9 +904,6 @@ protected:
 // NOTE: Single-threaded access is assumed for access to instances of this
 // class.
 //
-
-
-
 class NvmWritableFile : public WritableFile {
 public:
   NvmWritableFile(void) : WritableFile(), truncated_(false) {
@@ -1052,7 +1072,8 @@ public:
     return ss.str();
   }
 
-  std::string getfname(void) const {
+  
+  std::string getfname(void) const { // rocky
     return file_->info_.fname();
   }
 

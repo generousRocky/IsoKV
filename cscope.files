@@ -434,6 +434,7 @@
 ./tools/ldb_cmd.cc
 ./tools/ldb.cc
 ./tools/db_stress.cc
+./file_map/filemap.h
 ./utilities/env_mirror.cc
 ./utilities/option_change_migration/option_change_migration.cc
 ./utilities/option_change_migration/option_change_migration_test.cc

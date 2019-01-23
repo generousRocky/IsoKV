@@ -61,6 +61,8 @@
 #include "util/string_util.h"
 #include "util/sync_point.h"
 
+#include "file_map/filemap.h"
+
 namespace rocksdb {
 
 // Maintains state for each sub-compaction
@@ -1203,7 +1205,10 @@ Status CompactionJob::OpenCompactionOutputFile(
   assert(sub_compact->builder == nullptr);
   // no need to lock because VersionSet::next_file_number_ is atomic
   uint64_t file_number = versions_->NewFileNumber();
-  std::string fname = TableFileName(db_options_.db_paths, file_number,
+  
+	FileMap.insert(std::make_pair(file_number, normalSSTFile)); // rocky
+
+	std::string fname = TableFileName(db_options_.db_paths, file_number,
                                     sub_compact->compaction->output_path_id());
   // Fire events.
   ColumnFamilyData* cfd = sub_compact->compaction->column_family_data();

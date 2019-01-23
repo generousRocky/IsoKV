@@ -686,7 +686,9 @@ class VersionSet {
   uint64_t current_next_file_number() const { return next_file_number_.load(); }
 
   // Allocate and return a new file number
-  uint64_t NewFileNumber() { return next_file_number_.fetch_add(1); }
+  uint64_t NewFileNumber() {
+		return next_file_number_.fetch_add(1);
+	}
 
   // Return the last sequence number.
   uint64_t LastSequence() const {

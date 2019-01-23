@@ -10,8 +10,8 @@
 #define THETA_PUNIT_BEGIN 127
 #define THETA_PUNIT_END 127
 
-namespace rocksdb {
 
+namespace rocksdb {
 //
 // Current implementation:
 //
