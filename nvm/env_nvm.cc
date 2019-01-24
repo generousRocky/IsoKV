@@ -171,7 +171,8 @@ Status EnvNVM::NewWritableFile(
   }
 
   if (!file) {
-    return Status::IOError("FAILED: creating NvmFile");
+    std::cout << info.fpath() << std::endl; // rocky
+		return Status::IOError("FAILED: creating NvmFile");
   }
 
   fs_[info.dpath()].push_back(file);
