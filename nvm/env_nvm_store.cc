@@ -2,16 +2,16 @@
 #include <exception>
 
 #define USE_ALPHA 1
-#define USE_BETA 1
-#define USE_THETA 1
+#define USE_BETA 0
+#define USE_THETA 0
 
 #define ALPHA_PUNIT_BEGIN 0
-#define ALPHA_PUNIT_END 47
+#define ALPHA_PUNIT_END 127
 
 #define BETA_PUNIT_BEGIN 48
-#define BETA_PUNIT_END 55
+#define BETA_PUNIT_END 79
 
-#define THETA_PUNIT_BEGIN 56
+#define THETA_PUNIT_BEGIN 80
 #define THETA_PUNIT_END 127
 
 namespace rocksdb {
@@ -67,53 +67,6 @@ NvmStore::NvmStore(
 Status NvmStore::recover(const std::string& mpath)
 {
   NVM_DBG(this, "mpath(" << mpath << ")");
-
-#if 0
-  // Initialize and allocate vblks with defaults (kFree)
-  for (size_t blk_idx = 0; blk_idx < geo_->nblocks; ++blk_idx) {
-    struct nvm_vblk *blk;
-
-    std::vector<struct nvm_addr> addrs(punits_);
-    for (auto &addr : addrs)
-      addr.g.blk = blk_idx;
-
-    blk = nvm_vblk_alloc(dev_, addrs.data(), addrs.size());
-
-    if (!blk) {
-      NVM_DBG(this, "FAILED: nvm_vblk_alloc_line");
-      return Status::IOError("FAILED: nvm_vblk_alloc_line");
-    }
-
-    blks_.push_back(std::make_pair(kFree, blk));
-  }
-#endif
-
-#if 0
-  for(size_t vblk_idx = 0; vblk_idx < (geo_->nblocks); ++vblk_idx){
-    for(size_t vpunit_idx = 0; vpunit_idx < punits_.size()/NR_LUN_FOR_VBLK; vpunit_idx++){
-
-      std::vector<struct nvm_addr> addrs(punits_);
-      std::vector<struct nvm_addr> resized_addrs;
-      for(size_t punit_offset = 0; punit_offset < NR_LUN_FOR_VBLK; punit_offset++){
-
-        size_t no_blk = vblk_idx;
-        size_t no_punit = (vpunit_idx * NR_LUN_FOR_VBLK) + punit_offset;
-
-        addrs[no_punit].g.blk = no_blk;   
-        resized_addrs.push_back(addrs[no_punit]);
-      }
-
-      struct nvm_vblk *blk = nvm_vblk_alloc(dev_, resized_addrs.data(), resized_addrs.size());
-
-      if (!blk) {
-        NVM_DBG(this, "FAILED: nvm_vblk_alloc_line");
-        return Status::IOError("FAILED: nvm_vblk_alloc_line");
-      }
-
-      blks_.push_back(std::make_pair(kFree, blk));
-    }
-  }
-#endif
 
 #if 1
 	// Initialize and allocate vblks with defaults (kFree)
@@ -591,6 +544,7 @@ void NvmStore::put_dynamic(struct nvm_vblk* blk, VblkType type) {
 
 	NVM_DBG(this, "[rocky] type (" << type << ")");
 	
+	/*
 	std::deque<std::pair<BlkState, struct nvm_vblk*>> tmp_blks_;
 	
 	switch(type){
@@ -604,10 +558,28 @@ void NvmStore::put_dynamic(struct nvm_vblk* blk, VblkType type) {
 			tmp_blks_ = vblks_.theta_blks_;
 			break;
   }
-  
+ 	*/
+
 	size_t blk_idx = nvm_vblk_get_addrs(blk)[0].g.blk;
+  std::pair<BlkState, struct nvm_vblk*> *entry;
+
+  switch(type){
+    case alpha:
+      entry = &(vblks_.alpha_blks_[blk_idx]);
+      break;
+    case beta:
+      entry = &(vblks_.beta_blks_[blk_idx]);
+      break;
+    case theta:
+      entry = &(vblks_.theta_blks_[blk_idx]);
+      break;
+  	default:
+			NVM_DBG(this, "unkown type(" << type << ")");
+			return;
+	}
+
+	entry->first = kFree;
   NVM_DBG(this, "blk_idx(" << blk_idx << ")");
-  tmp_blks_[blk_idx].first = kFree;
 }
 
 #if 0

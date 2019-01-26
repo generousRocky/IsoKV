@@ -21,15 +21,15 @@ unsigned long long total_time_FlushforWAL, total_count_FlushforWAL;
 unsigned long long total_time_vblk_w_SST, total_count_vblk_w_SST;
 unsigned long long total_time_vblk_w_WAL, total_count_vblk_w_WAL;
 
-#define LOG_UNIT_AMP 2
+#define LOG_UNIT_AMP 1
 
 #define ALPHA_PUNIT_BEGIN 0
-#define ALPHA_PUNIT_END 47
+#define ALPHA_PUNIT_END 127
 
 #define BETA_PUNIT_BEGIN 48
-#define BETA_PUNIT_END 55
+#define BETA_PUNIT_END 79
 
-#define THETA_PUNIT_BEGIN 56
+#define THETA_PUNIT_BEGIN 80
 #define THETA_PUNIT_END 127
 
 #include <execinfo.h>
@@ -81,9 +81,9 @@ NvmFile::NvmFile(
 		case walFile:
 			vblk_type_ = alpha; break;
 		case level0SSTFile:
-			vblk_type_ = beta; break;
+			vblk_type_ = alpha; break;
 		case normalSSTFile:
-			vblk_type_ = theta; break;
+			vblk_type_ = alpha; break;
 	}
 
 	/*
