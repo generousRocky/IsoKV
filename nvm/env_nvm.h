@@ -168,7 +168,6 @@ enum VblkType {
 
 struct Curs_ {
   Curs_() : alpha_vblk_curs_(0), beta_vblk_curs_(0), theta_vblk_curs_() {
-    NVM_DBG(this, "create Curs_ for vblks");
   }
   size_t alpha_vblk_curs_;
   size_t beta_vblk_curs_;

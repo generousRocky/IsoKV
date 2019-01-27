@@ -10,27 +10,34 @@
 
 #include "profile/profile.h"
 #include "file_map/filemap.h"
+
 std::map<size_t , FileType> FileMap; // rocky
 
-unsigned long long total_time_AppendforSST, total_count_AppendforSST;
 unsigned long long total_time_AppendforWAL, total_count_AppendforWAL;
+unsigned long long total_time_AppendforSST0, total_count_AppendforSST0;
+unsigned long long total_time_AppendforSSTs, total_count_AppendforSSTs;
 
-unsigned long long total_time_FlushforSST, total_count_FlushforSST;
 unsigned long long total_time_FlushforWAL, total_count_FlushforWAL;
+unsigned long long total_time_FlushforSST0, total_count_FlushforSST0;
+unsigned long long total_time_FlushforSSTs, total_count_FlushforSSTs;
 
-unsigned long long total_time_vblk_w_SST, total_count_vblk_w_SST;
 unsigned long long total_time_vblk_w_WAL, total_count_vblk_w_WAL;
+unsigned long long total_time_vblk_w_SST0, total_count_vblk_w_SST0;
+unsigned long long total_time_vblk_w_SSTs, total_count_vblk_w_SSTs;
 
-#define LOG_UNIT_AMP 1
+#define LOG_UNIT_AMP 2
 
 #define ALPHA_PUNIT_BEGIN 0
-#define ALPHA_PUNIT_END 127
+#define ALPHA_PUNIT_END 23
 
-#define BETA_PUNIT_BEGIN 48
-#define BETA_PUNIT_END 79
+#define BETA_PUNIT_BEGIN 24
+#define BETA_PUNIT_END 47
 
-#define THETA_PUNIT_BEGIN 80
+#define THETA_PUNIT_BEGIN 48
 #define THETA_PUNIT_END 127
+#define THETA_NR_LUN_PER_VBLK 40
+
+/*86라인 고치는거 기억!*/
 
 #include <execinfo.h>
 #ifndef NVM_TRACE
@@ -81,24 +88,12 @@ NvmFile::NvmFile(
 		case walFile:
 			vblk_type_ = alpha; break;
 		case level0SSTFile:
-			vblk_type_ = alpha; break;
+			vblk_type_ = beta; break;
 		case normalSSTFile:
-			vblk_type_ = alpha; break;
+			vblk_type_ = theta; break;
 	}
 
-	/*
-	if(ends_with_suffix(this->GetFname(), "log")){
-		vblk_type_ = alpha;
-	}
-	else if(ends_with_suffix(this->GetFname(), "sst")){
-		vblk_type_ = beta;
-	}
-	else{
-		NVM_DBG(this, "[rocky] unkown file named :" << this->GetFname() );
-	}
-  */
-
-	if (env_->posix_->FileExists(mpath_).ok()) {          // Read meta from file
+	if (env_->posix_->FileExists(mpath_).ok()) { // Read meta from file
     std::string content;
     size_t blk_idx;
 
@@ -116,7 +111,6 @@ NvmFile::NvmFile(
 
     while(meta >> blk_idx) {
       struct nvm_vblk *blk;
-      //blk = env_->store_->get_reserved(blk_idx);
 			blk = env_->store_->get_reserved_dynamic(blk_idx, vblk_type_);
 			
 			if (!blk) {
@@ -136,7 +130,7 @@ NvmFile::NvmFile(
 	if(vblk_type_ == beta)
 		stripe_nbytes_ = align_nbytes_ * (BETA_PUNIT_END - BETA_PUNIT_BEGIN + 1);
 	if(vblk_type_ == theta)
-		stripe_nbytes_ = align_nbytes_ * (THETA_PUNIT_END - THETA_PUNIT_BEGIN + 1);
+		stripe_nbytes_ = align_nbytes_ * THETA_NR_LUN_PER_VBLK;
 	
 	//stripe_nbytes_ = align_nbytes_ * env_->store_->GetPunitCount();
 	blk_nbytes_ = (stripe_nbytes_ * geo->npages) / LOG_UNIT_AMP;
@@ -337,20 +331,26 @@ Status NvmFile::Append(const Slice& slice) {
 	Status status;
 	struct timespec local_time[2];
 	
-	if(ends_with_suffix(this->GetFname(), "log")){
+  if(vblk_type_ == alpha){
 		clock_gettime(CLOCK_MONOTONIC, &local_time[0]);
 		status = NvmFile::Append_internal(slice);
 		clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
 		calclock(local_time, &total_time_AppendforWAL, &total_count_AppendforWAL);
 	}
-	else if(ends_with_suffix(this->GetFname(), "sst")){
+  else if(vblk_type_ == beta){
 		clock_gettime(CLOCK_MONOTONIC, &local_time[0]);
 		status = NvmFile::Append_internal(slice);
 		clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
-		calclock(local_time, &total_time_AppendforSST, &total_count_AppendforSST);
+		calclock(local_time, &total_time_AppendforSST0, &total_count_AppendforSST0);
+	}
+  else if(vblk_type_ == theta){
+		clock_gettime(CLOCK_MONOTONIC, &local_time[0]);
+		status = NvmFile::Append_internal(slice);
+		clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
+		calclock(local_time, &total_time_AppendforSSTs, &total_count_AppendforSSTs);
 	}
 	else{
-  	NVM_DBG(this, "[rocky] unkown file named :" << this->GetFname() );
+    NVM_DBG(this, "unkown file type :" << vblk_type_ );
 		status = NvmFile::Append_internal(slice);
 	}
 	
@@ -400,10 +400,27 @@ Status NvmFile::wmeta(void) {
   meta << std::to_string(fsize_) << std::endl;;
 
 	for (auto &blk : blks_) {
-		if (!blk)
-			continue;
-		meta << nvm_vblk_get_addrs(blk)[0].g.blk << std::endl;
-	}
+    if (!blk)
+      continue;
+
+    if(vblk_type_ == theta){
+			size_t theta_power = (THETA_PUNIT_END - THETA_PUNIT_BEGIN + 1) / THETA_NR_LUN_PER_VBLK;
+			
+      size_t vblk_blk = nvm_vblk_get_addrs(blk)[0].g.blk;
+			size_t vblk_ch = nvm_vblk_get_addrs(blk)[0].g.ch;
+			size_t vblk_lun = nvm_vblk_get_addrs(blk)[0].g.lun;
+			
+      size_t st_lun_no = 16 * vblk_lun + vblk_ch; // 48, 64, . . . 
+			size_t st_lun_no_adj = st_lun_no - THETA_PUNIT_BEGIN; // 0, 16, . . .
+
+			size_t no_vblk = (vblk_blk * theta_power) + (st_lun_no_adj / THETA_NR_LUN_PER_VBLK);
+      meta << no_vblk << std::endl;
+      
+    }
+    else{ // for alpha, beta
+      meta << nvm_vblk_get_addrs(blk)[0].g.blk << std::endl;
+    }
+  }
 
   std::string content = meta.str();
   Slice slice(content.c_str(), content.size());
@@ -423,23 +440,29 @@ Status NvmFile::Flush(bool padded) {
   
   Status status;
   struct timespec local_time[2];
-
-  if(ends_with_suffix(this->GetFname(), "sst")){
-    clock_gettime(CLOCK_MONOTONIC, &local_time[0]);
+  
+  if(vblk_type_ == alpha){
+		clock_gettime(CLOCK_MONOTONIC, &local_time[0]);
     status = NvmFile::Flush_internal(padded);
-    clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
-    calclock(local_time, &total_time_FlushforSST, &total_count_FlushforSST);
-  }
-  else if(ends_with_suffix(this->GetFname(), "log")){
-    clock_gettime(CLOCK_MONOTONIC, &local_time[0]);
+		clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
+		calclock(local_time, &total_time_FlushforWAL, &total_count_FlushforWAL);
+	}
+  else if(vblk_type_ == beta){
+		clock_gettime(CLOCK_MONOTONIC, &local_time[0]);
     status = NvmFile::Flush_internal(padded);
-    clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
-    calclock(local_time, &total_time_FlushforWAL, &total_count_FlushforWAL);
-  }
-  else{
-    NVM_DBG(this, "[rocky] unkown file named :" << this->GetFname() );
+		clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
+		calclock(local_time, &total_time_FlushforSST0, &total_count_FlushforSST0);
+	}
+  else if(vblk_type_ == theta){
+		clock_gettime(CLOCK_MONOTONIC, &local_time[0]);
     status = NvmFile::Flush_internal(padded);
-  }
+		clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
+		calclock(local_time, &total_time_vblk_w_SSTs, &total_count_FlushforSSTs);
+	}
+	else{
+    NVM_DBG(this, "unkown file type :" << vblk_type_ );
+    status = NvmFile::Flush_internal(padded);
+	}
 
   return status;
 
@@ -523,24 +546,29 @@ Status NvmFile::Flush_internal(bool padded) {
     
     struct timespec local_time[2];
 
-    if(ends_with_suffix(this->GetFname(), "sst")){
-      clock_gettime(CLOCK_MONOTONIC, &local_time[0]);
-      ret = nvm_vblk_write(blk, buf_ + nbytes_written, nbytes);
-      clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
-      calclock(local_time, &total_time_vblk_w_SST, &total_count_vblk_w_SST);
-    }
-    else if(ends_with_suffix(this->GetFname(), "log")){
+    if(vblk_type_ == alpha){
       clock_gettime(CLOCK_MONOTONIC, &local_time[0]);
       ret = nvm_vblk_write(blk, buf_ + nbytes_written, nbytes);
       clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
       calclock(local_time, &total_time_vblk_w_WAL, &total_count_vblk_w_WAL);
     }
+    else if(vblk_type_ == beta){
+      clock_gettime(CLOCK_MONOTONIC, &local_time[0]);
+      ret = nvm_vblk_write(blk, buf_ + nbytes_written, nbytes);
+      clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
+      calclock(local_time, &total_time_vblk_w_SST0, &total_count_vblk_w_SST0);
+    }
+    else if(vblk_type_ == theta){
+      clock_gettime(CLOCK_MONOTONIC, &local_time[0]);
+      ret = nvm_vblk_write(blk, buf_ + nbytes_written, nbytes);
+      clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
+      calclock(local_time, &total_time_vblk_w_SSTs, &total_count_vblk_w_SSTs);
+    }
     else{
-      NVM_DBG(this, "[rocky] unkown file named :" << this->GetFname() );
+      NVM_DBG(this, "unkown file type :" << vblk_type_ );
       ret = nvm_vblk_write(blk, buf_ + nbytes_written, nbytes);
     }
 
-    
     if (ret < 0) {
       perror("nvm_vblk_write");
 			
