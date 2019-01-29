@@ -25,7 +25,11 @@ unsigned long long total_time_vblk_w_WAL, total_count_vblk_w_WAL;
 unsigned long long total_time_vblk_w_SST0, total_count_vblk_w_SST0;
 unsigned long long total_time_vblk_w_SSTs, total_count_vblk_w_SSTs;
 
-#define LOG_UNIT_AMP 2
+unsigned long long total_time_vblk_r_WAL, total_count_vblk_r_WAL;
+unsigned long long total_time_vblk_r_SST0, total_count_vblk_r_SST0;
+unsigned long long total_time_vblk_r_SSTs, total_count_vblk_r_SSTs;
+
+#define LOG_UNIT_AMP 1
 
 #define ALPHA_PUNIT_BEGIN 0
 #define ALPHA_PUNIT_END 23
@@ -35,7 +39,7 @@ unsigned long long total_time_vblk_w_SSTs, total_count_vblk_w_SSTs;
 
 #define THETA_PUNIT_BEGIN 48
 #define THETA_PUNIT_END 127
-#define THETA_NR_LUN_PER_VBLK 40
+#define THETA_NR_LUN_PER_VBLK 20
 
 /*86라인 고치는거 기억!*/
 
@@ -123,7 +127,10 @@ NvmFile::NvmFile(
     }
   }
 
-  align_nbytes_ = geo->nplanes * geo->nsectors * geo->sector_nbytes * LOG_UNIT_AMP; // rocky
+	
+  align_nbytes_ = geo->nplanes * geo->nsectors * geo->sector_nbytes;
+	if(nvm_file_type_ == walFile)
+		align_nbytes_ = align_nbytes_ * LOG_UNIT_AMP;
   
 	if(vblk_type_ == alpha)
 		stripe_nbytes_ = align_nbytes_ * (ALPHA_PUNIT_END - ALPHA_PUNIT_BEGIN + 1);
@@ -330,30 +337,28 @@ Status NvmFile::Append(const Slice& slice) {
 
 	Status status;
 	struct timespec local_time[2];
-	
-  if(vblk_type_ == alpha){
-		clock_gettime(CLOCK_MONOTONIC, &local_time[0]);
-		status = NvmFile::Append_internal(slice);
-		clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
-		calclock(local_time, &total_time_AppendforWAL, &total_count_AppendforWAL);
-	}
-  else if(vblk_type_ == beta){
-		clock_gettime(CLOCK_MONOTONIC, &local_time[0]);
-		status = NvmFile::Append_internal(slice);
-		clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
-		calclock(local_time, &total_time_AppendforSST0, &total_count_AppendforSST0);
-	}
-  else if(vblk_type_ == theta){
-		clock_gettime(CLOCK_MONOTONIC, &local_time[0]);
-		status = NvmFile::Append_internal(slice);
-		clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
-		calclock(local_time, &total_time_AppendforSSTs, &total_count_AppendforSSTs);
-	}
-	else{
-    NVM_DBG(this, "unkown file type :" << vblk_type_ );
-		status = NvmFile::Append_internal(slice);
-	}
-	
+
+  switch(nvm_file_type_){
+    case walFile:
+      clock_gettime(CLOCK_MONOTONIC, &local_time[0]);
+      status = NvmFile::Append_internal(slice);
+      clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
+      calclock(local_time, &total_time_AppendforWAL, &total_count_AppendforWAL);
+      break;
+    case level0SSTFile:
+      clock_gettime(CLOCK_MONOTONIC, &local_time[0]);
+      status = NvmFile::Append_internal(slice);
+      clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
+      calclock(local_time, &total_time_AppendforSST0, &total_count_AppendforSST0);
+      break;
+    case normalSSTFile:
+      clock_gettime(CLOCK_MONOTONIC, &local_time[0]);
+      status = NvmFile::Append_internal(slice);
+      clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
+      calclock(local_time, &total_time_AppendforSSTs, &total_count_AppendforSSTs);
+    break;
+  }
+
 	return status;
 }
 
@@ -441,31 +446,28 @@ Status NvmFile::Flush(bool padded) {
   Status status;
   struct timespec local_time[2];
   
-  if(vblk_type_ == alpha){
-		clock_gettime(CLOCK_MONOTONIC, &local_time[0]);
-    status = NvmFile::Flush_internal(padded);
-		clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
-		calclock(local_time, &total_time_FlushforWAL, &total_count_FlushforWAL);
-	}
-  else if(vblk_type_ == beta){
-		clock_gettime(CLOCK_MONOTONIC, &local_time[0]);
-    status = NvmFile::Flush_internal(padded);
-		clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
-		calclock(local_time, &total_time_FlushforSST0, &total_count_FlushforSST0);
-	}
-  else if(vblk_type_ == theta){
-		clock_gettime(CLOCK_MONOTONIC, &local_time[0]);
-    status = NvmFile::Flush_internal(padded);
-		clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
-		calclock(local_time, &total_time_vblk_w_SSTs, &total_count_FlushforSSTs);
-	}
-	else{
-    NVM_DBG(this, "unkown file type :" << vblk_type_ );
-    status = NvmFile::Flush_internal(padded);
-	}
-
+  switch(nvm_file_type_){
+		case walFile:
+      clock_gettime(CLOCK_MONOTONIC, &local_time[0]);
+      status = NvmFile::Flush_internal(padded);
+      clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
+      calclock(local_time, &total_time_FlushforWAL, &total_count_FlushforWAL);
+      break;
+    case level0SSTFile:
+      clock_gettime(CLOCK_MONOTONIC, &local_time[0]);
+      status = NvmFile::Flush_internal(padded);
+      clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
+      calclock(local_time, &total_time_FlushforSST0, &total_count_FlushforSST0);
+      break;
+    case normalSSTFile:
+      clock_gettime(CLOCK_MONOTONIC, &local_time[0]);
+      status = NvmFile::Flush_internal(padded);
+      clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
+      calclock(local_time, &total_time_FlushforSSTs, &total_count_FlushforSSTs);
+    break;
+  }
+  
   return status;
-
 }
 Status NvmFile::Flush_internal(bool padded) {
   NVM_DBG(this, "padded(" << padded << ")");
@@ -512,7 +514,7 @@ Status NvmFile::Flush_internal(bool padded) {
   while (blks_.size() <= (fsize_ / blk_nbytes_)) {
     struct nvm_vblk *blk;
 
-		blk = env_->store_->get_dynamic(this->getType());
+		blk = env_->store_->get_dynamic(vblk_type_);
     if (!blk) {
       NVM_DBG(this, "FAILED: reserving NVM");
       return Status::IOError("FAILED: reserving NVM");
@@ -546,40 +548,38 @@ Status NvmFile::Flush_internal(bool padded) {
     
     struct timespec local_time[2];
 
-    if(vblk_type_ == alpha){
-      clock_gettime(CLOCK_MONOTONIC, &local_time[0]);
-      ret = nvm_vblk_write(blk, buf_ + nbytes_written, nbytes);
-      clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
-      calclock(local_time, &total_time_vblk_w_WAL, &total_count_vblk_w_WAL);
-    }
-    else if(vblk_type_ == beta){
-      clock_gettime(CLOCK_MONOTONIC, &local_time[0]);
-      ret = nvm_vblk_write(blk, buf_ + nbytes_written, nbytes);
-      clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
-      calclock(local_time, &total_time_vblk_w_SST0, &total_count_vblk_w_SST0);
-    }
-    else if(vblk_type_ == theta){
-      clock_gettime(CLOCK_MONOTONIC, &local_time[0]);
-      ret = nvm_vblk_write(blk, buf_ + nbytes_written, nbytes);
-      clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
-      calclock(local_time, &total_time_vblk_w_SSTs, &total_count_vblk_w_SSTs);
-    }
-    else{
-      NVM_DBG(this, "unkown file type :" << vblk_type_ );
-      ret = nvm_vblk_write(blk, buf_ + nbytes_written, nbytes);
+    switch(nvm_file_type_){
+      case walFile:
+        clock_gettime(CLOCK_MONOTONIC, &local_time[0]);
+        ret = nvm_vblk_write(blk, buf_ + nbytes_written, nbytes);
+        clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
+        calclock(local_time, &total_time_vblk_w_WAL, &total_count_vblk_w_WAL);
+        break;
+      case level0SSTFile:
+        clock_gettime(CLOCK_MONOTONIC, &local_time[0]);
+        ret = nvm_vblk_write(blk, buf_ + nbytes_written, nbytes);
+        clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
+        calclock(local_time, &total_time_vblk_w_SST0, &total_count_vblk_w_SST0);
+        break;
+      case normalSSTFile:
+        clock_gettime(CLOCK_MONOTONIC, &local_time[0]);
+        ret = nvm_vblk_write(blk, buf_ + nbytes_written, nbytes);
+        clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
+        calclock(local_time, &total_time_vblk_w_SSTs, &total_count_vblk_w_SSTs);
+        break;
     }
 
     if (ret < 0) {
       perror("nvm_vblk_write");
-			
-			std::cout << "blks_.size(): " << blks_.size() << std::endl;
-			std::cout << "blk_idx: " << blk_idx << std::endl;
-			std::cout << "flush_tbytes: " << flush_tbytes << std::endl;
-			std::cout << "nbytes_remaining: " << nbytes_remaining << std::endl;
-			std::cout << "nbytes: " << nbytes<< std::endl;
-			std::cout << "avail: " << avail << std::endl;
-			std::cout << "pos:" << nvm_vblk_get_pos_write(blk) << std::endl;
-			std::cout << "nbytes_written: " << nbytes_written << std::endl;
+
+      std::cout << "blks_.size(): " << blks_.size() << std::endl;
+      std::cout << "blk_idx: " << blk_idx << std::endl;
+      std::cout << "flush_tbytes: " << flush_tbytes << std::endl;
+      std::cout << "nbytes_remaining: " << nbytes_remaining << std::endl;
+      std::cout << "nbytes: " << nbytes<< std::endl;
+      std::cout << "avail: " << avail << std::endl;
+      std::cout << "pos:" << nvm_vblk_get_pos_write(blk) << std::endl;
+      std::cout << "nbytes_written: " << nbytes_written << std::endl;
 			std::cout << "unaligned_nbytes: " << unaligned_nbytes << std::endl;
 
       nvm_vblk_pr(blk);
@@ -664,7 +664,13 @@ Status NvmFile::pad_last_block(void) {
 
     err = nvm_vblk_write(blks_[blk_idx], buf_, nbytes_pad);
     if (err < 0) {
-      perror("nvm_vblk_pad");
+			std::cout << "[rocky] fsize_ " << fsize_ << std::endl;
+			std::cout << "[rocky] blk_nbytes_ " << blk_nbytes_ << std::endl;
+			std::cout << "[rocky] blk_idx " << blk_idx << std::endl;
+			std::cout << "[rocky] nbytes_left " << nbytes_left << std::endl;
+			std::cout << "[rocky] nbytes_pad " << nbytes_pad << std::endl;
+
+			perror("nvm_vblk_pad");
       NVM_DBG(this, "FAILED: nvm_vblk_pad(...)");
       return Status::IOError("FAILED: nvm_vblk_pad(...)");
     }
@@ -740,7 +746,32 @@ Status NvmFile::Read(
 			std::cout << "[rocky] blk_.size(): " << blks_.size() << std::endl;
 		}
 
-    ssize_t ret = nvm_vblk_pread(blk, buf_, nbytes, blk_offset);
+    ssize_t ret;
+		
+		struct timespec local_time[2];
+
+		switch(nvm_file_type_){
+      case walFile:
+        clock_gettime(CLOCK_MONOTONIC, &local_time[0]);
+        ret = nvm_vblk_pread(blk, buf_, nbytes, blk_offset);
+        clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
+        calclock(local_time, &total_time_vblk_r_WAL, &total_count_vblk_r_WAL);
+        break;
+      case level0SSTFile:
+        clock_gettime(CLOCK_MONOTONIC, &local_time[0]);
+        ret = nvm_vblk_pread(blk, buf_, nbytes, blk_offset);
+        clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
+        calclock(local_time, &total_time_vblk_r_SST0, &total_count_vblk_r_SST0);
+        break;
+      case normalSSTFile:
+        clock_gettime(CLOCK_MONOTONIC, &local_time[0]);
+        ret = nvm_vblk_pread(blk, buf_, nbytes, blk_offset);
+        clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
+        calclock(local_time, &total_time_vblk_r_SSTs, &total_count_vblk_r_SSTs);
+        break;
+    }
+
+    
     if (ret < 0) {
       perror("nvm_vblk_pread");
       NVM_DBG(this, "FAILED: nvm_vblk_read");

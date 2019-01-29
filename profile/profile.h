@@ -30,13 +30,20 @@ extern unsigned long long total_time_WriteImpl, total_count_WriteImpl;
 
 extern unsigned long long total_time_EmitPhysicalRecord, total_count_EmitPhysicalRecord;
 
-extern unsigned long long total_time_AppendforSST, total_count_AppendforSST;
 extern unsigned long long total_time_AppendforWAL, total_count_AppendforWAL;
+extern unsigned long long total_time_AppendforSST0, total_count_AppendforSST0;
+extern unsigned long long total_time_AppendforSSTs, total_count_AppendforSSTs;
 
-extern unsigned long long total_time_FlushforSST, total_count_FlushforSST;
 extern unsigned long long total_time_FlushforWAL, total_count_FlushforWAL;
+extern unsigned long long total_time_FlushforSST0, total_count_FlushforSST0;
+extern unsigned long long total_time_FlushforSSTs, total_count_FlushforSSTs;
 
-extern unsigned long long total_time_vblk_w_SST, total_count_vblk_w_SST;
 extern unsigned long long total_time_vblk_w_WAL, total_count_vblk_w_WAL;
+extern unsigned long long total_time_vblk_w_SST0, total_count_vblk_w_SST0;
+extern unsigned long long total_time_vblk_w_SSTs, total_count_vblk_w_SSTs;
+
+extern unsigned long long total_time_vblk_r_WAL, total_count_vblk_r_WAL;
+extern unsigned long long total_time_vblk_r_SST0, total_count_vblk_r_SST0;
+extern unsigned long long total_time_vblk_r_SSTs, total_count_vblk_r_SSTs;
 
 #endif

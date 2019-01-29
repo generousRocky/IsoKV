@@ -192,6 +192,14 @@ function rbench {
 		ARGS="$ARGS --writable_file_max_buffer_size=$RBENCH_WRITABLE_FILE_MAX_BUFFER_SIZE"
 	fi
 	
+	if [ -n "$RBENCH_USE_DIRECT_IO_FOR_FLUSH_AND_COMPACTION" ]; then
+		ARGS="$ARGS --use_direct_io_for_flush_and_compaction=$RBENCH_USE_DIRECT_IO_FOR_FLUSH_AND_COMPACTION"
+	fi
+
+	if [ -n "$RBENCH_USE_DIRECT_READS" ]; then
+		ARGS="$ARGS --use_direct_reads=$RBENCH_USE_DIRECT_READS"
+	fi
+
 	RBENCH_CMD="$RBENCH_BIN $ARGS"
 
 	if [ -n "$RBENCH_CMD_PREFIX" ]; then

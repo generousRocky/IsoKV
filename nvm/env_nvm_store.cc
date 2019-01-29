@@ -13,7 +13,7 @@
 
 #define THETA_PUNIT_BEGIN 48
 #define THETA_PUNIT_END 127
-#define THETA_NR_LUN_PER_VBLK 80
+#define THETA_NR_LUN_PER_VBLK 20
 
 namespace rocksdb {
 //

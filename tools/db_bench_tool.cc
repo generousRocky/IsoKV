@@ -1582,16 +1582,23 @@ class Stats {
 		printf("%s, total_time_WriteImpl: %llu, total_count_WriteImpl: %llu\n", __func__, total_time_WriteImpl, total_count_WriteImpl);
 		printf("%s, total_time_WriteToWAL: %llu, total_count_WriteToWAL: %llu\n", __func__, total_time_WriteToWAL, total_count_WriteToWAL);
 		
-		printf("%s, total_time_EmitPhysicalRecord: %llu, total_count_EmitPhysicalRecord: %llu\n", __func__, total_time_EmitPhysicalRecord, total_count_EmitPhysicalRecord);
+		printf("%s, total_time_EmitPhysicalRecord: %llu, total_count_EmitPhysicalRecord: %llu\n\n", __func__, total_time_EmitPhysicalRecord, total_count_EmitPhysicalRecord);
 
 		printf("%s, total_time_AppendforWAL: %llu, total_count_AppendforWAL: %llu\n", __func__, total_time_AppendforWAL, total_count_AppendforWAL);
-		printf("%s, total_time_AppendforSST: %llu, total_count_AppendforSST: %llu\n", __func__, total_time_AppendforSST, total_count_AppendforSST);
+		printf("%s, total_time_AppendforSST0: %llu, total_count_AppendforSST0: %llu\n", __func__, total_time_AppendforSST0, total_count_AppendforSST0);
+		printf("%s, total_time_AppendforSSTs: %llu, total_count_AppendforSSTs: %llu\n\n", __func__, total_time_AppendforSSTs, total_count_AppendforSSTs);
 
 		printf("%s, total_time_FlushforWAL: %llu, total_count_FlushforWAL: %llu\n", __func__, total_time_FlushforWAL, total_count_FlushforWAL);
-		printf("%s, total_time_FlushforSST: %llu, total_count_FlushforSST: %llu\n", __func__, total_time_FlushforSST, total_count_FlushforSST);
+		printf("%s, total_time_FlushforSST0: %llu, total_count_FlushforSST0: %llu\n", __func__, total_time_FlushforSST0, total_count_FlushforSST0);
+		printf("%s, total_time_FlushforSSTs: %llu, total_count_FlushforSSTs: %llu\n\n", __func__, total_time_FlushforSSTs, total_count_FlushforSSTs);
   
 		printf("%s, total_time_vblk_w_WAL: %llu, total_count_vblk_w_WAL: %llu\n", __func__, total_time_vblk_w_WAL, total_count_vblk_w_WAL);
-		printf("%s, total_time_vblk_w_SST: %llu, total_count_vblk_w_SST: %llu\n", __func__, total_time_vblk_w_SST, total_count_vblk_w_SST);
+		printf("%s, total_time_vblk_w_SST0: %llu, total_count_vblk_w_SST0: %llu\n", __func__, total_time_vblk_w_SST0, total_count_vblk_w_SST0);
+		printf("%s, total_time_vblk_w_SSTs: %llu, total_count_vblk_w_SSTs: %llu\n\n", __func__, total_time_vblk_w_SSTs, total_count_vblk_w_SSTs);
+		
+    printf("%s, total_time_vblk_r_WAL: %llu, total_count_vblk_r_WAL: %llu\n", __func__, total_time_vblk_r_WAL, total_count_vblk_r_WAL);
+		printf("%s, total_time_vblk_r_SST0: %llu, total_count_vblk_r_SST0: %llu\n", __func__, total_time_vblk_r_SST0, total_count_vblk_r_SST0);
+		printf("%s, total_time_vblk_r_SSTs: %llu, total_count_vblk_r_SSTs: %llu\n\n", __func__, total_time_vblk_r_SSTs, total_count_vblk_r_SSTs);
 
 
 		// Pretend at least one op was done in case we are running a benchmark
