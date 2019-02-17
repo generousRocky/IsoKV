@@ -22,6 +22,22 @@
 #include "db/db_impl.h"
 #include "util/string_util.h"
 
+#include "profile/profile.h" // rocky
+		
+std::vector<double> interval_writes_wal_bytes;
+std::vector<double> interval_writes_level0_bytes;
+std::vector<double> interval_compaction_reads_bytes;
+std::vector<double> interval_compaction_writes_bytes;
+
+std::vector<double> cumulative_writes_wal_perf;
+
+std::vector<double> interval_writes_wal_perf;
+std::vector<double> interval_writes_level0_perf;
+std::vector<double> interval_compaction_reads_perf;
+std::vector<double> interval_compaction_writes_perf;
+
+std::vector<double> interval_stall_percents;
+
 namespace rocksdb {
 
 #ifndef ROCKSDB_LITE
@@ -806,6 +822,9 @@ void InternalStats::DumpDBStats(std::string* value) {
   // writes/groups is the average group commit size.
   //
   // The format is the same for interval stats.
+  
+  cumulative_writes_wal_perf.push_back( user_bytes_written / kMB / seconds_up );
+  
   snprintf(buf, sizeof(buf),
            "Cumulative writes: %s writes, %s keys, %s commit groups, "
            "%.1f writes per commit group, ingest: %.2f GB, %.2f MB/s\n",
@@ -838,19 +857,24 @@ void InternalStats::DumpDBStats(std::string* value) {
   uint64_t interval_write_self = write_self - db_stats_snapshot_.write_self;
   uint64_t interval_num_keys_written =
       num_keys_written - db_stats_snapshot_.num_keys_written;
+  
+	
+	interval_writes_wal_bytes.push_back((user_bytes_written - db_stats_snapshot_.ingest_bytes) / kMB);
+	interval_writes_wal_perf.push_back((user_bytes_written - db_stats_snapshot_.ingest_bytes) / kMB / std::max(interval_seconds_up, 0.001));
+	
   snprintf(buf, sizeof(buf),
-           "Interval writes: %s writes, %s keys, %s commit groups, "
-           "%.1f writes per commit group, ingest: %.2f MB, %.2f MB/s\n",
-           NumberToHumanString(
-               interval_write_other + interval_write_self).c_str(),
-           NumberToHumanString(interval_num_keys_written).c_str(),
-           NumberToHumanString(interval_write_self).c_str(),
-           static_cast<double>(interval_write_other + interval_write_self) /
-               (interval_write_self + 1),
-           (user_bytes_written - db_stats_snapshot_.ingest_bytes) / kMB,
-           (user_bytes_written - db_stats_snapshot_.ingest_bytes) / kMB /
-               std::max(interval_seconds_up, 0.001)),
-  value->append(buf);
+	         "Interval writes: %s writes, %s keys, %s commit groups, "
+					 "%.1f writes per commit group, ingest: %.2f MB, %.2f MB/s\n",
+					 NumberToHumanString(
+					 interval_write_other + interval_write_self).c_str(),
+					 NumberToHumanString(interval_num_keys_written).c_str(),
+					 NumberToHumanString(interval_write_self).c_str(),
+					 static_cast<double>(interval_write_other + interval_write_self) /
+					 (interval_write_self + 1),
+					 (user_bytes_written - db_stats_snapshot_.ingest_bytes) / kMB,
+					 (user_bytes_written - db_stats_snapshot_.ingest_bytes) / kMB /
+					 std::max(interval_seconds_up, 0.001));
+	value->append(buf);
 
   uint64_t interval_write_with_wal =
       write_with_wal - db_stats_snapshot_.write_with_wal;
@@ -869,6 +893,10 @@ void InternalStats::DumpDBStats(std::string* value) {
   value->append(buf);
 
   // Stall
+
+	interval_stall_percents.push_back((write_stall_micros - db_stats_snapshot_.write_stall_micros) /
+               10000.0 / std::max(interval_seconds_up, 0.001));
+
   AppendHumanMicros(
       write_stall_micros - db_stats_snapshot_.write_stall_micros,
       human_micros, kHumanMicrosLen, true);
@@ -1040,7 +1068,11 @@ void InternalStats::DumpCFStatsNoFileHistogram(std::string* value) {
   snprintf(buf, sizeof(buf), "Uptime(secs): %.1f total, %.1f interval\n",
            seconds_up, interval_seconds_up);
   value->append(buf);
-  snprintf(buf, sizeof(buf), "Flush(GB): cumulative %.3f, interval %.3f\n",
+  
+	interval_writes_level0_bytes.push_back(interval_flush_ingest / kMB); // rocky
+	interval_writes_level0_perf.push_back(interval_flush_ingest / kMB / std::max(interval_seconds_up, 0.001)); // rocky
+	
+	snprintf(buf, sizeof(buf), "Flush(GB): cumulative %.3f, interval %.3f\n",
            flush_ingest / kGB, interval_flush_ingest / kGB);
   value->append(buf);
   snprintf(buf, sizeof(buf), "AddFile(GB): cumulative %.3f, interval %.3f\n",
@@ -1094,6 +1126,14 @@ void InternalStats::DumpCFStatsNoFileHistogram(std::string* value) {
       compact_bytes_read - cf_stats_snapshot_.compact_bytes_read;
   uint64_t interval_compact_micros =
       compact_micros - cf_stats_snapshot_.compact_micros;
+
+
+	interval_compaction_reads_bytes.push_back(interval_compact_bytes_write / kMB); // rocky
+	interval_compaction_reads_perf.push_back(interval_compact_bytes_write / kMB / std::max(interval_seconds_up, 0.001)); // rocky
+	
+	interval_compaction_writes_bytes.push_back(interval_compact_bytes_read / kMB); // rocky
+	interval_compaction_writes_perf.push_back(interval_compact_bytes_read / kMB / std::max(interval_seconds_up, 0.001)); // rocky
+
 
   snprintf(
       buf, sizeof(buf),

@@ -6,14 +6,26 @@
 #define USE_THETA 1
 
 #define ALPHA_PUNIT_BEGIN 0
-#define ALPHA_PUNIT_END 23
+#define ALPHA_PUNIT_END 63
 
-#define BETA_PUNIT_BEGIN 24
-#define BETA_PUNIT_END 47
+#define BETA_PUNIT_BEGIN 64
+#define BETA_PUNIT_END 95
 
-#define THETA_PUNIT_BEGIN 48
+#define THETA_PUNIT_BEGIN 96
 #define THETA_PUNIT_END 127
-#define THETA_NR_LUN_PER_VBLK 20
+#define THETA_NR_LUN_PER_VBLK 32
+
+/*
+#define ALPHA_PUNIT_BEGIN 0
+#define ALPHA_PUNIT_END 79
+
+#define BETA_PUNIT_BEGIN 80
+#define BETA_PUNIT_END 103
+
+#define THETA_PUNIT_BEGIN 104
+#define THETA_PUNIT_END 127
+#define THETA_NR_LUN_PER_VBLK 24
+*/
 
 namespace rocksdb {
 //

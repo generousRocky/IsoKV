@@ -21,9 +21,14 @@ unsigned long long total_time_FlushforWAL, total_count_FlushforWAL;
 unsigned long long total_time_FlushforSST0, total_count_FlushforSST0;
 unsigned long long total_time_FlushforSSTs, total_count_FlushforSSTs;
 
+unsigned long long total_time_vblk_e_WAL, total_count_vblk_e_WAL;
+unsigned long long total_time_vblk_e_SST0, total_count_vblk_e_SST0;
+unsigned long long total_time_vblk_e_SSTs, total_count_vblk_e_SSTs;
+
 unsigned long long total_time_vblk_w_WAL, total_count_vblk_w_WAL;
 unsigned long long total_time_vblk_w_SST0, total_count_vblk_w_SST0;
 unsigned long long total_time_vblk_w_SSTs, total_count_vblk_w_SSTs;
+unsigned long long total_time_vblk_w_pad, total_count_vblk_w_pad;
 
 unsigned long long total_time_vblk_r_WAL, total_count_vblk_r_WAL;
 unsigned long long total_time_vblk_r_SST0, total_count_vblk_r_SST0;
@@ -31,15 +36,27 @@ unsigned long long total_time_vblk_r_SSTs, total_count_vblk_r_SSTs;
 
 #define LOG_UNIT_AMP 1
 
+/*
 #define ALPHA_PUNIT_BEGIN 0
-#define ALPHA_PUNIT_END 23
+#define ALPHA_PUNIT_END 0
 
-#define BETA_PUNIT_BEGIN 24
-#define BETA_PUNIT_END 47
+#define BETA_PUNIT_BEGIN 0
+#define BETA_PUNIT_END 0
 
-#define THETA_PUNIT_BEGIN 48
+#define THETA_PUNIT_BEGIN 0
 #define THETA_PUNIT_END 127
-#define THETA_NR_LUN_PER_VBLK 20
+#define THETA_NR_LUN_PER_VBLK 128
+*/
+
+#define ALPHA_PUNIT_BEGIN 0
+#define ALPHA_PUNIT_END 63
+
+#define BETA_PUNIT_BEGIN 64
+#define BETA_PUNIT_END 95
+
+#define THETA_PUNIT_BEGIN 96
+#define THETA_PUNIT_END 127
+#define THETA_NR_LUN_PER_VBLK 32
 
 /*86라인 고치는거 기억!*/
 
@@ -77,7 +94,7 @@ namespace rocksdb {
 NvmFile::NvmFile(
   EnvNVM* env, const FPathInfo& info, const std::string mpath
 ) : env_(env), refs_(), info_(info), fsize_(), mpath_(mpath), align_nbytes_(),
-    stripe_nbytes_(), blk_nbytes_(), blks_(), vblk_type_(), nvm_file_number_(0), lu_bound_(8) {
+    stripe_nbytes_(), blk_nbytes_(), blks_(), vblk_type_(), nvm_file_number_(0), lu_bound_(1) {
   NVM_DBG(this, "mpath_:" << mpath_);
 
   struct nvm_dev *dev = env_->store_->GetDev();
@@ -95,6 +112,10 @@ NvmFile::NvmFile(
 			vblk_type_ = beta; break;
 		case normalSSTFile:
 			vblk_type_ = theta; break;
+		default:
+			std::cout << "warning: file(" << nvm_file_number_ << ") - unkown nvm_file_type: "<<  nvm_file_type_ << std::endl;
+			vblk_type_ = theta; break;
+			//throw std::runtime_error("FAILED: unkown nvm_file_type");
 	}
 
 	if (env_->posix_->FileExists(mpath_).ok()) { // Read meta from file
@@ -369,6 +390,7 @@ Status NvmFile::Append_internal(const Slice& slice) {
 
   const size_t data_nbytes = slice.size();
   const char* data = slice.data();
+	//std::cout << data_nbytes << std::endl; // rocky
 
   size_t nbytes_remaining = data_nbytes;
   size_t nbytes_written = 0;
@@ -513,9 +535,31 @@ Status NvmFile::Flush_internal(bool padded) {
   // Ensure that enough blocks are reserved for flushing buffer
   while (blks_.size() <= (fsize_ / blk_nbytes_)) {
     struct nvm_vblk *blk;
-
-		blk = env_->store_->get_dynamic(vblk_type_);
-    if (!blk) {
+		
+		struct timespec local_time[2];
+		
+		switch(nvm_file_type_){
+			case walFile:
+				clock_gettime(CLOCK_MONOTONIC, &local_time[0]);
+				blk = env_->store_->get_dynamic(vblk_type_);
+				clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
+				calclock(local_time, &total_time_vblk_e_WAL, &total_count_vblk_e_WAL);
+				break;
+			case level0SSTFile:
+				clock_gettime(CLOCK_MONOTONIC, &local_time[0]);
+				blk = env_->store_->get_dynamic(vblk_type_);
+				clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
+				calclock(local_time, &total_time_vblk_e_SST0, &total_count_vblk_e_SST0);
+				break;
+			case normalSSTFile:
+				clock_gettime(CLOCK_MONOTONIC, &local_time[0]);
+				blk = env_->store_->get_dynamic(vblk_type_);
+				clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
+				calclock(local_time, &total_time_vblk_e_SSTs, &total_count_vblk_e_SSTs);
+				break;
+		}
+		
+		if (!blk) {
       NVM_DBG(this, "FAILED: reserving NVM");
       return Status::IOError("FAILED: reserving NVM");
     }
@@ -662,8 +706,15 @@ Status NvmFile::pad_last_block(void) {
 
     nvm_buf_fill(buf_, nbytes_pad);
 
-    err = nvm_vblk_write(blks_[blk_idx], buf_, nbytes_pad);
-    if (err < 0) {
+    struct timespec local_time[2];
+		clock_gettime(CLOCK_MONOTONIC, &local_time[0]);
+		
+		err = nvm_vblk_write(blks_[blk_idx], buf_, nbytes_pad);
+		
+		clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
+		calclock(local_time, &total_time_vblk_w_pad, &total_count_vblk_w_pad);
+		
+		if (err < 0) {
 			std::cout << "[rocky] fsize_ " << fsize_ << std::endl;
 			std::cout << "[rocky] blk_nbytes_ " << blk_nbytes_ << std::endl;
 			std::cout << "[rocky] blk_idx " << blk_idx << std::endl;

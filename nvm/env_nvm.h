@@ -167,7 +167,7 @@ enum VblkType {
 };
 
 struct Curs_ {
-  Curs_() : alpha_vblk_curs_(0), beta_vblk_curs_(0), theta_vblk_curs_() {
+  Curs_() : alpha_vblk_curs_(0), beta_vblk_curs_(0), theta_vblk_curs_(0) {
   }
   size_t alpha_vblk_curs_;
   size_t beta_vblk_curs_;

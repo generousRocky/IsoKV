@@ -38,12 +38,30 @@ extern unsigned long long total_time_FlushforWAL, total_count_FlushforWAL;
 extern unsigned long long total_time_FlushforSST0, total_count_FlushforSST0;
 extern unsigned long long total_time_FlushforSSTs, total_count_FlushforSSTs;
 
+extern unsigned long long total_time_vblk_e_WAL, total_count_vblk_e_WAL;
+extern unsigned long long total_time_vblk_e_SST0, total_count_vblk_e_SST0;
+extern unsigned long long total_time_vblk_e_SSTs, total_count_vblk_e_SSTs;
+
 extern unsigned long long total_time_vblk_w_WAL, total_count_vblk_w_WAL;
 extern unsigned long long total_time_vblk_w_SST0, total_count_vblk_w_SST0;
 extern unsigned long long total_time_vblk_w_SSTs, total_count_vblk_w_SSTs;
+extern unsigned long long total_time_vblk_w_pad, total_count_vblk_w_pad;
 
 extern unsigned long long total_time_vblk_r_WAL, total_count_vblk_r_WAL;
 extern unsigned long long total_time_vblk_r_SST0, total_count_vblk_r_SST0;
 extern unsigned long long total_time_vblk_r_SSTs, total_count_vblk_r_SSTs;
 
+extern std::vector<double> interval_writes_wal_bytes;
+extern std::vector<double> interval_writes_level0_bytes;
+extern std::vector<double> interval_compaction_reads_bytes;
+extern std::vector<double> interval_compaction_writes_bytes;
+
+extern std::vector<double> cumulative_writes_wal_perf;
+
+extern std::vector<double> interval_writes_wal_perf;
+extern std::vector<double> interval_writes_level0_perf;
+extern std::vector<double> interval_compaction_reads_perf;
+extern std::vector<double> interval_compaction_writes_perf;
+
+extern std::vector<double> interval_stall_percents;
 #endif

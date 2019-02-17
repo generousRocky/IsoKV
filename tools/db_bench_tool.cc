@@ -1590,16 +1590,45 @@ class Stats {
 
 		printf("%s, total_time_FlushforWAL: %llu, total_count_FlushforWAL: %llu\n", __func__, total_time_FlushforWAL, total_count_FlushforWAL);
 		printf("%s, total_time_FlushforSST0: %llu, total_count_FlushforSST0: %llu\n", __func__, total_time_FlushforSST0, total_count_FlushforSST0);
-		printf("%s, total_time_FlushforSSTs: %llu, total_count_FlushforSSTs: %llu\n\n", __func__, total_time_FlushforSSTs, total_count_FlushforSSTs);
-  
-		printf("%s, total_time_vblk_w_WAL: %llu, total_count_vblk_w_WAL: %llu\n", __func__, total_time_vblk_w_WAL, total_count_vblk_w_WAL);
-		printf("%s, total_time_vblk_w_SST0: %llu, total_count_vblk_w_SST0: %llu\n", __func__, total_time_vblk_w_SST0, total_count_vblk_w_SST0);
+    printf("%s, total_time_FlushforSSTs: %llu, total_count_FlushforSSTs: %llu\n\n", __func__, total_time_FlushforSSTs, total_count_FlushforSSTs);
+
+    printf("%s, total_time_vblk_e_WAL: %llu, total_count_vblk_e_WAL: %llu\n", __func__, total_time_vblk_e_WAL, total_count_vblk_e_WAL);
+    printf("%s, total_time_vblk_e_SST0: %llu, total_count_vblk_e_SST0: %llu\n", __func__, total_time_vblk_e_SST0, total_count_vblk_e_SST0);
+    printf("%s, total_time_vblk_e_SSTs: %llu, total_count_vblk_e_SSTs: %llu\n\n", __func__, total_time_vblk_e_SSTs, total_count_vblk_e_SSTs);
+
+    printf("%s, total_time_vblk_w_WAL: %llu, total_count_vblk_w_WAL: %llu\n", __func__, total_time_vblk_w_WAL, total_count_vblk_w_WAL);
+    printf("%s, total_time_vblk_w_SST0: %llu, total_count_vblk_w_SST0: %llu\n", __func__, total_time_vblk_w_SST0, total_count_vblk_w_SST0);
 		printf("%s, total_time_vblk_w_SSTs: %llu, total_count_vblk_w_SSTs: %llu\n\n", __func__, total_time_vblk_w_SSTs, total_count_vblk_w_SSTs);
+		printf("%s, total_time_vblk_w_pad: %llu, total_count_vblk_w_pad: %llu\n\n", __func__, total_time_vblk_w_pad, total_count_vblk_w_pad);
 		
     printf("%s, total_time_vblk_r_WAL: %llu, total_count_vblk_r_WAL: %llu\n", __func__, total_time_vblk_r_WAL, total_count_vblk_r_WAL);
 		printf("%s, total_time_vblk_r_SST0: %llu, total_count_vblk_r_SST0: %llu\n", __func__, total_time_vblk_r_SST0, total_count_vblk_r_SST0);
 		printf("%s, total_time_vblk_r_SSTs: %llu, total_count_vblk_r_SSTs: %llu\n\n", __func__, total_time_vblk_r_SSTs, total_count_vblk_r_SSTs);
 
+		
+		printf("\ninterval;interval_writes_wal_bytes;interval_writes_level0_bytes;interval_compaction_reads_bytes;interval_compaction_writes_bytes\n");
+		for(size_t i=0; i< interval_writes_wal_bytes.size(); i++){
+			printf("%zu;%.2f;%.2f;%.2f;%.2f\n",i,
+					interval_writes_wal_bytes[i],
+					interval_writes_level0_bytes[i], // rocky
+					interval_compaction_reads_bytes[i], // rocky
+					interval_compaction_writes_bytes[i]); // rocky
+		}
+		
+		printf("\ninterval;interval_writes_wal_perf;interval_writes_level0_perf;interval_compaction_reads_perf;interval_compaction_writes_perf;cumulative_writes_wal_perf\n");
+		for(size_t i=0; i< interval_writes_wal_perf.size(); i++){
+			printf("%zu;%.2f;%.2f;%.2f;%.2f;%.2f\n",i,
+					interval_writes_wal_perf[i],
+					interval_writes_level0_perf[i], // rocky
+					interval_compaction_reads_perf[i], // rocky
+					interval_compaction_writes_perf[i],
+          cumulative_writes_wal_perf[i]); // rocky
+		}
+
+		printf("\ninterval;interval_stall_percents\n");
+		for(size_t i=0; i< interval_writes_wal_bytes.size(); i++){
+			printf("%zu;%.1f\n", i, interval_stall_percents[i]);
+		}
 
 		// Pretend at least one op was done in case we are running a benchmark
     // that does not call FinishedOps().

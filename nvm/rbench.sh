@@ -199,6 +199,10 @@ function rbench {
 	if [ -n "$RBENCH_USE_DIRECT_READS" ]; then
 		ARGS="$ARGS --use_direct_reads=$RBENCH_USE_DIRECT_READS"
 	fi
+	
+	if [ -n "$RBENCH_READWRITEPERCENT" ]; then
+		ARGS="$ARGS --readwritepercent=$RBENCH_READWRITEPERCENT"
+	fi
 
 	RBENCH_CMD="$RBENCH_BIN $ARGS"
 
