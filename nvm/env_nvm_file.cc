@@ -36,7 +36,6 @@ unsigned long long total_time_vblk_r_SSTs, total_count_vblk_r_SSTs;
 
 #define LOG_UNIT_AMP 1
 
-/*
 #define ALPHA_PUNIT_BEGIN 0
 #define ALPHA_PUNIT_END 0
 
@@ -46,8 +45,8 @@ unsigned long long total_time_vblk_r_SSTs, total_count_vblk_r_SSTs;
 #define THETA_PUNIT_BEGIN 0
 #define THETA_PUNIT_END 127
 #define THETA_NR_LUN_PER_VBLK 128
-*/
 
+/*
 #define ALPHA_PUNIT_BEGIN 0
 #define ALPHA_PUNIT_END 63
 
@@ -57,6 +56,7 @@ unsigned long long total_time_vblk_r_SSTs, total_count_vblk_r_SSTs;
 #define THETA_PUNIT_BEGIN 96
 #define THETA_PUNIT_END 127
 #define THETA_NR_LUN_PER_VBLK 32
+*/
 
 /*86라인 고치는거 기억!*/
 
@@ -102,53 +102,72 @@ NvmFile::NvmFile(
 
 	//std::cout << "[rocky] filename: " << this->GetFname() << ", filenumber: " << this->GetFileNumber() << std::endl;
 
-	nvm_file_number_ = this->GetFileNumber();
-	nvm_file_type_ = FileMap[nvm_file_number_];
-
-	switch(nvm_file_type_){
-		case walFile:
-			vblk_type_ = alpha; break;
-		case level0SSTFile:
-			vblk_type_ = beta; break;
-		case normalSSTFile:
-			vblk_type_ = theta; break;
-		default:
-			std::cout << "warning: file(" << nvm_file_number_ << ") - unkown nvm_file_type: "<<  nvm_file_type_ << std::endl;
-			vblk_type_ = theta; break;
-			//throw std::runtime_error("FAILED: unkown nvm_file_type");
-	}
 
 	if (env_->posix_->FileExists(mpath_).ok()) { // Read meta from file
-    std::string content;
-    size_t blk_idx;
 
-    if (!ReadFileToString(env_->posix_, mpath_, &content).ok()) {
-      NVM_DBG(this, "FAILED: ReadFileToString");
-      throw std::runtime_error("FAILED: ReadFileToString");
-    }
+		std::string content;
+		size_t blk_idx;
 
-    std::istringstream meta(content);
+		if (!ReadFileToString(env_->posix_, mpath_, &content).ok()) {
+			NVM_DBG(this, "FAILED: ReadFileToString");
+			throw std::runtime_error("FAILED: ReadFileToString");
+		}
 
-    if (!(meta >> fsize_)) {                            // Read fsize
-      NVM_DBG(this, "FAILED: parsing file size from meta");
-      throw std::runtime_error("FAILED: parsing file size from meta");
-    }
+		std::istringstream meta(content);
 
-    while(meta >> blk_idx) {
-      struct nvm_vblk *blk;
+		if(!(meta >> nvm_file_type_)){
+			NVM_DBG(this, "FAILED: parsing nvm_file_type_ from meta");
+			throw std::runtime_error("FAILED: parsing nvm_file_type_ from meta");
+		}
+		
+		switch(nvm_file_type_){
+			case walFile:
+				vblk_type_ = theta; break;
+			case level0SSTFile:
+				vblk_type_ = theta; break;
+			case normalSSTFile:
+				vblk_type_ = theta; break;
+			default:
+				std::cout << "ERROR: file(" << nvm_file_number_ << ") - unkown nvm_file_type_: "<<  nvm_file_type_ << std::endl;
+				throw std::runtime_error("FAILED: unkown nvm_file_type_");
+		}
+		
+		if (!(meta >> fsize_)) {                            // Read fsize
+			NVM_DBG(this, "FAILED: parsing file size from meta");
+			throw std::runtime_error("FAILED: parsing file size from meta");
+		}
+
+		while(meta >> blk_idx) {
+			struct nvm_vblk *blk;
 			blk = env_->store_->get_reserved_dynamic(blk_idx, vblk_type_);
-			
+
 			if (!blk) {
 				perror("nvm_vblk_alloc");
 				NVM_DBG(this, "FAILED: allocating alpha_vblk");
 				throw std::runtime_error("FAILED: allocating alpha_vblk");
 			}
-     
-		 	blks_.push_back(blk);
-    }
-  }
 
-	
+			blks_.push_back(blk);
+		}
+	}
+	else{ // 새 파일
+		nvm_file_number_ = this->GetFileNumber();
+		nvm_file_type_ = FileMap[nvm_file_number_];
+
+		switch(nvm_file_type_){
+			case walFile:
+				vblk_type_ = theta; break;
+			case level0SSTFile:
+				vblk_type_ = theta; break;
+			case normalSSTFile:
+				vblk_type_ = theta; break;
+			default:
+				std::cout << "warning: file(" << nvm_file_number_ << ") - unkown nvm_file_type_: "<<  nvm_file_type_ << std::endl;
+				vblk_type_ = theta; break;
+				//throw std::runtime_error("FAILED: unkown nvm_file_type_");
+		}
+	}
+
   align_nbytes_ = geo->nplanes * geo->nsectors * geo->sector_nbytes;
 	if(nvm_file_type_ == walFile)
 		align_nbytes_ = align_nbytes_ * LOG_UNIT_AMP;
@@ -424,7 +443,9 @@ Status NvmFile::Append_internal(const Slice& slice) {
 Status NvmFile::wmeta(void) {
   std::stringstream meta;
 
-  meta << std::to_string(fsize_) << std::endl;;
+	meta <<std::to_string(nvm_file_type_) << std::endl;
+  
+	meta << std::to_string(fsize_) << std::endl;
 
 	for (auto &blk : blks_) {
     if (!blk)

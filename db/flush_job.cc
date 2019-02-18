@@ -151,7 +151,6 @@ void FlushJob::PickMemTable() {
   meta_.fd = FileDescriptor(versions_->NewFileNumber(), 0, 0);
 	
 	size_t file_no = meta_.fd.GetNumber();
-	
 	FileMap.insert(std::make_pair(file_no, level0SSTFile)); // rocky: no for level 0 sst
 
   base_ = cfd_->current();

@@ -695,11 +695,8 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
     recycle_log_number = log_recycle_files.front();
     log_recycle_files.pop_front();
   }
-  uint64_t new_log_number =
-      creating_new_log ? versions_->NewFileNumber() : logfile_number_;
-  
+  uint64_t new_log_number = creating_new_log ? versions_->NewFileNumber() : logfile_number_;
 	FileMap.insert(std::make_pair(new_log_number, walFile)); // rocky: no for wal
-	
 	
 	SuperVersion* new_superversion = nullptr;
   const MutableCFOptions mutable_cf_options = *cfd->GetLatestMutableCFOptions();

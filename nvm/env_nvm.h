@@ -15,7 +15,7 @@
 #include "port/port.h"
 #include <liblightnvm.h>
 
-#include "profile/profile.h"
+//#include "profile/profile.h"
 #include <cstdlib>
 
 //#define NVM_DBG_ENABLED 1

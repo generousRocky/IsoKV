@@ -805,7 +805,11 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
   FileMetaData meta;
   auto pending_outputs_inserted_elem =
       CaptureCurrentFileNumberInPendingOutputs();
-  meta.fd = FileDescriptor(versions_->NewFileNumber(), 0, 0);
+  
+	uint64_t file_number = versions_->NewFileNumber();
+	FileMap.insert(std::make_pair(file_number, level0SSTFile)); // rocky
+
+	meta.fd = FileDescriptor(file_number, 0, 0);
   ReadOptions ro;
   ro.total_order_seek = true;
   Arena arena;
@@ -940,7 +944,6 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
   s = impl->Recover(column_families);
   if (s.ok()) {
     uint64_t new_log_number = impl->versions_->NewFileNumber();
-		
 		FileMap.insert(std::make_pair(new_log_number, walFile)); // rocky: no for first wal file
 		
 		unique_ptr<WritableFile> lfile;
