@@ -7,6 +7,7 @@ enum FileType {
   walFile = 0x1,
   level0SSTFile = 0x2,
   normalSSTFile = 0x4,
+	gammaFile = 0x08,
 };
 
 extern std::map<size_t , FileType> FileMap;

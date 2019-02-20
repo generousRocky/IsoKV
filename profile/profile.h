@@ -66,4 +66,6 @@ extern std::vector<double> interval_compaction_writes_perf;
 extern std::vector<double> interval_stall_percents;
 
 extern std::vector<double> interval_ops;
+
+extern bool gammaFlag;
 #endif

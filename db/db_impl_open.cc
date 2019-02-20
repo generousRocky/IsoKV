@@ -20,6 +20,7 @@
 #include "util/sync_point.h"
 
 #include "file_map/filemap.h" // rocky
+#include "profile/profile.h"
 
 namespace rocksdb {
 Options SanitizeOptions(const std::string& dbname,
@@ -807,7 +808,10 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
       CaptureCurrentFileNumberInPendingOutputs();
   
 	uint64_t file_number = versions_->NewFileNumber();
-	FileMap.insert(std::make_pair(file_number, level0SSTFile)); // rocky
+	if(gammaFlag)
+		FileMap.insert(std::make_pair(file_number, gammaFile)); // rocky
+	else
+		FileMap.insert(std::make_pair(file_number, level0SSTFile)); // rocky
 
 	meta.fd = FileDescriptor(file_number, 0, 0);
   ReadOptions ro;
@@ -944,7 +948,10 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
   s = impl->Recover(column_families);
   if (s.ok()) {
     uint64_t new_log_number = impl->versions_->NewFileNumber();
-		FileMap.insert(std::make_pair(new_log_number, walFile)); // rocky: no for first wal file
+		if(gammaFlag)
+			FileMap.insert(std::make_pair(new_log_number, gammaFile)); // rocky
+		else
+			FileMap.insert(std::make_pair(new_log_number, walFile)); // rocky: no for first wal file
 		
 		unique_ptr<WritableFile> lfile;
     EnvOptions soptions(db_options);

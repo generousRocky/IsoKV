@@ -1,10 +1,13 @@
 #include "env_nvm.h"
 #include <exception>
+#include <iostream>
 
-#define USE_ALPHA 0
-#define USE_BETA 0
+#define USE_ALPHA 1
+#define USE_BETA 1
 #define USE_THETA 1
+#define USE_GAMMA 1
 
+/*
 #define ALPHA_PUNIT_BEGIN 0
 #define ALPHA_PUNIT_END 0
 
@@ -14,8 +17,8 @@
 #define THETA_PUNIT_BEGIN 0
 #define THETA_PUNIT_END 127
 #define THETA_NR_LUN_PER_VBLK 128
+*/
 
-/*
 #define ALPHA_PUNIT_BEGIN 0
 #define ALPHA_PUNIT_END 63
 
@@ -25,7 +28,10 @@
 #define THETA_PUNIT_BEGIN 96
 #define THETA_PUNIT_END 127
 #define THETA_NR_LUN_PER_VBLK 32
-*/
+
+#define GAMMA_PUNIT_BEGIN 0
+#define GAMMA_PUNIT_END 127
+
 
 namespace rocksdb {
 //
@@ -83,7 +89,7 @@ Status NvmStore::recover(const std::string& mpath)
 
 	// Initialize and allocate vblks with defaults (kFree)
 #if USE_ALPHA
-	for (size_t blk_idx = 0; blk_idx < geo_->nblocks; ++blk_idx) {
+	for (size_t blk_idx = 510; blk_idx < geo_->nblocks; ++blk_idx) {
 		std::vector<struct nvm_addr> addrs(punits_);
     std::vector<struct nvm_addr> resized_addrs_alpha;
 		
@@ -103,7 +109,7 @@ Status NvmStore::recover(const std::string& mpath)
 #endif
 		
 #if USE_BETA
-	for (size_t blk_idx = 0; blk_idx < geo_->nblocks; ++blk_idx) {
+	for (size_t blk_idx = 510; blk_idx < geo_->nblocks; ++blk_idx) {
 		std::vector<struct nvm_addr> addrs(punits_);
 		std::vector<struct nvm_addr> resized_addrs_beta;
 
@@ -124,7 +130,7 @@ Status NvmStore::recover(const std::string& mpath)
 		
 #if USE_THETA
 	// rocky: vblk 타입 중 예만 vblk 넘버와 blk idx가 같지 않음.
-	for (size_t blk_idx = 0; blk_idx < geo_->nblocks; ++blk_idx) {
+	for (size_t blk_idx = 510; blk_idx < geo_->nblocks; ++blk_idx) {
 		std::vector<struct nvm_addr> addrs(punits_);
 
 		size_t vpunit_idx = THETA_PUNIT_BEGIN; // 32
@@ -148,10 +154,32 @@ Status NvmStore::recover(const std::string& mpath)
 		}
 	}
 #endif
+
+#if USE_GAMMA
+	for (size_t blk_idx = 0; blk_idx < 510; ++blk_idx) {
+		std::vector<struct nvm_addr> addrs(punits_);
+		std::vector<struct nvm_addr> resized_addrs_gamma;
+
+		for(size_t vpunit_idx = GAMMA_PUNIT_BEGIN; vpunit_idx <= GAMMA_PUNIT_END; vpunit_idx++){
+			addrs[vpunit_idx].g.blk = blk_idx;   
+			resized_addrs_gamma.push_back(addrs[vpunit_idx]);
+		}
+		
+		struct nvm_vblk *blk_gamma = nvm_vblk_alloc(dev_, resized_addrs_gamma.data(), resized_addrs_gamma.size());
+		if (!blk_gamma) {
+			NVM_DBG(this, "FAILED: [rocky] GAMMA_VBLK - nvm_vblk_alloc_line");
+			return Status::IOError("FAILED: nvm_vblk_alloc_line");
+		}
+		
+		vblks_.gamma_blks_.push_back(std::make_pair(kFree, blk_gamma));
+	}
+#endif
+
   
 	NVM_DBG(this, "vblks_.alpha_blks_.size(): " << vblks_.alpha_blks_.size());
 	NVM_DBG(this, "vblks_.beta_blks_.size(): " << vblks_.beta_blks_.size());
 	NVM_DBG(this, "vblks_.theta_blks_.size(): " << vblks_.theta_blks_.size());
+	NVM_DBG(this, "vblks_.gamma_blks_.size(): " << vblks_.gamma_blks_.size());
 
   if (!env_->posix_->FileExists(mpath).ok()) {          // DONE
     NVM_DBG(this, "INFO: mpath does not exist, nothing to recover.");
@@ -232,7 +260,7 @@ Status NvmStore::recover(const std::string& mpath)
     }
 		NVM_DBG(this, "alpha_curs_: " << curs_.alpha_vblk_curs_);
 		
-		for(vblk_idx = 0; vblk_idx < geo_->nblocks; vblk_idx++){
+		for(vblk_idx = 510; vblk_idx < geo_->nblocks; vblk_idx++){
 			meta >> line;	
 			int state = strtoul(line.c_str(), NULL, 16);
 			NVM_DBG(this, "alpha vblk_idx:" << vblk_idx << ", line: " << line);
@@ -257,7 +285,7 @@ Status NvmStore::recover(const std::string& mpath)
     }
    
 		NVM_DBG(this, "beta_curs_: " << curs_.beta_vblk_curs_);
-		for(vblk_idx = 0; vblk_idx < geo_->nblocks; vblk_idx++){
+		for(vblk_idx = 510; vblk_idx < geo_->nblocks; vblk_idx++){
 			meta >> line;	
 			int state = strtoul(line.c_str(), NULL, 16);
 			NVM_DBG(this, "beta vblk_idx:" << vblk_idx << ", line: " << line);
@@ -283,7 +311,7 @@ Status NvmStore::recover(const std::string& mpath)
     NVM_DBG(this, "theta_curs_: " << curs_.theta_vblk_curs_);
 	
 		size_t theta_power = (THETA_PUNIT_END - THETA_PUNIT_BEGIN + 1) / THETA_NR_LUN_PER_VBLK;
-		for(vblk_idx = 0; vblk_idx < geo_->nblocks * theta_power; vblk_idx++){
+		for(vblk_idx = 510; vblk_idx < geo_->nblocks * theta_power; vblk_idx++){
 			meta >> line;	
 			int state = strtoul(line.c_str(), NULL, 16);
 			NVM_DBG(this, "theta vblk_idx:" << vblk_idx << ", line: " << line);
@@ -301,6 +329,30 @@ Status NvmStore::recover(const std::string& mpath)
 		}
 #endif
 
+#if USE_GAMMA
+    if (!(meta >> curs_.gamma_vblk_curs_)) {
+      NVM_DBG(this, "FAILED: parsing HEAD(gamma_curs_) from meta");
+      return Status::IOError("FAILED: parsing HEAD(gamma_curs_) from meta");
+    }
+   
+		NVM_DBG(this, "gamma_curs_: " << curs_.gamma_vblk_curs_);
+		for(vblk_idx = 0; vblk_idx < 510; vblk_idx++){
+			meta >> line;	
+			int state = strtoul(line.c_str(), NULL, 16);
+			NVM_DBG(this, "gamma vblk_idx:" << vblk_idx << ", line: " << line);
+
+			switch(state) {
+				case kFree:
+				case kOpen:
+				case kReserved:
+				case kBad:
+						vblks_.gamma_blks_[vblk_idx].first = BlkState(state);
+          break;
+				default:
+					break;
+			}
+		}
+#endif
 	}
   return Status::OK();
 }
@@ -332,6 +384,12 @@ Status NvmStore::persist(const std::string &mpath) {
 #if USE_THETA 
 	meta_ss << curs_.theta_vblk_curs_ << std::endl;        // Store state of blks
 	for (auto &entry : vblks_.theta_blks_)
+    meta_ss << num_to_hex(entry.first, 2) << std::endl;
+#endif
+
+#if USE_GAMMA
+	meta_ss << curs_.gamma_vblk_curs_ << std::endl;        // Store state of blks
+	for (auto &entry : vblks_.gamma_blks_)
     meta_ss << num_to_hex(entry.first, 2) << std::endl;
 #endif
   
@@ -369,6 +427,13 @@ NvmStore::~NvmStore(void) {
 
     nvm_vblk_free(entry.second);
   }
+	
+  for (auto &entry : vblks_.gamma_blks_) {   // De-allocate blks
+    if (!entry.second)
+      continue;
+
+    nvm_vblk_free(entry.second);
+  }
 
   nvm_dev_close(dev_);          // Release device
 }
@@ -380,26 +445,33 @@ struct nvm_vblk* NvmStore::get_dynamic(VblkType type) {
   MutexLock lock(&mutex_);
   NVM_DBG(this, "LOCK !");
   
-  for(size_t i=0; i < geo_->nblocks; i++){
+  for(size_t i=0; i < 510; i++){
 
     std::pair<BlkState, struct nvm_vblk*> *entry;
     size_t vblk_idx;
 
     switch(type){
+			case gamma:
+				vblk_idx = get_and_inc_curs_(type) % 510;
+				entry = &(vblks_.gamma_blks_[vblk_idx]);
+				break;
 			case alpha:
-				vblk_idx = get_and_inc_curs_(type) % geo_->nblocks;
+				vblk_idx = (get_and_inc_curs_(type) % 510);
 				entry = &(vblks_.alpha_blks_[vblk_idx]);
 				break;
 			case beta:
-				vblk_idx = get_and_inc_curs_(type) % geo_->nblocks;
+				vblk_idx = (get_and_inc_curs_(type) % 510);
 				entry = &(vblks_.beta_blks_[vblk_idx]);
 				break;
 			case theta:
-				size_t theta_power = (THETA_PUNIT_END - THETA_PUNIT_BEGIN + 1) / THETA_NR_LUN_PER_VBLK;
-				vblk_idx = get_and_inc_curs_(type) % (geo_->nblocks * theta_power );
+				//size_t theta_power = (THETA_PUNIT_END - THETA_PUNIT_BEGIN + 1) / THETA_NR_LUN_PER_VBLK;
+				//vblk_idx = get_and_inc_curs_(type) % (geo_->nblocks * theta_power );
+				vblk_idx = (get_and_inc_curs_(type) % 510);
 				entry = &(vblks_.theta_blks_[vblk_idx]);
         break;
 		}
+		NVM_DBG(this, "[rocky] type (" << type << ")");
+		NVM_DBG(this, "[rocky]: return vblk idx: " << vblk_idx  );
     
 		switch (entry->first) {
       case kFree:
@@ -523,6 +595,9 @@ struct nvm_vblk* NvmStore::get_reserved_dynamic(size_t blk_idx, VblkType type) {
     case theta:
       entry = &(vblks_.theta_blks_[blk_idx]);
       break;
+    case gamma:
+      entry = &(vblks_.gamma_blks_[blk_idx]);
+      break;
     default:
       return NULL;
   }
@@ -557,12 +632,20 @@ void NvmStore::put_dynamic(struct nvm_vblk* blk, VblkType type) {
   NVM_DBG(this, "LOCK !");
 
 	NVM_DBG(this, "[rocky] type (" << type << ")");
-
+	
+	size_t no_vblk;
+	no_vblk = nvm_vblk_get_addrs(blk)[0].g.blk % 510;
+	//std::cout << "[rocky dbg] type: " << type << "no_vlk: " << no_vblk << std::endl;
 
 	std::pair<BlkState, struct nvm_vblk*> *entry;
-	size_t no_vblk;
-	
+	entry = &(vblks_.gamma_blks_[no_vblk]);
+
+#if 0
 	switch(type){
+		case gamma:
+			no_vblk = nvm_vblk_get_addrs(blk)[0].g.blk;
+			entry = &(vblks_.gamma_blks_[no_vblk]);
+			break;
 		case alpha:
 			no_vblk = nvm_vblk_get_addrs(blk)[0].g.blk;
 			entry = &(vblks_.alpha_blks_[no_vblk]);
@@ -572,6 +655,7 @@ void NvmStore::put_dynamic(struct nvm_vblk* blk, VblkType type) {
 			entry = &(vblks_.beta_blks_[no_vblk]);
 			break;
 		case theta:
+			/*
 			size_t theta_power = (THETA_PUNIT_END - THETA_PUNIT_BEGIN + 1) / THETA_NR_LUN_PER_VBLK;
 
 			size_t vblk_blk = nvm_vblk_get_addrs(blk)[0].g.blk;
@@ -582,10 +666,12 @@ void NvmStore::put_dynamic(struct nvm_vblk* blk, VblkType type) {
 			size_t st_lun_no_adj = st_lun_no - THETA_PUNIT_BEGIN; // 0, 16, . . .
 
 			no_vblk = (vblk_blk * theta_power) + (st_lun_no_adj / THETA_NR_LUN_PER_VBLK);
-
+			*/
+			no_vblk = nvm_vblk_get_addrs(blk)[0].g.blk;
 			entry = &(vblks_.theta_blks_[no_vblk]);
 			break;
 	}
+#endif
 
 	entry->first = kFree;
 }

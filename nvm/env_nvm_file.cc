@@ -36,6 +36,7 @@ unsigned long long total_time_vblk_r_SSTs, total_count_vblk_r_SSTs;
 
 #define LOG_UNIT_AMP 1
 
+/*
 #define ALPHA_PUNIT_BEGIN 0
 #define ALPHA_PUNIT_END 0
 
@@ -45,8 +46,8 @@ unsigned long long total_time_vblk_r_SSTs, total_count_vblk_r_SSTs;
 #define THETA_PUNIT_BEGIN 0
 #define THETA_PUNIT_END 127
 #define THETA_NR_LUN_PER_VBLK 128
+*/
 
-/*
 #define ALPHA_PUNIT_BEGIN 0
 #define ALPHA_PUNIT_END 63
 
@@ -56,9 +57,12 @@ unsigned long long total_time_vblk_r_SSTs, total_count_vblk_r_SSTs;
 #define THETA_PUNIT_BEGIN 96
 #define THETA_PUNIT_END 127
 #define THETA_NR_LUN_PER_VBLK 32
-*/
+
+#define GAMMA_PUNIT_BEGIN 64
+#define GAMMA_PUNIT_END 95
 
 /*86라인 고치는거 기억!*/
+/*이제 두 군데 고쳐야한다!!*/
 
 #include <execinfo.h>
 #ifndef NVM_TRACE
@@ -122,11 +126,13 @@ NvmFile::NvmFile(
 		
 		switch(nvm_file_type_){
 			case walFile:
-				vblk_type_ = theta; break;
+				vblk_type_ = alpha; break;
 			case level0SSTFile:
-				vblk_type_ = theta; break;
+				vblk_type_ = beta; break;
 			case normalSSTFile:
 				vblk_type_ = theta; break;
+			case gammaFile:
+				vblk_type_ = gamma; break;
 			default:
 				std::cout << "ERROR: file(" << nvm_file_number_ << ") - unkown nvm_file_type_: "<<  nvm_file_type_ << std::endl;
 				throw std::runtime_error("FAILED: unkown nvm_file_type_");
@@ -156,14 +162,16 @@ NvmFile::NvmFile(
 
 		switch(nvm_file_type_){
 			case walFile:
-				vblk_type_ = theta; break;
+				vblk_type_ = alpha; break;
 			case level0SSTFile:
-				vblk_type_ = theta; break;
+				vblk_type_ = beta; break;
 			case normalSSTFile:
 				vblk_type_ = theta; break;
+			case gammaFile:
+				vblk_type_ = gamma; break;
 			default:
 				std::cout << "warning: file(" << nvm_file_number_ << ") - unkown nvm_file_type_: "<<  nvm_file_type_ << std::endl;
-				vblk_type_ = theta; break;
+				vblk_type_ = gamma; break;
 				//throw std::runtime_error("FAILED: unkown nvm_file_type_");
 		}
 	}
@@ -178,6 +186,8 @@ NvmFile::NvmFile(
 		stripe_nbytes_ = align_nbytes_ * (BETA_PUNIT_END - BETA_PUNIT_BEGIN + 1);
 	if(vblk_type_ == theta)
 		stripe_nbytes_ = align_nbytes_ * THETA_NR_LUN_PER_VBLK;
+	if(vblk_type_ == gamma)
+		stripe_nbytes_ = align_nbytes_ * (GAMMA_PUNIT_END - GAMMA_PUNIT_BEGIN + 1);
 	
 	//stripe_nbytes_ = align_nbytes_ * env_->store_->GetPunitCount();
 	blk_nbytes_ = (stripe_nbytes_ * geo->npages) / LOG_UNIT_AMP;
@@ -397,7 +407,9 @@ Status NvmFile::Append(const Slice& slice) {
       clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
       calclock(local_time, &total_time_AppendforSSTs, &total_count_AppendforSSTs);
     break;
-  }
+  	default:
+      status = NvmFile::Append_internal(slice);
+	}
 
 	return status;
 }
@@ -508,6 +520,8 @@ Status NvmFile::Flush(bool padded) {
       clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
       calclock(local_time, &total_time_FlushforSSTs, &total_count_FlushforSSTs);
     break;
+		default:
+      status = NvmFile::Flush_internal(padded);
   }
   
   return status;
@@ -578,6 +592,8 @@ Status NvmFile::Flush_internal(bool padded) {
 				clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
 				calclock(local_time, &total_time_vblk_e_SSTs, &total_count_vblk_e_SSTs);
 				break;
+			default:
+				blk = env_->store_->get_dynamic(vblk_type_);
 		}
 		
 		if (!blk) {
@@ -632,7 +648,9 @@ Status NvmFile::Flush_internal(bool padded) {
         clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
         calclock(local_time, &total_time_vblk_w_SSTs, &total_count_vblk_w_SSTs);
         break;
-    }
+    	default:
+        ret = nvm_vblk_write(blk, buf_ + nbytes_written, nbytes);
+		}
 
     if (ret < 0) {
       perror("nvm_vblk_write");
@@ -841,7 +859,9 @@ Status NvmFile::Read(
         clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
         calclock(local_time, &total_time_vblk_r_SSTs, &total_count_vblk_r_SSTs);
         break;
-    }
+    	default:
+        ret = nvm_vblk_pread(blk, buf_, nbytes, blk_offset);
+		}
 
     
     if (ret < 0) {

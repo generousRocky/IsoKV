@@ -17,8 +17,8 @@
 #include "util/sync_point.h"
 
 #include "file_map/filemap.h"
-
 #include "profile/profile.h"
+
 unsigned long long total_time_WriteToWAL, total_count_WriteToWAL;
 unsigned long long total_time_WriteImpl, total_count_WriteImpl;
 
@@ -696,7 +696,10 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
     log_recycle_files.pop_front();
   }
   uint64_t new_log_number = creating_new_log ? versions_->NewFileNumber() : logfile_number_;
-	FileMap.insert(std::make_pair(new_log_number, walFile)); // rocky: no for wal
+	if(gammaFlag)
+		FileMap.insert(std::make_pair(new_log_number, gammaFile)); // rocky
+	else 
+		FileMap.insert(std::make_pair(new_log_number, walFile)); // rocky: no for wal
 	
 	SuperVersion* new_superversion = nullptr;
   const MutableCFOptions mutable_cf_options = *cfd->GetLatestMutableCFOptions();

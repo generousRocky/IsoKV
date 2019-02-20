@@ -62,6 +62,8 @@
 #include "util/sync_point.h"
 
 #include "file_map/filemap.h"
+#include "profile/profile.h"
+bool gammaFlag;
 
 namespace rocksdb {
 
@@ -1205,7 +1207,10 @@ Status CompactionJob::OpenCompactionOutputFile(
   assert(sub_compact->builder == nullptr);
   // no need to lock because VersionSet::next_file_number_ is atomic
   uint64_t file_number = versions_->NewFileNumber();
-	FileMap.insert(std::make_pair(file_number, normalSSTFile)); // rocky
+	if(gammaFlag)
+		FileMap.insert(std::make_pair(file_number, gammaFile)); // rocky
+	else
+		FileMap.insert(std::make_pair(file_number, normalSSTFile)); // rocky
 
 	std::string fname = TableFileName(db_options_.db_paths, file_number,
                                     sub_compact->compaction->output_path_id());

@@ -162,22 +162,24 @@ enum BlkState {
 enum VblkType {
   alpha = 0x01, // for WAL
   beta = 0x02, // level 0 and more 
-  theta = 0x04, // not yet
-  //delat, // not yet
+  theta = 0x04, // 
+  gamma = 0x08, //
 };
 
 struct Curs_ {
-  Curs_() : alpha_vblk_curs_(0), beta_vblk_curs_(0), theta_vblk_curs_(0) {
+  Curs_() : alpha_vblk_curs_(0), beta_vblk_curs_(0), theta_vblk_curs_(0), gamma_vblk_curs_(0) {
   }
   size_t alpha_vblk_curs_;
   size_t beta_vblk_curs_;
   size_t theta_vblk_curs_;
+  size_t gamma_vblk_curs_;
 };
 
 struct Vblks_ {
   std::deque<std::pair<BlkState, struct nvm_vblk*>> alpha_blks_;
   std::deque<std::pair<BlkState, struct nvm_vblk*>> beta_blks_;
   std::deque<std::pair<BlkState, struct nvm_vblk*>> theta_blks_;
+  std::deque<std::pair<BlkState, struct nvm_vblk*>> gamma_blks_;
 };
 
 // Stateful wrapper for provisioning of virtual blocks
@@ -214,6 +216,7 @@ public:
       case alpha: return curs_.alpha_vblk_curs_++;
       case beta: return curs_.beta_vblk_curs_++;
       case theta: return curs_.theta_vblk_curs_++;
+      case gamma: return curs_.gamma_vblk_curs_++;
       default:
         return -1;
     }

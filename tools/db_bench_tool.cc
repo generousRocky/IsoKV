@@ -73,6 +73,7 @@
 
 #include "profile/profile.h"
 std::vector<double> interval_ops;
+//bool gammaFlag=false;
 
 #ifdef OS_WIN
 #include <io.h>  // open/close
@@ -4521,7 +4522,8 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     // the number of iterations is the larger of read_ or write_
     size_t tmp_count = 0;
     size_t tmp_count2 = 0;
-		
+		gammaFlag=false;
+
 		int percent_seq[5] = {90, 70, 50, 30, 10};
 		//int percent_seq[5] = {10, 30, 50, 70, 90};
 		int percent_seq_idx=0;
@@ -4531,12 +4533,13 @@ void VerifyDBFromDB(std::string& truth_db_name) {
 			tmp_count2++;
 			
 			DB* db = SelectDB(thread);
-      GenerateKeyFromInt(thread->rand.Next() % FLAGS_num, FLAGS_num, &key);
+      GenerateKeyFromInt(thread->rand.Next() % 10000, FLAGS_num, &key);
+      //GenerateKeyFromInt(thread->rand.Next() % FLAGS_num, FLAGS_num, &key);
       if (get_weight == 0 && put_weight == 0) {
 				// one batch completed, reinitialize for next batch
 				
 				/*
-				if(percent_seq_idx == 0 && tmp_count2 > 200000){
+				if(percent_seq_idx == 0 && tmp_count2 > 1000000){
 					tmp_count2 = 0;
 					percent_seq_idx++;
 
@@ -4551,6 +4554,9 @@ void VerifyDBFromDB(std::string& truth_db_name) {
 					fprintf(stdout, "[rocky dbg] %s:%d, percent_seq_idx:%d\n", __func__, __LINE__, percent_seq_idx);
 				}
 				
+				if(percent_seq_idx >= 2)
+					gammaFlag = true;
+
 				//get_weight = FLAGS_readwritepercent;
 				get_weight = percent_seq[percent_seq_idx];
         put_weight = 100 - get_weight;
