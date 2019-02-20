@@ -3,6 +3,8 @@ RBENCH_DEV_NAME="nvme0n1"
 RBENCH_BENCHMARKS="readrandomwriterandom,stats"
 RBENCH_DEV_MODE="nvm"
 
+RBENCH_USE_EXISTING_DB="0"
+
 if [ $UID != 0 ]; then
 	echo "You don't have sufficient privileges to run this script."
 	exit 1
@@ -123,7 +125,7 @@ END
 #RBENCH_CMD_PREFIX="taskset -c 0-$(nproc)"
 #RBENCH_CMD_PREFIX="valgrind"
 RBENCH_BIN="../db_bench"
-RBENCH_NUM=1500000 #187500 #187500 #375000 #750000 #1500000
+RBENCH_NUM=1000000 #187500 #187500 #375000 #750000 #1500000
 RBENCH_VALUE_SIZE=$((16 * KB))
 RBENCH_BLOCK_SIZE=$((64 * KB))
 RBENCH_BLOOM_BITS=10

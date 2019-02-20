@@ -1,4 +1,5 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
+
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -71,6 +72,7 @@
 #include "utilities/persistent_cache/block_cache_tier.h"
 
 #include "profile/profile.h"
+std::vector<double> interval_ops;
 
 #ifdef OS_WIN
 #include <io.h>  // open/close
@@ -1508,6 +1510,8 @@ class Stats {
 
         } else {
 
+					//rocky
+					interval_ops.push_back((done_ - last_report_done_) / (usecs_since_last / 1000000.0));
           fprintf(stderr,
                   "%s ... thread %d: (%" PRIu64 ",%" PRIu64 ") ops and "
                   "(%.1f,%.1f) ops/second in (%.6f,%.6f) seconds\n",
@@ -1615,16 +1619,19 @@ class Stats {
 					interval_compaction_writes_bytes[i]); // rocky
 		}
 		
-		printf("\ninterval;interval_writes_wal_perf;interval_writes_level0_perf;interval_compaction_reads_perf;interval_compaction_writes_perf;cumulative_writes_wal_perf\n");
+		printf("\ninterval;interval_writes_wal_perf;interval_writes_level0_perf;interval_compaction_reads_perf;interval_compaction_writes_perf;cumulative_writes_wal_perf;interval_ops\n");
 		for(size_t i=0; i< interval_writes_wal_perf.size(); i++){
-			printf("%zu;%.2f;%.2f;%.2f;%.2f;%.2f\n",i,
+			printf("%zu;%.2f;%.2f;%.2f;%.2f;%.2f;%.1f\n",i,
 					interval_writes_wal_perf[i],
 					interval_writes_level0_perf[i], // rocky
 					interval_compaction_reads_perf[i], // rocky
 					interval_compaction_writes_perf[i],
-          cumulative_writes_wal_perf[i]); // rocky
+          cumulative_writes_wal_perf[i],
+					interval_ops[i]); // rocky
 		}
 
+		printf("\ninterval_ops.size(): %zu\n", interval_ops.size());
+		
 		printf("\ninterval;interval_stall_percents\n");
 		for(size_t i=0; i< interval_writes_wal_bytes.size(); i++){
 			printf("%zu;%.1f\n", i, interval_stall_percents[i]);
@@ -4515,21 +4522,33 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     size_t tmp_count = 0;
     size_t tmp_count2 = 0;
 		
-		int percent_seq[6] = {90, 70, 50, 30, 10, 5};
+		int percent_seq[5] = {90, 70, 50, 30, 10};
+		//int percent_seq[5] = {10, 30, 50, 70, 90};
 		int percent_seq_idx=0;
 
 		while (!duration.Done(1)) {
-			fprintf(stderr, "[rocky dbg] %s:%d, count:%d-%d, get_weight:%d, put_weight:%d\n", __func__, __LINE__, tmp_count++, tmp_count2++, get_weight, put_weight);
-
+			//fprintf(stderr, "[rocky dbg] %s:%d, count:%d-%d, get_weight:%d, put_weight:%d\n", __func__, __LINE__, tmp_count++, tmp_count2++, get_weight, put_weight);
+			tmp_count2++;
+			
 			DB* db = SelectDB(thread);
       GenerateKeyFromInt(thread->rand.Next() % FLAGS_num, FLAGS_num, &key);
       if (get_weight == 0 && put_weight == 0) {
 				// one batch completed, reinitialize for next batch
-        if(tmp_count2 > 300000){
+				
+				/*
+				if(percent_seq_idx == 0 && tmp_count2 > 200000){
 					tmp_count2 = 0;
 					percent_seq_idx++;
 
-					fprintf(stderr, "[rocky dbg] %s:%d, percent_seq_idx:%d\n", __func__, __LINE__, percent_seq_idx);
+					fprintf(stdout, "[rocky dbg] %s:%d, percent_seq_idx:%d\n", __func__, __LINE__, percent_seq_idx);
+				}
+				*/
+
+				if(tmp_count2 > 200000){
+					tmp_count2 = 0;
+					percent_seq_idx++;
+
+					fprintf(stdout, "[rocky dbg] %s:%d, percent_seq_idx:%d\n", __func__, __LINE__, percent_seq_idx);
 				}
 				
 				//get_weight = FLAGS_readwritepercent;
