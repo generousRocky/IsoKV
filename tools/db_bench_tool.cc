@@ -4524,7 +4524,10 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     size_t tmp_count2 = 0;
 		gammaFlag=false;
 
-		int percent_seq[5] = {90, 70, 50, 30, 10};
+		//int percent_seq[5] = {90, 70, 50, 30, 10};
+		//int percent_seq[5] = {90, 90, 10, 10, 10};
+		//int percent_seq[5] = {70, 70, 70, 70, 70};
+		int percent_seq[5] = {80, 80, 80, 80, 80};
 		//int percent_seq[5] = {10, 30, 50, 70, 90};
 		int percent_seq_idx=0;
 
@@ -4554,8 +4557,8 @@ void VerifyDBFromDB(std::string& truth_db_name) {
 					fprintf(stdout, "[rocky dbg] %s:%d, percent_seq_idx:%d\n", __func__, __LINE__, percent_seq_idx);
 				}
 				
-				if(percent_seq_idx >= 2)
-					gammaFlag = true;
+				//if(percent_seq_idx >= 2)
+				//	gammaFlag = true;
 
 				//get_weight = FLAGS_readwritepercent;
 				get_weight = percent_seq[percent_seq_idx];

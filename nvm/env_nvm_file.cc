@@ -49,17 +49,17 @@ unsigned long long total_time_vblk_r_SSTs, total_count_vblk_r_SSTs;
 */
 
 #define ALPHA_PUNIT_BEGIN 0
-#define ALPHA_PUNIT_END 63
+#define ALPHA_PUNIT_END 47
 
-#define BETA_PUNIT_BEGIN 64
+#define BETA_PUNIT_BEGIN 48
 #define BETA_PUNIT_END 95
 
 #define THETA_PUNIT_BEGIN 96
 #define THETA_PUNIT_END 127
 #define THETA_NR_LUN_PER_VBLK 32
 
-#define GAMMA_PUNIT_BEGIN 64
-#define GAMMA_PUNIT_END 95
+#define GAMMA_PUNIT_BEGIN 0
+#define GAMMA_PUNIT_END 127
 
 /*86라인 고치는거 기억!*/
 /*이제 두 군데 고쳐야한다!!*/
