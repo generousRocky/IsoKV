@@ -79,7 +79,9 @@ struct FileMetaData {
   // This is updated in Version::UpdateAccumulatedStats() first time when the
   // file is created or loaded.  After it is updated (!= 0), it is immutable.
   uint64_t compensated_file_size;
-  // These values can mutate, but they can only be read or written from
+  uint64_t num_cold_keys; // rocky_dbg : the number of cold keys
+  
+	// These values can mutate, but they can only be read or written from
   // single-threaded LogAndApply thread
   uint64_t num_entries;            // the number of entries.
   uint64_t num_deletions;          // the number of deletion entries.
@@ -91,6 +93,7 @@ struct FileMetaData {
   bool marked_for_compaction;  // True if client asked us nicely to compact this
                                // file.
 
+
   FileMetaData()
       : refs(0),
         being_compacted(false),
@@ -98,6 +101,7 @@ struct FileMetaData {
         largest_seqno(0),
         table_reader_handle(nullptr),
         compensated_file_size(0),
+        num_cold_keys(0),
         num_entries(0),
         num_deletions(0),
         raw_key_size(0),

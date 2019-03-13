@@ -13,6 +13,7 @@
 #define __STDC_FORMAT_MACROS
 #endif
 
+#include <iostream>
 #include <inttypes.h>
 #include <limits>
 #include <queue>
@@ -1053,6 +1054,7 @@ void LevelCompactionBuilder::PickFilesMarkedForCompaction() {
   start_level_inputs_.files.clear();
 }
 
+// rocky_dbg
 void LevelCompactionBuilder::SetupInitialFiles() {
   // Find the compactions by size on all levels.
   bool skipped_l0_to_base = false;
@@ -1288,20 +1290,26 @@ bool LevelCompactionBuilder::PickFileToCompact() {
 
   assert(start_level_ >= 0);
 
-  // Pick the largest file in this level that is not already
+	// Pick the largest file in this level that is not already
   // being compacted
   const std::vector<int>& file_size =
       vstorage_->FilesByCompactionPri(start_level_);
   const std::vector<FileMetaData*>& level_files =
-      vstorage_->LevelFiles(start_level_);
+		vstorage_->LevelFiles(start_level_);
 
-  // record the first file that is not yet compacted
-  int nextIndex = -1;
+	// record the first file that is not yet compacted
+	int nextIndex = -1;
 
-  for (unsigned int i = vstorage_->NextCompactionIndex(start_level_);
-       i < file_size.size(); i++) {
-    int index = file_size[i];
-    auto* f = level_files[index];
+	for (unsigned int i = vstorage_->NextCompactionIndex(start_level_);
+			i < file_size.size(); i++) {
+		int index = file_size[i];
+		auto* f = level_files[index];
+	}
+
+	for (unsigned int i = vstorage_->NextCompactionIndex(start_level_);
+			i < file_size.size(); i++) {
+		int index = file_size[i];
+		auto* f = level_files[index];
 
     // do not pick a file to compact if it is being compacted
     // from n-1 level.
@@ -1323,8 +1331,12 @@ bool LevelCompactionBuilder::PickFileToCompact() {
       continue;
     }
     start_level_inputs_.files.push_back(f);
+		std::cout << "\n[rocky_dbg] start_level_inputs_.files.size(): " << start_level_inputs_.files.size() << "\n";
+		
     start_level_inputs_.level = start_level_;
     base_index_ = index;
+
+		std::cout << "[rocky_dbg] base_index_: " << base_index_ << ", num: "<< f->fd.GetNumber() <<"\n";
     break;
   }
 

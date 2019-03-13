@@ -51,6 +51,11 @@
 #include "util/string_util.h"
 #include "util/sync_point.h"
 
+#include <iostream> // rocky_dbg
+#include "file_map/filemap.h" // rocky_dbg
+
+std::map<size_t, size_t> ColdFileMap; // rocky_dbg
+
 namespace rocksdb {
 
 namespace {
@@ -62,7 +67,8 @@ int FindFileInRange(const InternalKeyComparator& icmp,
     const Slice& key,
     uint32_t left,
     uint32_t right) {
-  while (left < right) {
+  
+	while (left < right) {
     uint32_t mid = (left + right) / 2;
     const FdWithKeyRange& f = file_level.files[mid];
     if (icmp.InternalKeyComparator::Compare(f.largest_key, key) < 0) {
@@ -1152,7 +1158,18 @@ void Version::UpdateAccumulatedStats(bool update_stats) {
   }
 
   storage_info_.ComputeCompensatedSizes();
+	storage_info_.ComputeColdkeysNumbers();
 }
+
+#if 1
+void VersionStorageInfo::ComputeColdkeysNumbers() {
+  for (int level = 0; level < num_levels_; level++) {
+    for (auto* file_meta : files_[level]) {
+			file_meta->num_cold_keys = ColdFileMap[file_meta->fd.GetNumber()];
+		}
+	}
+}
+#endif
 
 void VersionStorageInfo::ComputeCompensatedSizes() {
   static const int kDeletionWeightOnCompaction = 2;
@@ -1390,6 +1407,8 @@ struct Fsize {
   FileMetaData* file;
 };
 
+// rocky_dbg: let's make new compare function for hotness;
+
 // Compator that is used to sort files based on their size
 // In normal mode: descending size
 bool CompareCompensatedSizeDescending(const Fsize& first, const Fsize& second) {
@@ -1545,6 +1564,8 @@ void VersionStorageInfo::UpdateFilesByCompactionPri(
     if (num > temp.size()) {
       num = temp.size();
     }
+    
+    // rock_dbg
     switch (compaction_pri) {
       case kByCompensatedSize:
         std::partial_sort(temp.begin(), temp.begin() + num, temp.end(),

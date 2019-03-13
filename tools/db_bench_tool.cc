@@ -4520,51 +4520,56 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     Slice key = AllocateKey(&key_guard);
 
     // the number of iterations is the larger of read_ or write_
-    size_t tmp_count = 0;
-    size_t tmp_count2 = 0;
 		gammaFlag=false;
 
 		//int percent_seq[5] = {90, 70, 50, 30, 10};
 		//int percent_seq[5] = {90, 90, 10, 10, 10};
-		//int percent_seq[5] = {70, 70, 70, 70, 70};
-		int percent_seq[5] = {80, 80, 80, 80, 80};
 		//int percent_seq[5] = {10, 30, 50, 70, 90};
-		int percent_seq_idx=0;
+		//int percent_seq[2] = {0, FLAGS_readwritepercent};
+		//int percent_seq_idx=0;
+
+		size_t hot_key_limit = 100000;
+		size_t total_count = 0;
+		size_t count_100 = 0;
 
 		while (!duration.Done(1)) {
-			//fprintf(stderr, "[rocky dbg] %s:%d, count:%d-%d, get_weight:%d, put_weight:%d\n", __func__, __LINE__, tmp_count++, tmp_count2++, get_weight, put_weight);
-			tmp_count2++;
-			
+
 			DB* db = SelectDB(thread);
-      GenerateKeyFromInt(thread->rand.Next() % 10000, FLAGS_num, &key);
-      //GenerateKeyFromInt(thread->rand.Next() % FLAGS_num, FLAGS_num, &key);
-      if (get_weight == 0 && put_weight == 0) {
+
+			size_t key_num;
+			if((count_100 % 10) != 0){ // 10번 중 1번만 cold data에 acess함.
+				key_num = thread->rand.Next() % hot_key_limit;
+			}
+			else{
+				key_num = (thread->rand.Next() % hot_key_limit) + hot_key_limit; // cold_key
+			}
+
+			GenerateKeyFromInt(key_num, FLAGS_num, &key);
+			//GenerateKeyFromInt(thread->rand.Next() % FLAGS_num, FLAGS_num, &key);
+
+			if (get_weight == 0 && put_weight == 0) {
 				// one batch completed, reinitialize for next batch
-				
-				/*
-				if(percent_seq_idx == 0 && tmp_count2 > 1000000){
-					tmp_count2 = 0;
-					percent_seq_idx++;
 
+				count_100 = 0;
+				
+        /*
+        미리 채우는 것은 seq하게 혹은 unique 하게 하여 빠짐 없이 해야하므로 고치자
+				if( percent_seq_idx == 0 && total_count > hot_key_limit * 2 ){
+					percent_seq_idx=1;
 					fprintf(stdout, "[rocky dbg] %s:%d, percent_seq_idx:%d\n", __func__, __LINE__, percent_seq_idx);
 				}
-				*/
+        */
 
-				if(tmp_count2 > 200000){
-					tmp_count2 = 0;
-					percent_seq_idx++;
-
-					fprintf(stdout, "[rocky dbg] %s:%d, percent_seq_idx:%d\n", __func__, __LINE__, percent_seq_idx);
-				}
-				
+        // for ICAC`19
 				//if(percent_seq_idx >= 2)
 				//	gammaFlag = true;
 
-				//get_weight = FLAGS_readwritepercent;
-				get_weight = percent_seq[percent_seq_idx];
-        put_weight = 100 - get_weight;
-      }
-      if (get_weight > 0) {
+				get_weight = FLAGS_readwritepercent;
+				//get_weight = percent_seq[percent_seq_idx];
+				put_weight = 100 - get_weight;
+			}
+      
+			if (get_weight > 0) {
         // do all the gets first
         Status s = db->Get(options, key, &value);
         if (!s.ok() && !s.IsNotFound()) {
@@ -4589,8 +4594,12 @@ void VerifyDBFromDB(std::string& truth_db_name) {
         writes_done++;
         thread->stats.FinishedOps(nullptr, db, 1, kWrite);
       }
+
+			total_count++;
+			count_100++;
     }// end duration
-    char msg[100];
+    
+		char msg[100];
     snprintf(msg, sizeof(msg), "( reads:%" PRIu64 " writes:%" PRIu64 \
              " total:%" PRIu64 " found:%" PRIu64 ")",
              reads_done, writes_done, readwrites_, found);

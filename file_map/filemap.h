@@ -2,6 +2,7 @@
 #define _FILE_MAP_
 
 #include <map>
+//#include <slice.h>
 
 enum FileType {
   walFile = 0x1,
@@ -11,7 +12,10 @@ enum FileType {
 };
 
 extern std::map<size_t , FileType> FileMap;
+extern std::map<size_t, size_t> ColdFileMap; // <filenumber, num_cold_key>
+
+extern std::map<uint64_t, size_t> KeyCountMap; // <key, access_count>
+
 
 #endif
-
 

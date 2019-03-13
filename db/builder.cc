@@ -34,6 +34,11 @@
 #include "util/stop_watch.h"
 #include "util/sync_point.h"
 
+#include <iostream> // rocky_dbg
+#include <map>
+#include <file_map/filemap.h>
+std::map<uint64_t, size_t> KeyCountMap; // <key, access_count>
+
 namespace rocksdb {
 
 class TableFactory;
@@ -59,6 +64,7 @@ TableBuilder* NewTableBuilder(
       column_family_id, file);
 }
 
+// rocky_dbg
 Status BuildTable(
     const std::string& dbname, Env* env, const ImmutableCFOptions& ioptions,
     const MutableCFOptions& mutable_cf_options, const EnvOptions& env_options,
@@ -136,7 +142,8 @@ Status BuildTable(
         &snapshots, earliest_write_conflict_snapshot, env,
         true /* internal key corruption is not ok */, range_del_agg.get());
     c_iter.SeekToFirst();
-    for (; c_iter.Valid(); c_iter.Next()) {
+    
+		for (; c_iter.Valid(); c_iter.Next()) {
       const Slice& key = c_iter.key();
       const Slice& value = c_iter.value();
       builder->Add(key, value);
@@ -148,7 +155,21 @@ Status BuildTable(
         ThreadStatusUtil::SetThreadOperationProperty(
             ThreadStatus::FLUSH_BYTES_WRITTEN, IOSTATS(bytes_written));
       }
-    }
+
+			// rocky_dbg
+			// 이거는 get이나 put 함수에서 해 줘야하는거고,
+			// 여기서 해 줘야 할 것은 ColdFileMap 에 num_cold_key를 넣어주는것을 해야지;
+			// (interation 하면서 각 키가 hot/cold 인지 판단해서)
+			/*
+			if( KeyCountMap.find(c_iter.ikey().sequence) == KeyCountMap.end()){
+				KeyCountMap[c_iter.ikey().sequence] = 1;
+			}
+		else{
+				KeyCountMap[c_iter.ikey().sequence] = KeyCountMap[c_iter.ikey().sequence] + 1;
+			}
+			*/
+		}
+
     // nullptr for table_{min,max} so all range tombstones will be flushed
     range_del_agg->AddToBuilder(builder, nullptr /* lower_bound */,
                                 nullptr /* upper_bound */, meta);
