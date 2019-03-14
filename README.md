@@ -1,5 +1,12 @@
 ## RocksDB: A Persistent Key-Value Store for Flash, RAM and Open channel SSDs on LightNVM
 
+###branch description
+
+* in\_progress\_r4: for baseline
+* in\_progress\_r5: I/O type iosolation & adaptive arrangement
+
+* * *
+
 [![Build Status](https://travis-ci.org/facebook/rocksdb.svg?branch=master)](https://travis-ci.org/facebook/rocksdb)
 
 RocksDB is developed and maintained by Facebook Database Engineering Team.
