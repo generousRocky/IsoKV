@@ -1,4 +1,4 @@
-//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2012-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -48,6 +48,10 @@
 #include "util/stop_watch.h"
 #include "util/string_util.h"
 #include "util/sync_point.h"
+
+#include <iostream> // rocky_dbg
+#include <map>
+#include <file_map/filemap.h>
 
 namespace rocksdb {
 
@@ -1607,7 +1611,12 @@ bool BlockBasedTable::FullFilterKeyMayMatch(const ReadOptions& read_options,
 
 Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
                             GetContext* get_context, bool skip_filters) {
-  Status s;
+  
+  // rocky_dbg: count key access
+  size_t decode_key_number= get_decode_key(key);
+  KeyAccessCount[decode_key_number]++;
+
+	Status s;
   const bool no_io = read_options.read_tier == kBlockCacheTier;
   CachableEntry<FilterBlockReader> filter_entry;
   if (!skip_filters) {

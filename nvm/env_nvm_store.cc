@@ -438,6 +438,7 @@ NvmStore::~NvmStore(void) {
   nvm_dev_close(dev_);          // Release device
 }
 
+
 struct nvm_vblk* NvmStore::get_dynamic(VblkType type) {
 
   NVM_DBG(this, "");

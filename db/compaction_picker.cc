@@ -1292,6 +1292,8 @@ bool LevelCompactionBuilder::PickFileToCompact() {
 
 	// Pick the largest file in this level that is not already
   // being compacted
+	// rocky_dbg: 파일 사이즈별로 정렬된 vector를 사용함.
+  // rocky_dbg: 정렬 기준을 바꿔놔서 access count sum이작은 애 부터 선택됨다.
   const std::vector<int>& file_size =
       vstorage_->FilesByCompactionPri(start_level_);
   const std::vector<FileMetaData*>& level_files =
@@ -1299,14 +1301,8 @@ bool LevelCompactionBuilder::PickFileToCompact() {
 
 	// record the first file that is not yet compacted
 	int nextIndex = -1;
-
-	for (unsigned int i = vstorage_->NextCompactionIndex(start_level_);
-			i < file_size.size(); i++) {
-		int index = file_size[i];
-		auto* f = level_files[index];
-	}
-
-	for (unsigned int i = vstorage_->NextCompactionIndex(start_level_);
+	
+  for (unsigned int i = vstorage_->NextCompactionIndex(start_level_);
 			i < file_size.size(); i++) {
 		int index = file_size[i];
 		auto* f = level_files[index];
@@ -1331,14 +1327,11 @@ bool LevelCompactionBuilder::PickFileToCompact() {
       continue;
     }
     start_level_inputs_.files.push_back(f);
-		std::cout << "\n[rocky_dbg] start_level_inputs_.files.size(): " << start_level_inputs_.files.size() << "\n";
-		
     start_level_inputs_.level = start_level_;
     base_index_ = index;
 
-		std::cout << "[rocky_dbg] base_index_: " << base_index_ << ", num: "<< f->fd.GetNumber() <<"\n";
     break;
-  }
+  }// end for
 
   // store where to start the iteration in the next call to PickCompaction
   vstorage_->SetNextCompactionIndex(start_level_, nextIndex);

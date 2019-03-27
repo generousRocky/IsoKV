@@ -18,6 +18,7 @@
 
 #include "file_map/filemap.h"
 #include "profile/profile.h"
+#include <iostream>
 
 unsigned long long total_time_WriteToWAL, total_count_WriteToWAL;
 unsigned long long total_time_WriteImpl, total_count_WriteImpl;
@@ -26,6 +27,11 @@ namespace rocksdb {
 // Convenience methods
 Status DBImpl::Put(const WriteOptions& o, ColumnFamilyHandle* column_family,
                    const Slice& key, const Slice& val) {
+  
+  // rocky_dbg: count key access
+  size_t decode_key_number= get_decode_key(key);
+  KeyAccessCount[decode_key_number]++;
+  
   return DB::Put(o, column_family, key, val);
 }
 

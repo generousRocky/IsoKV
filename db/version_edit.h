@@ -80,6 +80,7 @@ struct FileMetaData {
   // file is created or loaded.  After it is updated (!= 0), it is immutable.
   uint64_t compensated_file_size;
   uint64_t num_cold_keys; // rocky_dbg : the number of cold keys
+  uint64_t access_count_sum; // rocky_dbg : sum of access count
   
 	// These values can mutate, but they can only be read or written from
   // single-threaded LogAndApply thread
@@ -102,6 +103,7 @@ struct FileMetaData {
         table_reader_handle(nullptr),
         compensated_file_size(0),
         num_cold_keys(0),
+	access_count_sum(0),
         num_entries(0),
         num_deletions(0),
         raw_key_size(0),

@@ -607,7 +607,7 @@ Iterator* WriteBatchWithIndex::NewIteratorWithBase(Iterator* base_iterator) {
 
 Status WriteBatchWithIndex::Put(ColumnFamilyHandle* column_family,
                                 const Slice& key, const Slice& value) {
-  rep->SetLastEntryOffset();
+	rep->SetLastEntryOffset();
   auto s = rep->write_batch.Put(column_family, key, value);
   if (s.ok()) {
     rep->AddOrUpdateIndex(column_family, key);
@@ -616,7 +616,7 @@ Status WriteBatchWithIndex::Put(ColumnFamilyHandle* column_family,
 }
 
 Status WriteBatchWithIndex::Put(const Slice& key, const Slice& value) {
-  rep->SetLastEntryOffset();
+	rep->SetLastEntryOffset();
   auto s = rep->write_batch.Put(key, value);
   if (s.ok()) {
     rep->AddOrUpdateIndex(key);

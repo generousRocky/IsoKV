@@ -13,9 +13,20 @@ enum FileType {
 
 extern std::map<size_t , FileType> FileMap;
 extern std::map<size_t, size_t> ColdFileMap; // <filenumber, num_cold_key>
+extern std::map<size_t, size_t> AccessCntFileMap; // <filenumber, num_cold_key>
 
-extern std::map<uint64_t, size_t> KeyCountMap; // <key, access_count>
+extern std::vector<uint16_t> KeyAccessCount;// 2MB size
 
+#define get_decode_key(key)({\
+	char* pos = const_cast<char*>(key.data());																	\
+	size_t pos_multi = 1;																												\
+	size_t res = 0;																															\
+	for(int i=7; i>=0; i--){																										\
+		res = res + ( ((pos[i] << ( (8 - i) >> 3 )) & 0xFF) * pos_multi);			\
+		pos_multi = pos_multi * 256;																							\
+	}																																						\
+	res;																																				\
+})
 
 #endif
 

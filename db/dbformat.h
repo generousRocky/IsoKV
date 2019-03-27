@@ -21,6 +21,8 @@
 #include "util/coding.h"
 #include "util/logging.h"
 
+#include <iostream>
+
 namespace rocksdb {
 
 class InternalKey;
@@ -223,7 +225,9 @@ inline int InternalKeyComparator::Compare(
 inline bool ParseInternalKey(const Slice& internal_key,
                              ParsedInternalKey* result) {
   const size_t n = internal_key.size();
-  if (n < 8) return false;
+  if (n < 8){
+    return false;
+  }
   uint64_t num = DecodeFixed64(internal_key.data() + n - 8);
   unsigned char c = num & 0xff;
   result->sequence = num >> 8;

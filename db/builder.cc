@@ -34,10 +34,8 @@
 #include "util/stop_watch.h"
 #include "util/sync_point.h"
 
-#include <iostream> // rocky_dbg
-#include <map>
-#include <file_map/filemap.h>
-std::map<uint64_t, size_t> KeyCountMap; // <key, access_count>
+#include "file_map/filemap.h" //rocky_dbg
+std::vector<uint16_t> KeyAccessCount(1000000, 0); // rocky_dbg: 2MB size
 
 namespace rocksdb {
 
@@ -69,7 +67,7 @@ Status BuildTable(
     const std::string& dbname, Env* env, const ImmutableCFOptions& ioptions,
     const MutableCFOptions& mutable_cf_options, const EnvOptions& env_options,
     TableCache* table_cache, InternalIterator* iter,
-    std::unique_ptr<InternalIterator> range_del_iter, FileMetaData* meta,
+		std::unique_ptr<InternalIterator> range_del_iter, FileMetaData* meta,
     const InternalKeyComparator& internal_comparator,
     const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
         int_tbl_prop_collector_factories,
@@ -143,6 +141,8 @@ Status BuildTable(
         true /* internal key corruption is not ok */, range_del_agg.get());
     c_iter.SeekToFirst();
     
+		size_t access_count_sum = 0;
+
 		for (; c_iter.Valid(); c_iter.Next()) {
       const Slice& key = c_iter.key();
       const Slice& value = c_iter.value();
@@ -156,18 +156,14 @@ Status BuildTable(
             ThreadStatus::FLUSH_BYTES_WRITTEN, IOSTATS(bytes_written));
       }
 
-			// rocky_dbg
-			// 이거는 get이나 put 함수에서 해 줘야하는거고,
-			// 여기서 해 줘야 할 것은 ColdFileMap 에 num_cold_key를 넣어주는것을 해야지;
-			// (interation 하면서 각 키가 hot/cold 인지 판단해서)
-			/*
-			if( KeyCountMap.find(c_iter.ikey().sequence) == KeyCountMap.end()){
-				KeyCountMap[c_iter.ikey().sequence] = 1;
-			}
-		else{
-				KeyCountMap[c_iter.ikey().sequence] = KeyCountMap[c_iter.ikey().sequence] + 1;
-			}
-			*/
+			size_t decode_key_number = get_decode_key(key);
+			// std::cout << "[rocky_dbg] decode_key_number " << decode_key_number << "\n";
+			
+			// rocky_dbg: two approach to distinguish Hot/Cold
+			// 1. 파일별로 가지고있는 key의 access cound의 합으로 결정하자.
+			// 2. 평균(50%) 혹은 쿼터(25%) 값을 계산하여 이것보다 access count 가 작으면 Cold
+
+			access_count_sum += KeyAccessCount[decode_key_number];
 		}
 
     // nullptr for table_{min,max} so all range tombstones will be flushed
@@ -186,7 +182,7 @@ Status BuildTable(
     if (s.ok() && !empty) {
       uint64_t file_size = builder->FileSize();
       meta->fd.file_size = file_size;
-      meta->marked_for_compaction = builder->NeedCompact();
+			meta->marked_for_compaction = builder->NeedCompact();
       assert(meta->fd.GetFileSize() > 0);
       tp = builder->GetTableProperties();
       if (table_properties) {

@@ -51,10 +51,8 @@
 #include "util/string_util.h"
 #include "util/sync_point.h"
 
-#include <iostream> // rocky_dbg
-#include "file_map/filemap.h" // rocky_dbg
-
-std::map<size_t, size_t> ColdFileMap; // rocky_dbg
+//#include <iostream> // rocky_dbg
+//#include "file_map/filemap.h" // rocky_dbg
 
 namespace rocksdb {
 
@@ -1158,18 +1156,22 @@ void Version::UpdateAccumulatedStats(bool update_stats) {
   }
 
   storage_info_.ComputeCompensatedSizes();
-	storage_info_.ComputeColdkeysNumbers();
+	//storage_info_.ComputeColdkeysNumbers(); // rocky_dbg
 }
 
-#if 1
-void VersionStorageInfo::ComputeColdkeysNumbers() {
+/*
+//rocky_dbg: to be used next
+void VersionStorageInfo::ComputeColdkeysNumbers() { // rocky_dbg
   for (int level = 0; level < num_levels_; level++) {
     for (auto* file_meta : files_[level]) {
-			file_meta->num_cold_keys = ColdFileMap[file_meta->fd.GetNumber()];
+			file_meta->num_cold_keys =
+
+
+
 		}
 	}
 }
-#endif
+*/
 
 void VersionStorageInfo::ComputeCompensatedSizes() {
   static const int kDeletionWeightOnCompaction = 2;
@@ -1408,6 +1410,10 @@ struct Fsize {
 };
 
 // rocky_dbg: let's make new compare function for hotness;
+bool CompareColdKeyNumbersAcsending(const Fsize& first, const Fsize& second) {
+  return (first.file->access_count_sum <
+      second.file->access_count_sum);
+}
 
 // Compator that is used to sort files based on their size
 // In normal mode: descending size
@@ -1415,6 +1421,7 @@ bool CompareCompensatedSizeDescending(const Fsize& first, const Fsize& second) {
   return (first.file->compensated_file_size >
       second.file->compensated_file_size);
 }
+
 } // anonymous namespace
 
 void VersionStorageInfo::AddFile(int level, FileMetaData* f, Logger* info_log) {
@@ -1568,10 +1575,15 @@ void VersionStorageInfo::UpdateFilesByCompactionPri(
     // rock_dbg
     switch (compaction_pri) {
       case kByCompensatedSize:
-        std::partial_sort(temp.begin(), temp.begin() + num, temp.end(),
+				/*
+				std::partial_sort(temp.begin(), temp.begin() + num, temp.end(),
                           CompareCompensatedSizeDescending);
-        break;
-      case kOldestLargestSeqFirst:
+				*/
+				std::partial_sort(temp.begin(), temp.begin() + num, temp.end(),
+                          CompareColdKeyNumbersAcsending);
+
+				break;
+			case kOldestLargestSeqFirst:
         std::sort(temp.begin(), temp.end(),
                   [](const Fsize& f1, const Fsize& f2) -> bool {
                     return f1.file->largest_seqno < f2.file->largest_seqno;

@@ -71,6 +71,7 @@
 #include "utilities/merge_operators.h"
 #include "utilities/persistent_cache/block_cache_tier.h"
 
+#include <iostream>
 #include "profile/profile.h"
 std::vector<double> interval_ops;
 //bool gammaFlag=false;
@@ -2216,6 +2217,7 @@ class Benchmark {
     if (keys_per_prefix_ > 0) {
       int64_t num_prefix = num_keys / keys_per_prefix_;
       int64_t prefix = v % num_prefix;
+      
       int bytes_to_fill = std::min(prefix_size_, 8);
       if (port::kLittleEndian) {
         for (int i = 0; i < bytes_to_fill; ++i) {
@@ -4536,6 +4538,8 @@ void VerifyDBFromDB(std::string& truth_db_name) {
 
 			DB* db = SelectDB(thread);
 
+      // rocky_dbg: cold key와 hot key의 전체적인 range는 겹치도록 하는게 좋을 것 같다.
+
 			size_t key_num;
 			if((count_100 % 10) != 0){ // 10번 중 1번만 cold data에 acess함.
 				key_num = thread->rand.Next() % hot_key_limit;
@@ -4545,10 +4549,10 @@ void VerifyDBFromDB(std::string& truth_db_name) {
 			}
 
 			GenerateKeyFromInt(key_num, FLAGS_num, &key);
-			//GenerateKeyFromInt(thread->rand.Next() % FLAGS_num, FLAGS_num, &key);
+      //GenerateKeyFromInt(thread->rand.Next() % FLAGS_num, FLAGS_num, &key);
 
-			if (get_weight == 0 && put_weight == 0) {
-				// one batch completed, reinitialize for next batch
+      if (get_weight == 0 && put_weight == 0) {
+        // one batch completed, reinitialize for next batch
 
 				count_100 = 0;
 				
