@@ -4527,8 +4527,8 @@ void VerifyDBFromDB(std::string& truth_db_name) {
 		//int percent_seq[5] = {90, 70, 50, 30, 10};
 		//int percent_seq[5] = {90, 90, 10, 10, 10};
 		//int percent_seq[5] = {10, 30, 50, 70, 90};
-		//int percent_seq[2] = {0, FLAGS_readwritepercent};
-		//int percent_seq_idx=0;
+		int percent_seq[2] = {0, FLAGS_readwritepercent};
+		int percent_seq_idx=0;
 
 		size_t hot_key_limit = 100000;
 		size_t total_count = 0;
@@ -4539,7 +4539,6 @@ void VerifyDBFromDB(std::string& truth_db_name) {
 			DB* db = SelectDB(thread);
 
       // rocky_dbg: cold key와 hot key의 전체적인 range는 겹치도록 하는게 좋을 것 같다.
-
 			size_t key_num;
 			if((count_100 % 10) != 0){ // 10번 중 1번만 cold data에 acess함.
 				key_num = thread->rand.Next() % hot_key_limit;
@@ -4556,20 +4555,14 @@ void VerifyDBFromDB(std::string& truth_db_name) {
 
 				count_100 = 0;
 				
-        /*
-        미리 채우는 것은 seq하게 혹은 unique 하게 하여 빠짐 없이 해야하므로 고치자
+        //미리 채우는 것은 seq하게 혹은 unique 하게 하여 빠짐 없이 해야하므로 고치자
 				if( percent_seq_idx == 0 && total_count > hot_key_limit * 2 ){
 					percent_seq_idx=1;
 					fprintf(stdout, "[rocky dbg] %s:%d, percent_seq_idx:%d\n", __func__, __LINE__, percent_seq_idx);
 				}
-        */
 
-        // for ICAC`19
-				//if(percent_seq_idx >= 2)
-				//	gammaFlag = true;
-
-				get_weight = FLAGS_readwritepercent;
-				//get_weight = percent_seq[percent_seq_idx];
+				//get_weight = FLAGS_readwritepercent;
+				get_weight = percent_seq[percent_seq_idx];
 				put_weight = 100 - get_weight;
 			}
       
