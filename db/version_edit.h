@@ -79,7 +79,8 @@ struct FileMetaData {
   // This is updated in Version::UpdateAccumulatedStats() first time when the
   // file is created or loaded.  After it is updated (!= 0), it is immutable.
   uint64_t compensated_file_size;
-  uint64_t num_cold_keys; // rocky_dbg : the number of cold keys
+  
+	uint64_t num_cold_keys; // rocky_dbg : the number of cold keys
   uint64_t access_count_sum; // rocky_dbg : sum of access count
   
 	// These values can mutate, but they can only be read or written from

@@ -36,6 +36,7 @@
 
 #include "file_map/filemap.h" //rocky_dbg
 std::vector<uint16_t> KeyAccessCount(1000000, 0); // rocky_dbg: 2MB size
+std::map<size_t, size_t> AccessCntFileMap;
 
 namespace rocksdb {
 
@@ -165,6 +166,9 @@ Status BuildTable(
 
 			access_count_sum += KeyAccessCount[decode_key_number];
 		}
+    
+    // rocky_dbg
+    AccessCntFileMap[meta->fd.GetNumber()] = access_count_sum;
 
     // nullptr for table_{min,max} so all range tombstones will be flushed
     range_del_agg->AddToBuilder(builder, nullptr /* lower_bound */,
@@ -231,6 +235,7 @@ Status BuildTable(
   if (!s.ok() || meta->fd.GetFileSize() == 0) {
     env->DeleteFile(fname);
   }
+
 
   // Output to event logger and fire events.
   EventHelpers::LogAndNotifyTableFileCreationFinished(

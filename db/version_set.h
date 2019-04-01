@@ -118,7 +118,8 @@ class VersionStorageInfo {
   void RemoveCurrentStats(FileMetaData* file_meta);
 
   void ComputeCompensatedSizes();
-  void ComputeColdkeysNumbers(); // rocky_dbg
+  
+	void ComputeColdkeysNumbers(); // rocky_dbg
 
   // Updates internal structures that keep track of compaction scores
   // We use compaction scores to figure out which compaction to do next

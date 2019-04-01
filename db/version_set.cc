@@ -51,9 +51,6 @@
 #include "util/string_util.h"
 #include "util/sync_point.h"
 
-//#include <iostream> // rocky_dbg
-//#include "file_map/filemap.h" // rocky_dbg
-
 namespace rocksdb {
 
 namespace {
@@ -1159,20 +1156,6 @@ void Version::UpdateAccumulatedStats(bool update_stats) {
 	//storage_info_.ComputeColdkeysNumbers(); // rocky_dbg
 }
 
-/*
-//rocky_dbg: to be used next
-void VersionStorageInfo::ComputeColdkeysNumbers() { // rocky_dbg
-  for (int level = 0; level < num_levels_; level++) {
-    for (auto* file_meta : files_[level]) {
-			file_meta->num_cold_keys =
-
-
-
-		}
-	}
-}
-*/
-
 void VersionStorageInfo::ComputeCompensatedSizes() {
   static const int kDeletionWeightOnCompaction = 2;
   uint64_t average_value_size = GetAverageValueSize();
@@ -1572,16 +1555,15 @@ void VersionStorageInfo::UpdateFilesByCompactionPri(
       num = temp.size();
     }
     
-    // rock_dbg
+    // rock_dbg: different sorting 
     switch (compaction_pri) {
       case kByCompensatedSize:
-				/*
 				std::partial_sort(temp.begin(), temp.begin() + num, temp.end(),
                           CompareCompensatedSizeDescending);
-				*/
+				/*
 				std::partial_sort(temp.begin(), temp.begin() + num, temp.end(),
                           CompareColdKeyNumbersAcsending);
-
+				*/
 				break;
 			case kOldestLargestSeqFirst:
         std::sort(temp.begin(), temp.end(),

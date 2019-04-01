@@ -13,7 +13,7 @@ enum FileType {
 
 extern std::map<size_t , FileType> FileMap;
 extern std::map<size_t, size_t> ColdFileMap; // <filenumber, num_cold_key>
-extern std::map<size_t, size_t> AccessCntFileMap; // <filenumber, num_cold_key>
+extern std::map<size_t, size_t> AccessCntFileMap; // <filenumber, sum access count>
 
 extern std::vector<uint16_t> KeyAccessCount;// 2MB size
 
