@@ -1,19 +1,19 @@
 #include "env_nvm.h"
 #include <exception>
 
-#define USE_ALPHA 0
-#define USE_BETA 0
+#define USE_ALPHA 1
+#define USE_BETA 1
 #define USE_THETA 1
 
 #define ALPHA_PUNIT_BEGIN 0
-#define ALPHA_PUNIT_END 0
+#define ALPHA_PUNIT_END 47
 
-#define BETA_PUNIT_BEGIN 0
-#define BETA_PUNIT_END 0
+#define BETA_PUNIT_BEGIN 48
+#define BETA_PUNIT_END 95
 
-#define THETA_PUNIT_BEGIN 0
+#define THETA_PUNIT_BEGIN 96
 #define THETA_PUNIT_END 127
-#define THETA_NR_LUN_PER_VBLK 128
+#define THETA_NR_LUN_PER_VBLK 32
 
 /*
 #define ALPHA_PUNIT_BEGIN 0

@@ -37,14 +37,14 @@ unsigned long long total_time_vblk_r_SSTs, total_count_vblk_r_SSTs;
 #define LOG_UNIT_AMP 1
 
 #define ALPHA_PUNIT_BEGIN 0
-#define ALPHA_PUNIT_END 0
+#define ALPHA_PUNIT_END 47
 
-#define BETA_PUNIT_BEGIN 0
-#define BETA_PUNIT_END 0
+#define BETA_PUNIT_BEGIN 48
+#define BETA_PUNIT_END 95
 
-#define THETA_PUNIT_BEGIN 0
+#define THETA_PUNIT_BEGIN 96
 #define THETA_PUNIT_END 127
-#define THETA_NR_LUN_PER_VBLK 128
+#define THETA_NR_LUN_PER_VBLK 32
 
 /*
 #define ALPHA_PUNIT_BEGIN 0
@@ -58,7 +58,6 @@ unsigned long long total_time_vblk_r_SSTs, total_count_vblk_r_SSTs;
 #define THETA_NR_LUN_PER_VBLK 32
 */
 
-/*86라인 고치는거 기억!*/
 
 #include <execinfo.h>
 #ifndef NVM_TRACE
@@ -122,9 +121,9 @@ NvmFile::NvmFile(
 		
 		switch(nvm_file_type_){
 			case walFile:
-				vblk_type_ = theta; break;
+				vblk_type_ = alpha; break;
 			case level0SSTFile:
-				vblk_type_ = theta; break;
+				vblk_type_ = beta; break;
 			case normalSSTFile:
 				vblk_type_ = theta; break;
 			default:
@@ -156,9 +155,9 @@ NvmFile::NvmFile(
 
 		switch(nvm_file_type_){
 			case walFile:
-				vblk_type_ = theta; break;
+				vblk_type_ = alpha; break;
 			case level0SSTFile:
-				vblk_type_ = theta; break;
+				vblk_type_ = beta; break;
 			case normalSSTFile:
 				vblk_type_ = theta; break;
 			default:
