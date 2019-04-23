@@ -166,8 +166,9 @@ enum VblkType {
   //delat, // not yet
 };
 
+// rocky_dbg: curs_ 0->400
 struct Curs_ {
-  Curs_() : alpha_vblk_curs_(0), beta_vblk_curs_(0), theta_vblk_curs_(0) {
+  Curs_() : alpha_vblk_curs_(400), beta_vblk_curs_(400), theta_vblk_curs_(400) {
   }
   size_t alpha_vblk_curs_;
   size_t beta_vblk_curs_;
