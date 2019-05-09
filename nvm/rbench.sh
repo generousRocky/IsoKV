@@ -213,6 +213,10 @@ function rbench {
 	if [ -n "$RBENCH_CMD_POSTFIX" ]; then
 		RBENCH_CMD="$RBENCH_CMD $RBENCH_CMD_POSTFIX"
 	fi
+	
+	if [ -n "$RBENCH_SHOW_TABLE_PROPERTIES" ]; then
+		RBENCH_CMD="$RBENCH_CMD $RBENCH_SHOW_TABLE_PROPERTIES"
+	fi
 
 	echo "$RBENCH_CMD"
 	eval $RBENCH_CMD
