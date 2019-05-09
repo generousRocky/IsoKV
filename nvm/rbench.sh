@@ -203,6 +203,10 @@ function rbench {
 	if [ -n "$RBENCH_READWRITEPERCENT" ]; then
 		ARGS="$ARGS --readwritepercent=$RBENCH_READWRITEPERCENT"
 	fi
+	
+	if [ -n "$RBENCH_REPORT_INTERVAL_SECONDS" ]; then
+		ARGS="$ARGS --report_interval_seconds=$RBENCH_REPORT_INTERVAL_SECONDS"
+	fi
 
 	RBENCH_CMD="$RBENCH_BIN $ARGS"
 
@@ -214,9 +218,6 @@ function rbench {
 		RBENCH_CMD="$RBENCH_CMD $RBENCH_CMD_POSTFIX"
 	fi
 	
-	if [ -n "$RBENCH_SHOW_TABLE_PROPERTIES" ]; then
-		RBENCH_CMD="$RBENCH_CMD $RBENCH_SHOW_TABLE_PROPERTIES"
-	fi
 
 	echo "$RBENCH_CMD"
 	eval $RBENCH_CMD
