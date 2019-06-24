@@ -23,6 +23,16 @@ jlong Java_org_rocksdb_Env_getDefaultEnvInternal(
 
 /*
  * Class:     org_rocksdb_Env
+ * Method:    getNvmEnvInternal
+ * Signature: ()J
+ */
+jlong Java_org_rocksdb_Env_getNvmEnvInternal( // rocky
+    JNIEnv* env, jclass jclazz) {
+  return reinterpret_cast<jlong>(rocksdb::Env::NvmDefault());
+}
+
+/*
+ * Class:     org_rocksdb_Env
  * Method:    setBackgroundThreads
  * Signature: (JII)V
  */

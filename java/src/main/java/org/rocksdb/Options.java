@@ -33,7 +33,8 @@ public class Options extends RocksObject
    */
   public Options() {
     super(newOptions());
-    env_ = Env.getDefault();
+    //env_ = Env.getDefault(); // rocky
+    env_ = Env.getNvm();
   }
 
   /**

@@ -30,7 +30,8 @@ public class DBOptions
   public DBOptions() {
     super(newDBOptions());
     numShardBits_ = DEFAULT_NUM_SHARD_BITS;
-  }
+  	env_ = Env.getNvm();
+	}
 
   /**
    * <p>Method to get a options instance by using pre-configured
