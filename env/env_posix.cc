@@ -55,6 +55,8 @@
 #include "util/thread_local.h"
 #include "util/threadpool_imp.h"
 
+#include "nvm/env_nvm.h"
+
 #if !defined(TMPFS_MAGIC)
 #define TMPFS_MAGIC 0x01021994
 #endif
@@ -944,6 +946,12 @@ Env* Env::Default() {
   ThreadLocalPtr::InitSingletons();
   static PosixEnv default_env;
   return &default_env;
+}
+
+Env* Env::NvmDefault() { // rocky
+	ThreadLocalPtr::InitSingletons();
+	static EnvNVM nvm_env("nvm://punits:0-127@nvme0n1/opt/rocks/nvme0n1_0_127.meta");
+	return &nvm_env;
 }
 
 }  // namespace rocksdb

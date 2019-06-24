@@ -26,6 +26,10 @@ public abstract class Env extends RocksObject {
   public static Env getDefault() {
     return default_env_;
   }
+  
+	public static Env getNvm() {
+    return nvm_env_;
+  }
 
   /**
    * <p>Sets the number of background worker threads of the flush pool
@@ -76,6 +80,7 @@ public abstract class Env extends RocksObject {
 
   static {
     default_env_ = new RocksEnv(getDefaultEnvInternal());
+    nvm_env_ = new RocksEnv(getNvmEnvInternal());
   }
 
   /**
@@ -84,8 +89,10 @@ public abstract class Env extends RocksObject {
    * side.</p>
    */
   static Env default_env_;
+  static Env nvm_env_;
 
   private static native long getDefaultEnvInternal();
+  private static native long getNvmEnvInternal();
   private native void setBackgroundThreads(
       long handle, int num, int priority);
   private native int getThreadPoolQueueLen(long handle, int poolID);
